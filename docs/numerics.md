@@ -78,3 +78,56 @@ Note on HLLC vs the exact Godunov flux: on a strong single-interface jump
 ~20% — intrinsic to the PVRS wave-speed estimate, and irrelevant to
 converged accuracy (see the Sod L1 result). The unit test asserts the
 weak-wave limit instead, where HLLC approaches the exact flux within 1%.
+
+## 4. Quasi-1D duct solver with sources (Phase 3)
+
+`DuctSolver` supersedes the constant-area Phase 2 solver (one solver, no
+parallel implementations — plan Part 0 rule 9). Area-weighted finite-volume
+form on cell volumes A_i·Δx with face areas A_{i±1/2}:
+
+- **Well-balancedness:** the same face areas appear in the conservative
+  update, the Hancock half-step and the discrete p·dA/dx momentum source, so
+  they telescope exactly for a uniform state at rest. Verified: a 40→80 mm
+  taper at rest holds |u| < 1e-10 m/s over 500 steps (< 1e-9 with the
+  real-gas model, where the temperature Newton solve sets the floor).
+- **Species transport (§2.2):** ρY_k advected with limited, face-normalised
+  reconstruction and mass-flux-upwinded interface values; the species vector
+  is renormalised against ρ each step so ΣY ≡ 1 to machine precision and
+  0 ≤ Y ≤ 1. Verified through a fresh-air/burnt-gas interface advection with
+  per-species mass conservation to 1e-9.
+- **Real caloric EOS:** `MultiSpeciesGasModel` recovers T from conserved
+  energy by Newton iteration on e(T,Y) (tabulated species data), giving
+  p = ρR(Y)T and a = √(γ(T,Y)·R(Y)·T) per cell per step. Verified: a burnt-gas
+  cell at 950 K reports the same sound speed as the thermo layer's hand
+  calculation (≈ 600 m/s) within 0.1%; HLLC uses per-side frozen γ.
+- **Friction (§2.1):** S_mom = −(f_D/2D)·ρu|u| with Haaland/laminar f(Re,ε/D)
+  and Sutherland μ(T). Total energy is deliberately untouched: in
+  conservation form the removed kinetic energy becomes internal energy —
+  the physical dissipation heating. Verified against the exact deceleration
+  ODE within 1%.
+- **Wall heat transfer (§2.1):** Colburn h = (f_F/2)·ρ|u|·c_p·Pr^(−2/3) with
+  the empirical pulsating-flow enhancement (default 1.3, user-adjustable).
+  Verified against the analytical exponential temperature approach within 1%.
+- **Wall thermal node (§2.9):** per-cell explicit node with surface-treatment
+  presets (bare/ceramic/wrapped/insulated/water-jacketed as (ε, R_ext)
+  pairs); a wrapped wall demonstrably runs hotter than bare for the same gas.
+
+Sources are applied as an explicit operator split after the conservative
+update (first-order in the source coupling; the wave dynamics stay second
+order). The Hancock half-step does not evolve species (advected passively).
+
+## 5. Measured −3 dB bandwidth (§5.5)
+
+Broadband Gaussian pulse (σ = 6 mm) over 2 m of 20 °C air, probe-to-probe
+transfer function:
+
+| Δx | −3 dB bandwidth |
+|---|---|
+| 3 mm | ≈ 4.8 kHz |
+| 6 mm | ≈ 2.8 kHz |
+
+Scaling with sound speed, 3 mm in hot exhaust (a ≈ 600 m/s) corresponds to
+≈ 8.4 kHz — consistent with the §5.5 estimate that 3 mm is the 10 kHz-class
+acoustic mesh. The bandwidth test runs in CI and pins these values; the UI
+must grey out spectra above the measured bandwidth of the mesh actually used,
+and the §5.6 hybrid hands higher frequencies to the TMM.

@@ -1,0 +1,603 @@
+using WaveBench.Core.Components;
+using WaveBench.Core.Numerics;
+
+namespace WaveBench.Core.Solver;
+
+public enum BoundaryKind
+{
+    /// <summary>Zero-gradient outflow.</summary>
+    Transmissive,
+
+    /// <summary>Solid wall (mirror with velocity sign flip).</summary>
+    Reflective,
+
+    /// <summary>Wrap-around; must be set on both ends.</summary>
+    Periodic,
+}
+
+/// <summary>
+/// Quasi-1D unsteady compressible flow in a duct (plan §2.1):
+/// MUSCL-Hancock + HLLC (plan §5.1) on the area-weighted finite-volume form,
+/// with species transport (§2.2), Haaland wall friction, Colburn wall heat
+/// transfer and an optional per-cell wall thermal node (§2.9).
+///
+/// Well-balancedness: face areas appear identically in the conservative
+/// update, the Hancock half-step and the discrete p·dA/dx source, so a
+/// uniform state at rest in a taper is preserved to machine precision — the
+/// classic silent killer this class of code must not have (plan §5.1).
+///
+/// The friction momentum sink deliberately leaves total energy untouched:
+/// in conservation form that converts the lost kinetic energy into internal
+/// energy, which is the physical dissipation heating.
+/// </summary>
+public sealed class DuctSolver
+{
+    private const int Ghost = 2;
+
+    private readonly DuctGeometry _geometry;
+    private readonly IGasModel _gas;
+    private readonly int _n;
+    private readonly double _dx;
+
+    private readonly double[] _rho;
+    private readonly double[] _mom;
+    private readonly double[] _ener;
+    private readonly double[][] _rhoY;          // conserved ρ·Y_k
+
+    private readonly double[] _wU;
+    private readonly double[] _wP;
+    private readonly double[] _t;
+    private readonly double[] _gamma;
+    private readonly double[] _a;
+    private readonly double[][] _wY;
+
+    private readonly double[] _faceLRho;
+    private readonly double[] _faceLU;
+    private readonly double[] _faceLP;
+    private readonly double[] _faceRRho;
+    private readonly double[] _faceRU;
+    private readonly double[] _faceRP;
+    private readonly double[][] _faceLY;
+    private readonly double[][] _faceRY;
+
+    private readonly double[] _fluxRho;
+    private readonly double[] _fluxMom;
+    private readonly double[] _fluxEner;
+
+    private readonly double[] _hWall;           // per-cell inner heat-transfer coefficient
+
+    public DuctSolver(DuctGeometry geometry, IGasModel gas)
+    {
+        _geometry = geometry;
+        _gas = gas;
+        _n = geometry.CellCount;
+        _dx = geometry.CellSize;
+
+        var total = _n + 2 * Ghost;
+        _rho = new double[total];
+        _mom = new double[total];
+        _ener = new double[total];
+        _wU = new double[total];
+        _wP = new double[total];
+        _t = new double[total];
+        _gamma = new double[total];
+        _a = new double[total];
+        _faceLRho = new double[total];
+        _faceLU = new double[total];
+        _faceLP = new double[total];
+        _faceRRho = new double[total];
+        _faceRU = new double[total];
+        _faceRP = new double[total];
+        _fluxRho = new double[_n + 1];
+        _fluxMom = new double[_n + 1];
+        _fluxEner = new double[_n + 1];
+        _hWall = new double[_n];
+
+        var s = gas.SpeciesCount;
+        _rhoY = new double[s][];
+        _wY = new double[s][];
+        _faceLY = new double[s][];
+        _faceRY = new double[s][];
+        for (var k = 0; k < s; k++)
+        {
+            _rhoY[k] = new double[total];
+            _wY[k] = new double[total];
+            _faceLY[k] = new double[total];
+            _faceRY[k] = new double[total];
+        }
+
+        Array.Fill(_t, 300.0);
+    }
+
+    public DuctGeometry Geometry => _geometry;
+
+    public IGasModel Gas => _gas;
+
+    public int CellCount => _n;
+
+    public double CellSize => _dx;
+
+    public double Time { get; private set; }
+
+    /// <summary>CFL number, ≤ 0.8 per plan §5.1.</summary>
+    public double Cfl { get; set; } = 0.8;
+
+    public SlopeLimiterKind Limiter { get; set; } = SlopeLimiterKind.VanLeer;
+
+    public BoundaryKind LeftBoundary { get; set; } = BoundaryKind.Transmissive;
+
+    public BoundaryKind RightBoundary { get; set; } = BoundaryKind.Transmissive;
+
+    /// <summary>Haaland/Darcy wall friction source (plan §2.1).</summary>
+    public bool FrictionEnabled { get; set; }
+
+    /// <summary>Colburn wall heat transfer; requires an attached wall model.</summary>
+    public bool HeatTransferEnabled => Wall is not null;
+
+    public WallThermalModel? Wall { get; private set; }
+
+    public double Prandtl { get; set; } = 0.71;
+
+    /// <summary>Pulsating-flow enhancement on Colburn h (empirical, plan §2.1).</summary>
+    public double HeatTransferEnhancement { get; set; } = 1.3;
+
+    public void AttachWall(WallThermalModel wall)
+    {
+        if (wall.Temperature.Length != _n)
+        {
+            throw new ArgumentException("Wall model cell count must match the duct.");
+        }
+
+        Wall = wall;
+    }
+
+    public double CellCentre(int i) => (i + 0.5) * _dx;
+
+    public void SetState(int i, in PrimitiveState w, ReadOnlySpan<double> massFractions = default)
+    {
+        var c = i + Ghost;
+        Span<double> y = _gas.SpeciesCount > 0 ? stackalloc double[_gas.SpeciesCount] : default;
+        if (_gas.SpeciesCount > 0)
+        {
+            if (massFractions.Length != _gas.SpeciesCount)
+            {
+                throw new ArgumentException("Mass fractions must match the gas model's species count.");
+            }
+
+            massFractions.CopyTo(y);
+        }
+
+        _rho[c] = w.Rho;
+        _mom[c] = w.Rho * w.U;
+        _ener[c] = _gas.TotalEnergy(w.Rho, w.U, w.P, y);
+        for (var k = 0; k < _gas.SpeciesCount; k++)
+        {
+            _rhoY[k][c] = w.Rho * y[k];
+        }
+    }
+
+    public PrimitiveState GetPrimitive(int i)
+    {
+        var state = GetState(i);
+        return new PrimitiveState(_rho[i + Ghost], state.U, state.P);
+    }
+
+    public GasState GetState(int i)
+    {
+        var c = i + Ghost;
+        Span<double> y = _gas.SpeciesCount > 0 ? stackalloc double[_gas.SpeciesCount] : default;
+        FillMassFractions(c, y);
+        return _gas.FromConserved(_rho[c], _mom[c], _ener[c], y, _t[c]);
+    }
+
+    public double GetMassFraction(int speciesIndex, int i)
+    {
+        var c = i + Ghost;
+        return _rhoY[speciesIndex][c] / _rho[c];
+    }
+
+    public (double Mass, double Momentum, double Energy) ConservedTotals()
+    {
+        double m = 0, mom = 0, e = 0;
+        for (var i = 0; i < _n; i++)
+        {
+            var v = _geometry.CellArea[i] * _dx;
+            var c = i + Ghost;
+            m += _rho[c] * v;
+            mom += _mom[c] * v;
+            e += _ener[c] * v;
+        }
+
+        return (m, mom, e);
+    }
+
+    public double SpeciesTotalMass(int speciesIndex)
+    {
+        var total = 0.0;
+        for (var i = 0; i < _n; i++)
+        {
+            total += _rhoY[speciesIndex][i + Ghost] * _geometry.CellArea[i] * _dx;
+        }
+
+        return total;
+    }
+
+    public void Advance(double tEnd)
+    {
+        while (Time < tEnd)
+        {
+            var dt = Math.Min(StableTimestep(), tEnd - Time);
+            Step(dt);
+        }
+    }
+
+    public double StableTimestep()
+    {
+        ComputePrimitives();
+        var maxSpeed = 0.0;
+        for (var c = Ghost; c < Ghost + _n; c++)
+        {
+            var speed = Math.Abs(_wU[c]) + _a[c];
+            if (speed > maxSpeed)
+            {
+                maxSpeed = speed;
+            }
+        }
+
+        return Cfl * _dx / maxSpeed;
+    }
+
+    public void Step(double dt)
+    {
+        FillGhostCells();
+        ComputePrimitives();
+        ReconstructAndEvolveFaces(dt);
+        ComputeInterfaceFluxes();
+        UpdateConserved(dt);
+        ApplySources(dt);
+        Time += dt;
+    }
+
+    private void FillMassFractions(int c, Span<double> y)
+    {
+        for (var k = 0; k < y.Length; k++)
+        {
+            y[k] = _rhoY[k][c] / _rho[c];
+        }
+    }
+
+    private void FillGhostCells()
+    {
+        var first = Ghost;
+        var last = Ghost + _n - 1;
+
+        if (LeftBoundary == BoundaryKind.Periodic || RightBoundary == BoundaryKind.Periodic)
+        {
+            if (LeftBoundary != RightBoundary)
+            {
+                throw new InvalidOperationException("Periodic boundaries must be set on both ends.");
+            }
+
+            for (var k = 0; k < Ghost; k++)
+            {
+                Copy(last - Ghost + 1 + k, k);
+                Copy(first + k, last + 1 + k);
+            }
+
+            return;
+        }
+
+        for (var k = 0; k < Ghost; k++)
+        {
+            var leftGhost = Ghost - 1 - k;
+            var leftMirror = first + k;
+            var rightGhost = last + 1 + k;
+            var rightMirror = last - k;
+
+            if (LeftBoundary == BoundaryKind.Reflective)
+            {
+                Copy(leftMirror, leftGhost);
+                _mom[leftGhost] = -_mom[leftGhost];
+            }
+            else
+            {
+                Copy(first, leftGhost);
+            }
+
+            if (RightBoundary == BoundaryKind.Reflective)
+            {
+                Copy(rightMirror, rightGhost);
+                _mom[rightGhost] = -_mom[rightGhost];
+            }
+            else
+            {
+                Copy(last, rightGhost);
+            }
+        }
+
+        void Copy(int from, int to)
+        {
+            _rho[to] = _rho[from];
+            _mom[to] = _mom[from];
+            _ener[to] = _ener[from];
+            _t[to] = _t[from];
+            for (var s = 0; s < _gas.SpeciesCount; s++)
+            {
+                _rhoY[s][to] = _rhoY[s][from];
+            }
+        }
+    }
+
+    private void ComputePrimitives()
+    {
+        Span<double> y = _gas.SpeciesCount > 0 ? stackalloc double[_gas.SpeciesCount] : default;
+        for (var c = 0; c < _rho.Length; c++)
+        {
+            FillMassFractions(c, y);
+            for (var k = 0; k < y.Length; k++)
+            {
+                _wY[k][c] = y[k];
+            }
+
+            var state = _gas.FromConserved(_rho[c], _mom[c], _ener[c], y, _t[c]);
+            _wU[c] = state.U;
+            _wP[c] = state.P;
+            _t[c] = state.T;
+            _gamma[c] = state.Gamma;
+            _a[c] = state.SoundSpeed;
+        }
+    }
+
+    private void ReconstructAndEvolveFaces(double dt)
+    {
+        Span<double> yL = _gas.SpeciesCount > 0 ? stackalloc double[_gas.SpeciesCount] : default;
+        Span<double> yR = _gas.SpeciesCount > 0 ? stackalloc double[_gas.SpeciesCount] : default;
+
+        // Extend face areas onto ghost cells (constant continuation) so the
+        // Hancock half-step of the cells adjacent to the boundary is defined.
+        for (var c = 1; c <= _n + 2; c++)
+        {
+            var i = c - Ghost;
+            var aLFace = _geometry.FaceArea[Math.Clamp(i, 0, _n)];
+            var aRFace = _geometry.FaceArea[Math.Clamp(i + 1, 0, _n)];
+            var aCell = 0.5 * (aLFace + aRFace);
+            var halfDtOverAdx = 0.5 * dt / (aCell * _dx);
+
+            var sRho = SlopeLimiters.Limit(Limiter, _rho[c] - _rho[c - 1], _rho[c + 1] - _rho[c]);
+            var sU = SlopeLimiters.Limit(Limiter, _wU[c] - _wU[c - 1], _wU[c + 1] - _wU[c]);
+            var sP = SlopeLimiters.Limit(Limiter, _wP[c] - _wP[c - 1], _wP[c + 1] - _wP[c]);
+
+            var lRho = _rho[c] - 0.5 * sRho;
+            var rRho = _rho[c] + 0.5 * sRho;
+            var lP = _wP[c] - 0.5 * sP;
+            var rP = _wP[c] + 0.5 * sP;
+
+            if (lRho <= 0 || rRho <= 0 || lP <= 0 || rP <= 0)
+            {
+                sRho = sU = sP = 0.0;
+                lRho = rRho = _rho[c];
+                lP = rP = _wP[c];
+            }
+
+            var lU = _wU[c] - 0.5 * sU;
+            var rU = _wU[c] + 0.5 * sU;
+
+            // Species face values: limited reconstruction, clamped and
+            // normalised so Σ Y = 1 exactly on each face.
+            ReconstructSpeciesFaces(c);
+
+            for (var k = 0; k < _gas.SpeciesCount; k++)
+            {
+                yL[k] = _faceLY[k][c];
+                yR[k] = _faceRY[k][c];
+            }
+
+            // Hancock half-step in area-weighted conservative form, including
+            // the p·dA source with the same face areas (well-balanced at rest).
+            var eL = _gas.TotalEnergy(lRho, lU, lP, yL);
+            var eR = _gas.TotalEnergy(rRho, rU, rP, yR);
+            var (flRho, flMom, flEner) = Flux(lRho, lU, lP, eL);
+            var (frRho, frMom, frEner) = Flux(rRho, rU, rP, eR);
+
+            var dRho = halfDtOverAdx * (aLFace * flRho - aRFace * frRho);
+            var dMom = halfDtOverAdx * (aLFace * flMom - aRFace * frMom)
+                       + halfDtOverAdx * _wP[c] * (aRFace - aLFace);
+            var dEner = halfDtOverAdx * (aLFace * flEner - aRFace * frEner);
+
+            EvolveFace(lRho, lU, lP, eL, yL, dRho, dMom, dEner, c, _faceLRho, _faceLU, _faceLP);
+            EvolveFace(rRho, rU, rP, eR, yR, dRho, dMom, dEner, c, _faceRRho, _faceRU, _faceRP);
+        }
+
+        static (double, double, double) Flux(double rho, double u, double p, double e) =>
+            (rho * u, rho * u * u + p, u * (e + p));
+    }
+
+    private void ReconstructSpeciesFaces(int c)
+    {
+        if (_gas.SpeciesCount == 0)
+        {
+            return;
+        }
+
+        double sumL = 0, sumR = 0;
+        for (var k = 0; k < _gas.SpeciesCount; k++)
+        {
+            var w = _wY[k];
+            var slope = SlopeLimiters.Limit(Limiter, w[c] - w[c - 1], w[c + 1] - w[c]);
+            var l = Math.Clamp(w[c] - 0.5 * slope, 0.0, 1.0);
+            var r = Math.Clamp(w[c] + 0.5 * slope, 0.0, 1.0);
+            _faceLY[k][c] = l;
+            _faceRY[k][c] = r;
+            sumL += l;
+            sumR += r;
+        }
+
+        for (var k = 0; k < _gas.SpeciesCount; k++)
+        {
+            _faceLY[k][c] = sumL > 0 ? _faceLY[k][c] / sumL : _wY[k][c];
+            _faceRY[k][c] = sumR > 0 ? _faceRY[k][c] / sumR : _wY[k][c];
+        }
+    }
+
+    private void EvolveFace(
+        double rho0, double u0, double p0, double e0, ReadOnlySpan<double> y,
+        double dRho, double dMom, double dEner,
+        int c, double[] outRho, double[] outU, double[] outP)
+    {
+        var rho = rho0 + dRho;
+        var mom = rho0 * u0 + dMom;
+        var ener = e0 + dEner;
+
+        if (rho <= 0)
+        {
+            outRho[c] = rho0;
+            outU[c] = u0;
+            outP[c] = p0;
+            return;
+        }
+
+        var state = _gas.FromConserved(rho, mom, ener, y, _t[c]);
+        if (state.P <= 0)
+        {
+            outRho[c] = rho0;
+            outU[c] = u0;
+            outP[c] = p0;
+            return;
+        }
+
+        outRho[c] = rho;
+        outU[c] = state.U;
+        outP[c] = state.P;
+    }
+
+    private void ComputeInterfaceFluxes()
+    {
+        Span<double> y = _gas.SpeciesCount > 0 ? stackalloc double[_gas.SpeciesCount] : default;
+        for (var j = 0; j <= _n; j++)
+        {
+            var c = j + 1;
+            var (lRho, lU, lP) = (_faceRRho[c], _faceRU[c], _faceRP[c]);
+            var (rRho, rU, rP) = (_faceLRho[c + 1], _faceLU[c + 1], _faceLP[c + 1]);
+
+            for (var k = 0; k < y.Length; k++)
+            {
+                y[k] = _faceRY[k][c];
+            }
+
+            var eL = _gas.TotalEnergy(lRho, lU, lP, y);
+            var gL = _gas.Gamma(lRho, lP, y);
+            var aL = SoundSpeedOf(lRho, lP, gL);
+
+            for (var k = 0; k < y.Length; k++)
+            {
+                y[k] = _faceLY[k][c + 1];
+            }
+
+            var eR = _gas.TotalEnergy(rRho, rU, rP, y);
+            var gR = _gas.Gamma(rRho, rP, y);
+            var aR = SoundSpeedOf(rRho, rP, gR);
+
+            (_fluxRho[j], _fluxMom[j], _fluxEner[j]) = HllcFlux.Compute(
+                new HllcSide(lRho, lU, lP, eL, aL, gL),
+                new HllcSide(rRho, rU, rP, eR, aR, gR));
+        }
+
+        static double SoundSpeedOf(double rho, double p, double gamma) => Math.Sqrt(gamma * p / rho);
+    }
+
+    private void UpdateConserved(double dt)
+    {
+        for (var i = 0; i < _n; i++)
+        {
+            var c = i + Ghost;
+            var aL = _geometry.FaceArea[i];
+            var aR = _geometry.FaceArea[i + 1];
+            var invVol = 1.0 / (_geometry.CellArea[i] * _dx);
+            var f = dt * invVol;
+
+            // Species first: needs the pre-update mass fluxes and upwind faces.
+            for (var k = 0; k < _gas.SpeciesCount; k++)
+            {
+                var yLeftUp = _fluxRho[i] >= 0 ? _faceRY[k][i + 1] : _faceLY[k][i + 2];
+                var yRightUp = _fluxRho[i + 1] >= 0 ? _faceRY[k][i + 2] : _faceLY[k][i + 3];
+                _rhoY[k][c] -= f * (aR * _fluxRho[i + 1] * yRightUp - aL * _fluxRho[i] * yLeftUp);
+            }
+
+            _rho[c] -= f * (aR * _fluxRho[i + 1] - aL * _fluxRho[i]);
+            _mom[c] -= f * (aR * _fluxMom[i + 1] - aL * _fluxMom[i]);
+            _mom[c] += f * _wP[c] * (aR - aL); // well-balanced p·dA/dx source
+            _ener[c] -= f * (aR * _fluxEner[i + 1] - aL * _fluxEner[i]);
+
+            // Keep Σ(ρY) ≡ ρ exactly: clamp and renormalise the species vector.
+            if (_gas.SpeciesCount > 0)
+            {
+                var sum = 0.0;
+                for (var k = 0; k < _gas.SpeciesCount; k++)
+                {
+                    if (_rhoY[k][c] < 0)
+                    {
+                        _rhoY[k][c] = 0;
+                    }
+
+                    sum += _rhoY[k][c];
+                }
+
+                if (sum > 0)
+                {
+                    var scale = _rho[c] / sum;
+                    for (var k = 0; k < _gas.SpeciesCount; k++)
+                    {
+                        _rhoY[k][c] *= scale;
+                    }
+                }
+            }
+        }
+    }
+
+    private void ApplySources(double dt)
+    {
+        if (!FrictionEnabled && !HeatTransferEnabled)
+        {
+            return;
+        }
+
+        Span<double> y = _gas.SpeciesCount > 0 ? stackalloc double[_gas.SpeciesCount] : default;
+
+        for (var i = 0; i < _n; i++)
+        {
+            var c = i + Ghost;
+            var d = _geometry.HydraulicDiameter[i];
+            var rho = _rho[c];
+            var u = _mom[c] / rho;
+            var t = _t[c];
+
+            var mu = PipeFlowPhysics.SutherlandViscosity(t);
+            var re = rho * Math.Abs(u) * d / mu;
+            var fD = PipeFlowPhysics.DarcyFrictionFactor(re, _geometry.Roughness / d);
+
+            if (FrictionEnabled)
+            {
+                // S_mom = −(f_D/2)·ρu|u|/D (plan §2.1). Energy untouched: the
+                // removed kinetic energy becomes internal energy (dissipation).
+                _mom[c] -= dt * fD / (2.0 * d) * rho * u * Math.Abs(u);
+            }
+
+            if (HeatTransferEnabled)
+            {
+                FillMassFractions(c, y);
+                var cp = _gas.Cp(rho, _wP[c], y);
+                var h = PipeFlowPhysics.ColburnHeatTransferCoefficient(
+                    fD, rho, u, cp, Prandtl, HeatTransferEnhancement);
+                _hWall[i] = h;
+                _ener[c] += dt * h * 4.0 / d * (Wall!.Temperature[i] - t);
+            }
+        }
+
+        if (HeatTransferEnabled)
+        {
+            // Gas temperatures are one step stale here; the wall time constant
+            // is orders of magnitude longer, so this is immaterial.
+            Wall!.Update(dt, _hWall, _t.AsSpan(Ghost, _n));
+        }
+    }
+}

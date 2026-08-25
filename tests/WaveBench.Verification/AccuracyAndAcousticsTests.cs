@@ -14,7 +14,7 @@ public class AccuracyAndAcousticsTests
         // Smooth density wave advected at constant u and p (an entropy wave):
         // the exact solution is pure translation; after one period on a
         // periodic domain it coincides with the initial condition.
-        var solver = new EulerSolver1D(cells, 1.0 / cells, Gas)
+        var solver = new DuctSolver(DuctGeometry.Uniform(1.0, cells, 0.05), new PerfectGasModel(Gas))
         {
             LeftBoundary = BoundaryKind.Periodic,
             RightBoundary = BoundaryKind.Periodic,
@@ -22,7 +22,7 @@ public class AccuracyAndAcousticsTests
         for (var i = 0; i < cells; i++)
         {
             var rho = 1.0 + 0.2 * Math.Sin(2.0 * Math.PI * solver.CellCentre(i));
-            solver.SetPrimitive(i, new PrimitiveState(rho, 1.0, 1.0));
+            solver.SetState(i, new PrimitiveState(rho, 1.0, 1.0));
         }
 
         solver.Advance(1.0);
@@ -54,7 +54,7 @@ public class AccuracyAndAcousticsTests
     [Fact]
     public void Periodic_advection_conserves_mass_momentum_and_energy_to_machine_precision()
     {
-        var solver = new EulerSolver1D(200, 1.0 / 200, Gas)
+        var solver = new DuctSolver(DuctGeometry.Uniform(1.0, 200, 0.05), new PerfectGasModel(Gas))
         {
             LeftBoundary = BoundaryKind.Periodic,
             RightBoundary = BoundaryKind.Periodic,
@@ -62,7 +62,7 @@ public class AccuracyAndAcousticsTests
         for (var i = 0; i < 200; i++)
         {
             var rho = 1.0 + 0.2 * Math.Sin(2.0 * Math.PI * solver.CellCentre(i));
-            solver.SetPrimitive(i, new PrimitiveState(rho, 1.0, 1.0));
+            solver.SetState(i, new PrimitiveState(rho, 1.0, 1.0));
         }
 
         var before = solver.ConservedTotals();
@@ -92,7 +92,7 @@ public class AccuracyAndAcousticsTests
         const double sigma = 0.03;
         var a0 = Gas.SoundSpeed(rho0, p0);
 
-        var solver = new EulerSolver1D(cells, 1.0 / cells, Gas)
+        var solver = new DuctSolver(DuctGeometry.Uniform(1.0, cells, 0.05), new PerfectGasModel(Gas))
         {
             LeftBoundary = BoundaryKind.Periodic,
             RightBoundary = BoundaryKind.Periodic,
@@ -101,7 +101,7 @@ public class AccuracyAndAcousticsTests
         {
             var x = solver.CellCentre(i);
             var dp = amplitude * Math.Exp(-Math.Pow(x - 0.5, 2) / (2 * sigma * sigma));
-            solver.SetPrimitive(i, new PrimitiveState(
+            solver.SetState(i, new PrimitiveState(
                 rho0 + dp / (a0 * a0),
                 dp / (rho0 * a0),
                 p0 + dp));

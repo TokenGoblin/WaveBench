@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Phase 3: source terms and thermal model. Quasi-1D `DuctSolver` (supersedes
+  the constant-area solver): well-balanced variable area (taper at rest
+  < 1e-10 m/s), species transport with machine-precision ΣY = 1, the
+  species-resolved caloric EOS in the solver (composition-correct local
+  sound speed), Haaland friction and Colburn heat transfer verified within
+  1% of analytical, per-cell wall thermal nodes with surface treatments,
+  radix-2 FFT in WaveBench.Analysis, and the §5.5 bandwidth characterisation
+  test (−3 dB ≈ 4.8 kHz at Δx = 3 mm over 2 m in 20 °C air).
+
 - Phase 2: 1D solver core. MUSCL-Hancock finite-volume scheme with HLLC
   fluxes (Toro), slope limiters (van Leer/minmod/van Albada), positivity
   guards, CFL control, transmissive/reflective/periodic boundaries, and the

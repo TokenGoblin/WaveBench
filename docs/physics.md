@@ -80,6 +80,27 @@ Verified: element balances close to 1e-6; shift quotient equals K; stoich
 iso-octane products give M = 28.72 kg/kmol and γ(1173 K) in the documented
 1.28–1.31 band; a(950 K) ≈ 600 m/s (plan §2.2).
 
+## 1.5 Species transport and the local sound speed (Phase 3)
+
+The solver transports the §2.2 minimum species set (fresh air, fuel vapour,
+burnt gas constituents) as mass fractions with the flow, and evaluates
+R(Y), γ(T,Y) and a = √(γRT) per cell per timestep through the species
+database — never a constant 343 m/s. Verified end-to-end: a 950 K burnt-gas
+cell reports ≈ 600 m/s, a 310 K intake cell ≈ 353 m/s, both matching the
+thermo layer's hand calculation. See docs/numerics.md §4 for the transport
+scheme and boundedness guarantees.
+
+## 1.6 Wall friction, heat transfer and the wall node (Phase 3)
+
+Implemented per plan §2.1/§2.9 in `PipeFlowPhysics`, `DuctSolver` and
+`WallThermalModel`: Haaland friction (laminar 64/Re below 2300, blended to
+4000; per-pipe roughness), Sutherland μ(T), Colburn heat transfer with the
+empirical pulsating-flow enhancement factor (default 1.3 — a documented weak
+point of all 1D codes; the UI must present it as such), and a per-cell wall
+thermal node with radiation and surface treatments as (ε, R_ext) pairs.
+The wrapped-vs-bare wall temperature difference — which shifts tuned length
+via the gas temperature — is demonstrated in the verification suite.
+
 ## 2. Fuel model (Phase 1)
 
 A fuel is a data record (`Fuel`), never a constant. Shipped library

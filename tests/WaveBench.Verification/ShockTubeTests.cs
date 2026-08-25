@@ -14,13 +14,13 @@ public class ShockTubeTests
 {
     private static readonly PerfectGas Gas = new(1.4, 287.0);
 
-    private static EulerSolver1D RunShockTube(
+    private static DuctSolver RunShockTube(
         PrimitiveState left, PrimitiveState right, int cells, double tEnd)
     {
-        var solver = new EulerSolver1D(cells, 1.0 / cells, Gas);
+        var solver = new DuctSolver(DuctGeometry.Uniform(1.0, cells, 0.05), new PerfectGasModel(Gas));
         for (var i = 0; i < cells; i++)
         {
-            solver.SetPrimitive(i, solver.CellCentre(i) < 0.5 ? left : right);
+            solver.SetState(i, solver.CellCentre(i) < 0.5 ? left : right);
         }
 
         solver.Advance(tEnd);
@@ -28,7 +28,7 @@ public class ShockTubeTests
     }
 
     private static double L1DensityError(
-        EulerSolver1D solver, PrimitiveState left, PrimitiveState right, double tEnd)
+        DuctSolver solver, PrimitiveState left, PrimitiveState right, double tEnd)
     {
         var exact = new ExactRiemannSolver(left, right, Gas);
         var error = 0.0;
@@ -98,10 +98,10 @@ public class ShockTubeTests
 
         foreach (var limiter in Enum.GetValues<SlopeLimiterKind>())
         {
-            var solver = new EulerSolver1D(200, 1.0 / 200, Gas) { Limiter = limiter };
+            var solver = new DuctSolver(DuctGeometry.Uniform(1.0, 200, 0.05), new PerfectGasModel(Gas)) { Limiter = limiter };
             for (var i = 0; i < 200; i++)
             {
-                solver.SetPrimitive(i, solver.CellCentre(i) < 0.5 ? left : right);
+                solver.SetState(i, solver.CellCentre(i) < 0.5 ? left : right);
             }
 
             solver.Advance(0.15);
@@ -119,13 +119,13 @@ public class ShockTubeTests
     {
         // Sod tube with a solid right wall: after the shock reflects, gas at the
         // wall is brought to rest at raised pressure; velocity at the wall ≈ 0.
-        var solver = new EulerSolver1D(200, 1.0 / 200, Gas)
+        var solver = new DuctSolver(DuctGeometry.Uniform(1.0, 200, 0.05), new PerfectGasModel(Gas))
         {
             RightBoundary = BoundaryKind.Reflective,
         };
         for (var i = 0; i < 200; i++)
         {
-            solver.SetPrimitive(i, solver.CellCentre(i) < 0.5 ? SodLeft : SodRight);
+            solver.SetState(i, solver.CellCentre(i) < 0.5 ? SodLeft : SodRight);
         }
 
         solver.Advance(0.45); // shock reaches x=1 near t≈0.31, then reflects
