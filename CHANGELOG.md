@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Phase 5: engine assembly (motored). Exact slider-crank kinematics, cam
+  profiles (harmonic generic + CSV import), Blair-convention valve areas
+  with a 2D generic Cd map, the valve boundary solved jointly with the duct
+  characteristics, 0D composition-resolved cylinders, deterministic engine
+  network stepping with a cycle-convergence manager, and the Quick Estimate
+  layer. Gate: VE peak 1.25 at 5000 rpm vs organ-pipe estimate 5015 rpm
+  (0.3%); sealed-engine conservation to 1e-6/0.1%; bit-identical reruns.
+
 - Phase 4: boundaries and components. Characteristic-compatible reservoir
   boundaries (nozzle within 0.5% of isentropic), compressible orifice with
   choking, FSAE restrictor as solved geometry (chokes at theory within 1%,

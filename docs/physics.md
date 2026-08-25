@@ -141,6 +141,39 @@ via the gas temperature — is demonstrated in the verification suite.
   cell at a given temperature, zero axial momentum, enthalpy-consistent.
   Verified: injected mass exactly matches the metered rate.
 
+## 1.8 Engine assembly, motored (Phase 5)
+
+- **Crank kinematics** (`CrankGeometry`): exact slider-crank with rod ratio
+  and wrist-pin offset; V(θ), dV/dθ, mean piston speed, max-piston-speed
+  angle. Verified: TDC/BDC volumes exact, ∮|dV| = 2·Vd, pin offset shifts
+  true TDC to sinθ = e/(l+a).
+- **Cam** (`CamProfile`): measured-table import (CSV, mm/m inferred) and a
+  generic harmonic analytic profile (flagged generic; polydyne generator
+  pending), event detection, effective-closing angle at a lift fraction.
+- **Valve flow** (§2.6): reference area = valve curtain, effective area =
+  min(curtain, throat) — Blair's convention; C_d(L/D, pressure ratio) 2D map
+  with a generic pent-roof default (flagged; replace with flow-bench data).
+- **Valve boundary** (`ValveConnection`): solved JOINTLY with the duct
+  characteristics per §2.6 — the duct-face state rides the interior's
+  outgoing Riemann invariant and isentrope while the face pressure is
+  bisected until face mass flux equals the orifice flow; handles both
+  directions (reversion included) and choking.
+- **Cylinder** (`Cylinder`): 0D open-system dU = −p·dV + Σṁh, composition-
+  resolved, exact-volume, work-integrating. Sealed motored cycle: mass exact,
+  ΔU + ∮p·dV = 0 to 1e-6, reversible return to initial pressure at 0.1%.
+- **Network** (`MotoredEngine`): deterministic fixed-order stepping
+  (junctions → valves → connectors → ducts → plenums → cylinders) on the
+  global CFL timestep; cycle runner and convergence manager (§5.4 metric
+  change < 0.1% between cycles, min/max cycle counts).
+
+**Phase 5 gate results** (360 cc single, 86×62, 4-valve, 0.60 m runner):
+VE curve sweeps 1.16 → **1.25 peak at 5000 rpm** → 0.54 at 8500 — a clear
+wave-tuning peak with VE above unity. Organ-pipe estimate with the
+geometry-derived window (launch at max piston speed after overlap TDC,
+return by the 25%-lift effective closing): **5015 rpm — 0.3% from the
+solved peak**. Sealed-engine mass conserved to 1e-6; energy budget closes
+against ∮p·dV to 0.1%; repeated runs bit-identical.
+
 ## 2. Fuel model (Phase 1)
 
 A fuel is a data record (`Fuel`), never a constant. Shipped library

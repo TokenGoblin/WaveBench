@@ -6,12 +6,12 @@
 relevant parts before writing code. 26 phases, strictly in order, each with a
 hard acceptance gate (Part 12). Never let a session span two phases.
 
-**Phase status:** Phases 0–4 complete. Next: Phase 5 (engine assembly,
-motored: crank kinematics, cam handling/import, valve boundary with Cd maps,
-cylinder 0D gas exchange, firing order, network assembly, cycle convergence).
-Known deferral: junction branch-angle loss coefficients (Bassett 2001) —
-verify those papers' data before implementing; current model is Idelchik 90°
-tee only.
+**Phase status:** Phases 0–5 complete. Next: Phase 6 (combustion: Wiebe +
+two-zone, Woschni/Hohenberg/Annand heat transfer, blowby/crevices, knock
+integral wiring, Chen–Flynn friction, BMEP/torque/BSFC, cycle-to-cycle
+variability). Known deferrals: junction branch-angle loss coefficients
+(Bassett 2001 — verify papers first; current model is Idelchik 90° tee);
+polydyne cam generator (harmonic generic profile shipped, flagged).
 
 Non-negotiables (plan Part 0): TDD in physics layers · cite every empirical
 correlation in an XML doc comment with source and validity range ·
