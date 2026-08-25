@@ -1,0 +1,45 @@
+# Build results
+bin/
+obj/
+out/
+artifacts/
+
+# Visual Studio / Rider / VS Code
+.vs/
+.idea/
+*.user
+*.suo
+.vscode/
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+
+# Test and benchmark output
+TestResults/
+BenchmarkDotNet.Artifacts/
+coverage/
+*.coverage
+*.trx
+
+# NuGet
+*.nupkg
+packages/
+
+# MSIX / packaging
+AppPackages/
+*.msix
+*.appxbundle
+
+# Local results and scratch
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+
+# User audio reference files must never be committed (see plan §3.7 Reference Match)
+validation/reference-audio/
+
+# OS
+Thumbs.db
+.DS_Store
