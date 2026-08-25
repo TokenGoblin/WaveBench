@@ -5,4 +5,7 @@
   <ItemGroup>
     <ProjectReference Include="..\WaveBench.Model\WaveBench.Model.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="Thermo\Data\thermo.dat" />
+  </ItemGroup>
 </Project>
