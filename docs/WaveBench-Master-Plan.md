@@ -5,7 +5,7 @@ Version 1.0 · Single-document build contract for Claude Code
 
 - **Platform:** .NET 10 (LTS), Windows-native (WinUI 3 / Windows App SDK)
 - **Licence:** Apache-2.0, open source on GitHub
-- **Audience:** Formula SAE teams, race engine developers, professional engine designers
+- **Audience:** Formula SAE teams, race engine developers, professional engine designers, DIY engine enthusiasts
 - **Scope:** intake and exhaust wave tuning · camshaft timing · collector configuration and cylinder pairing · exhaust sound design and auralisation · turbocharging and supercharging · multi-objective optimisation
 
 Suggested name: **WaveBench**. Alternates if taken: *Resonata*, *ManifoldLab*, *PulseForge*. Avoid "WAVE" (Ricardo) and "GASDYN" (Politecnico di Milano) — both are existing codes.

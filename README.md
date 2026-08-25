@@ -4,7 +4,7 @@ Laboratory-grade 1D engine gas-dynamics, acoustics and forced-induction design s
 
 - **Platform:** .NET 10 (LTS), Windows-native (WinUI 3 / Windows App SDK)
 - **Licence:** Apache-2.0 (to be added in Phase 0)
-- **Audience:** Formula SAE teams, race engine developers, professional engine designers
+- **Audience:** Formula SAE teams, race engine developers, professional engine designers, DIY engine enthusiasts
 - **Scope:** intake and exhaust wave tuning · camshaft timing · collector configuration and cylinder pairing · exhaust sound design and auralisation · turbocharging and supercharging · multi-objective optimisation
 
 ## Status
