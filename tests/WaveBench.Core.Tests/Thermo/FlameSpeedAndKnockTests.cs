@@ -53,6 +53,18 @@ public class FlameSpeedAndKnockTests
     }
 
     [Fact]
+    public void Typed_overloads_agree_with_si_double_apis()
+    {
+        var t = WaveBench.Model.Units.Temperature.FromCelsius(120.0);
+        var p = WaveBench.Model.Units.Pressure.FromBar(30.0);
+
+        FlameSpeed.Laminar(FuelLibrary.GasolineRon95, 1.0, t, p)
+            .Should().Be(FlameSpeed.Laminar(FuelLibrary.GasolineRon95, 1.0, t.Kelvin, p.Pascals));
+        KnockModel.InductionTime(95, p, WaveBench.Model.Units.Temperature.FromKelvin(850.0))
+            .Should().Be(KnockModel.InductionTime(95, p.Pascals, 850.0));
+    }
+
+    [Fact]
     public void Induction_time_shortens_with_pressure_and_temperature()
     {
         var baseline = KnockModel.InductionTime(95, 30 * Atm, 800.0);

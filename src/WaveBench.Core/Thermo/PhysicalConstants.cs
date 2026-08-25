@@ -16,14 +16,22 @@ internal static class AtomicWeights
 {
     /// <summary>
     /// Standard atomic weights, kg/kmol (IUPAC 2021 abridged values).
+    /// The named constants serve hot-path arithmetic (no dictionary lookup);
+    /// the dictionary serves the CHEMKIN parser.
     /// </summary>
+    public const double Hydrogen = 1.008;
+    public const double Carbon = 12.011;
+    public const double Nitrogen = 14.007;
+    public const double Oxygen = 15.999;
+    public const double Argon = 39.95;
+
     private static readonly Dictionary<string, double> Weights = new(StringComparer.OrdinalIgnoreCase)
     {
-        ["H"] = 1.008,
-        ["C"] = 12.011,
-        ["N"] = 14.007,
-        ["O"] = 15.999,
-        ["AR"] = 39.95,
+        ["H"] = Hydrogen,
+        ["C"] = Carbon,
+        ["N"] = Nitrogen,
+        ["O"] = Oxygen,
+        ["AR"] = Argon,
         ["HE"] = 4.0026,
         ["S"] = 32.06,
     };

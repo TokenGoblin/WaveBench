@@ -8,15 +8,13 @@ public readonly record struct FuelFormula(double Carbon, double Hydrogen, double
 {
     /// <summary>kg/kmol.</summary>
     public double MolarMass =>
-        Carbon * AtomicWeights.Of("C") + Hydrogen * AtomicWeights.Of("H") + Oxygen * AtomicWeights.Of("O");
+        Carbon * AtomicWeights.Carbon + Hydrogen * AtomicWeights.Hydrogen + Oxygen * AtomicWeights.Oxygen;
 
     /// <summary>kmol O2 required per kmol fuel for complete combustion.</summary>
     public double StoichiometricO2Moles => Carbon + Hydrogen / 4.0 - Oxygen / 2.0;
 
     /// <summary>Oxygen content by mass (shifts stoich AFR and charge cooling, plan §2.4).</summary>
-    public double OxygenMassFraction => Oxygen * AtomicWeights.Of("O") / MolarMass;
-
-    public double HydrogenToCarbonRatio => Hydrogen / Carbon;
+    public double OxygenMassFraction => Oxygen * AtomicWeights.Oxygen / MolarMass;
 
     public override string ToString() =>
         $"C{Carbon:0.###}H{Hydrogen:0.###}" + (Oxygen > 0 ? $"O{Oxygen:0.###}" : "");

@@ -105,8 +105,12 @@ blends, ethanol, methanol, CNG/methane, propane, hydrogen.
 ΔT = x_evap · ṁf · Δh_vap / (ṁa·cp,air + ṁf,vap·cp,fuel-vapour)
 ```
 
-Default pre-valve evaporated fractions (empirical, user-adjustable, UI must
-label them so): throttle-body 0.40, port 0.22, direct 0.05. Gate: M100 at
+Default pre-valve evaporated fractions: throttle-body 0.40, port 0.22,
+direct 0.05. These are **WaveBench engineering defaults, not a literature
+correlation** — they represent the commonly reported 20–30 % pre-valve
+evaporation for port injection of gasoline and alcohols. Treat them as
+calibration parameters; the UI must present them as adjustable and label
+them empirical. Gate: M100 at
 λ = 0.8 with port defaults → 44 K, inside the documented 30–50 K band
 (plan §2.4). Gaseous fuels (CH4, H2) have zero latent heat → zero cooling.
 
@@ -121,9 +125,10 @@ S_L0 = Bm + Bφ(φ − φm)²,  α = 2.18 − 0.8(φ−1),  β = −0.16 + 0.22(
 
 Measured coefficients: methanol (0.3692, −1.4051, 1.11), propane
 (0.3422, −1.3865, 1.08), iso-octane (0.2632, −0.8472, 1.13), RMFD-303
-indolene for gasoline (0.2758, −0.7834, 1.13) — all m/s. Ethanol, methane,
-toluene, n-heptane coefficients are approximate fits to other published data
-and are flagged `IsApproximate` in code. Validity: φ 0.8–1.4, Tu 298–700 K,
+indolene for gasoline (0.2758, −0.7834, 1.13) — all m/s. Ethanol (Gülder
+1982), methane (Gu, Haq, Lawes & Woolley 2000), toluene and n-heptane
+(Davis & Law 1998) coefficients are M-K-form fits to those published data
+sets, flagged `IsApproximate` in code. Validity: φ 0.8–1.4, Tu 298–700 K,
 p 0.4–50 atm, Y_dil ≤ 0.2 (`FlameSpeed.IsWithinValidity`). Hydrogen has no
 coefficients; calling throws.
 

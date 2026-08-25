@@ -115,6 +115,17 @@ public sealed class MixtureThermo
         return s;
     }
 
-    /// <summary>True when every species fit covers T.</summary>
-    public bool IsInRange(double t) => _species.All(s => s.IsInRange(t));
+    /// <summary>True when every species fit covers T. Allocation-free (solver hot path).</summary>
+    public bool IsInRange(double t)
+    {
+        for (var i = 0; i < _species.Length; i++)
+        {
+            if (!_species[i].IsInRange(t))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
 }

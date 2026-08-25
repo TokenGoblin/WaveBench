@@ -81,11 +81,10 @@ public sealed record Fuel
 
         // kmol of each element and of fuel molecules, per kg of blend
         var molFuel = parts.Sum(p => p.MassFraction / p.Fuel.Formula.MolarMass);
-        var c = parts.Sum(p => p.MassFraction / p.Fuel.Formula.MolarMass * p.Fuel.Formula.Carbon) / molFuel;
-        var h = parts.Sum(p => p.MassFraction / p.Fuel.Formula.MolarMass * p.Fuel.Formula.Hydrogen) / molFuel;
-        var o = parts.Sum(p => p.MassFraction / p.Fuel.Formula.MolarMass * p.Fuel.Formula.Oxygen) / molFuel;
+        double MeanAtoms(Func<FuelFormula, double> atoms) =>
+            parts.Sum(p => p.MassFraction / p.Fuel.Formula.MolarMass * atoms(p.Fuel.Formula)) / molFuel;
 
-        var formula = new FuelFormula(c, h, o);
+        var formula = new FuelFormula(MeanAtoms(f => f.Carbon), MeanAtoms(f => f.Hydrogen), MeanAtoms(f => f.Oxygen));
         return new Fuel
         {
             Name = name,

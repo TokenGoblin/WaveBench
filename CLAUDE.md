@@ -46,7 +46,13 @@ owner's identity, machine and network must never appear in it:
 - Tests: xUnit in `tests/`. Unit tests in `WaveBench.Core.Tests`, verification
   cases (§6.1) in `WaveBench.Verification`, validation cases (§6.2) in
   `WaveBench.Validation` (nightly CI), benchmarks in `WaveBench.Bench`.
-- Units: all physics code uses the strongly-typed quantities in
-  `WaveBench.Model.Units` (canonical SI internally). Never pass raw doubles
-  with implicit units across public APIs.
+- Units: everything is SI internally, everywhere. The strongly-typed
+  quantities in `WaveBench.Model.Units` are mandatory at model/UI/data
+  boundaries (user inputs, model files, reports). Core physics kernels
+  (per-cell solver math, property evaluation) use raw SI doubles for hot-path
+  performance, with the unit stated in the XML doc of every parameter. Where a
+  correlation's native unit differs from SI (e.g. Douaud-Eyzat in atm) or a
+  quantity is commonly quoted in non-SI units, ALSO provide a typed overload
+  (see KnockModel.InductionTime, FlameSpeed.Laminar) so callers outside the
+  hot path get compile-time unit safety.
 - CI must be green before a phase gate is declared passed.

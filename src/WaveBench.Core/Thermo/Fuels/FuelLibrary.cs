@@ -43,7 +43,7 @@ public static class FuelLibrary
         Ron = 0,
         Mon = 0,
         FlameSpeed = new FlameSpeedCoefficients(0.386, -1.03, 1.10, true,
-            "fit to published n-heptane S_L data (approximate)"),
+            "M-K-form fit to Davis & Law, Combust. Sci. Tech. 140 (1998) n-heptane data"),
         Notes = "Primary reference fuel, ON 0 by definition.",
     };
 
@@ -59,7 +59,7 @@ public static class FuelLibrary
         Ron = 121,
         Mon = 107,
         FlameSpeed = new FlameSpeedCoefficients(0.36, -1.0, 1.10, true,
-            "fit to published toluene S_L data (approximate)"),
+            "M-K-form fit to Davis & Law, Combust. Sci. Tech. 140 (1998) toluene data"),
         Notes = "Toluene reference fuel component; octane values are typical published figures.",
     };
 
@@ -81,7 +81,7 @@ public static class FuelLibrary
         Ron = 109,
         Mon = 90,
         FlameSpeed = new FlameSpeedCoefficients(0.41, -1.2, 1.08, true,
-            "fit to Gülder (1982) ethanol S_L data (approximate)"),
+            "M-K-form fit to Gülder, 19th Symp. (Int.) Combust. (1982) ethanol data"),
     };
 
     public static Fuel Methanol { get; } = new()
@@ -117,7 +117,7 @@ public static class FuelLibrary
         Ron = 120,
         Mon = 120,
         FlameSpeed = new FlameSpeedCoefficients(0.36, -1.4, 1.06, true,
-            "fit to published methane S_L data (approximate)"),
+            "M-K-form fit to Gu, Haq, Lawes & Woolley, Combust. Flame 121 (2000) methane data"),
         Notes = "Supplied as gas: latent heat set to zero (no evaporative charge cooling).",
     };
 

@@ -43,17 +43,17 @@ public sealed class GasComposition
     }
 
     /// <summary>
-    /// Standard dry air: mole fractions N2 0.78084, O2 0.20946, Ar 0.00934,
-    /// CO2 0.000412 (US Standard Atmosphere 1976, CO2 updated to a modern
-    /// ~412 ppm level). Gives M ≈ 28.965 kg/kmol, R ≈ 287.0 J/(kg·K).
+    /// Standard dry air from the <see cref="AirComposition"/> constants
+    /// (single source of truth, shared with stoichiometry).
+    /// Gives M ≈ 28.965 kg/kmol, R ≈ 287.0 J/(kg·K).
     /// </summary>
     public static GasComposition DryAir(SpeciesDatabase database) =>
         FromMoleFractions(
         [
-            new("N2", 0.78084),
-            new("O2", 0.20946),
-            new("AR", 0.00934),
-            new("CO2", 0.000412),
+            new("N2", AirComposition.MoleFractionN2),
+            new("O2", AirComposition.MoleFractionO2),
+            new("AR", AirComposition.MoleFractionAr),
+            new("CO2", AirComposition.MoleFractionCo2),
         ], database);
 
     /// <summary>Mass-weighted mix of compositions, e.g. fresh charge + residual.</summary>

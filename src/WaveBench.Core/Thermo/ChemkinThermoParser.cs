@@ -17,13 +17,8 @@ public static class ChemkinThermoParser
 
         while (reader.ReadLine() is { } line)
         {
-            if (line.Length == 0 || line[0] == '!')
-            {
-                continue;
-            }
-
             var trimmed = line.TrimEnd();
-            if (trimmed.Length == 0 ||
+            if (trimmed.Length == 0 || trimmed[0] == '!' ||
                 trimmed.StartsWith("THERMO", StringComparison.OrdinalIgnoreCase) ||
                 trimmed.Equals("END", StringComparison.OrdinalIgnoreCase))
             {
@@ -75,20 +70,23 @@ public static class ChemkinThermoParser
         var tMid = tMidText.Length == 0 ? 1000.0 : double.Parse(tMidText, CultureInfo.InvariantCulture);
 
         // Line 2: a1..a5 upper. Line 3: a6,a7 upper + a1..a3 lower. Line 4: a4..a7 lower.
+        var line2 = block[1].PadRight(80);
+        var line3 = block[2].PadRight(80);
+        var line4 = block[3].PadRight(80);
         var c = new double[15];
         for (var i = 0; i < 5; i++)
         {
-            c[i] = Coefficient(block[1], i);
+            c[i] = Coefficient(line2, i);
         }
 
         for (var i = 0; i < 5; i++)
         {
-            c[5 + i] = Coefficient(block[2], i);
+            c[5 + i] = Coefficient(line3, i);
         }
 
         for (var i = 0; i < 4; i++)
         {
-            c[10 + i] = Coefficient(block[3], i);
+            c[10 + i] = Coefficient(line4, i);
         }
 
         var upper = new Nasa7Coefficients(c[0], c[1], c[2], c[3], c[4], c[5], c[6]);
@@ -97,8 +95,8 @@ public static class ChemkinThermoParser
         return new Species(name, elements, tLow, tMid, tHigh, lower, upper);
     }
 
-    private static double Coefficient(string line, int index) =>
-        double.Parse(line.PadRight(80).Substring(index * 15, 15).Trim(), CultureInfo.InvariantCulture);
+    private static double Coefficient(string paddedLine, int index) =>
+        double.Parse(paddedLine.AsSpan(index * 15, 15).Trim(), CultureInfo.InvariantCulture);
 
     private static double ParseDouble(string text, int start, int length) =>
         double.Parse(text.Substring(start, length).Trim(), CultureInfo.InvariantCulture);

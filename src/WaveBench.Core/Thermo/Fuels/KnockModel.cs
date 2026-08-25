@@ -1,3 +1,5 @@
+using WaveBench.Model.Units;
+
 namespace WaveBench.Core.Thermo.Fuels;
 
 public sealed record KnockIntegralResult(
@@ -22,12 +24,19 @@ public static class KnockModel
             throw new ArgumentOutOfRangeException(nameof(octaneNumber));
         }
 
-        var pAtm = pressure / 101_325.0;
-        var tauMs = 17.68 * Math.Pow(octaneNumber / 100.0, 3.402)
-                          * Math.Pow(pAtm, -1.7)
-                          * Math.Exp(3800.0 / temperature);
-        return tauMs * 1e-3;
+        return OctaneFactor(octaneNumber) * PressureTemperatureFactor(pressure, temperature);
     }
+
+    /// <summary>Unit-safe overload: the correlation's native atm/K are handled internally.</summary>
+    public static double InductionTime(double octaneNumber, Pressure pressure, Temperature temperature) =>
+        InductionTime(octaneNumber, pressure.Pascals, temperature.Kelvin);
+
+    /// <summary>17.68·(ON/100)^3.402 in seconds — loop-invariant part of τ.</summary>
+    private static double OctaneFactor(double octaneNumber) =>
+        17.68e-3 * Math.Pow(octaneNumber / 100.0, 3.402);
+
+    private static double PressureTemperatureFactor(double pressure, double temperature) =>
+        Math.Pow(pressure / 101_325.0, -1.7) * Math.Exp(3800.0 / temperature);
 
     /// <summary>
     /// Livengood–Wu integral over an unburned-zone (time, pressure, temperature)
@@ -43,12 +52,18 @@ public static class KnockModel
             throw new ArgumentException("Need at least two trace points.", nameof(trace));
         }
 
+        if (octaneNumber <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(octaneNumber));
+        }
+
+        var octaneFactor = OctaneFactor(octaneNumber); // loop-invariant
         var integral = 0.0;
-        var previousRate = 1.0 / InductionTime(octaneNumber, trace[0].Pressure, trace[0].Temperature);
+        var previousRate = 1.0 / (octaneFactor * PressureTemperatureFactor(trace[0].Pressure, trace[0].Temperature));
 
         for (var i = 1; i < trace.Count; i++)
         {
-            var rate = 1.0 / InductionTime(octaneNumber, trace[i].Pressure, trace[i].Temperature);
+            var rate = 1.0 / (octaneFactor * PressureTemperatureFactor(trace[i].Pressure, trace[i].Temperature));
             var dt = trace[i].Time - trace[i - 1].Time;
             if (dt < 0)
             {

@@ -1,3 +1,5 @@
+using WaveBench.Model.Units;
+
 namespace WaveBench.Core.Thermo.Fuels;
 
 /// <summary>
@@ -39,6 +41,15 @@ public static class FlameSpeed
                * Math.Pow(pressure / P0, beta)
                * dilution;
     }
+
+    /// <summary>Unit-safe overload (temperature in any supported unit, pressure likewise).</summary>
+    public static double Laminar(
+        Fuel fuel,
+        double equivalenceRatio,
+        Temperature unburnedTemperature,
+        Pressure pressure,
+        double diluentMassFraction = 0.0) =>
+        Laminar(fuel, equivalenceRatio, unburnedTemperature.Kelvin, pressure.Pascals, diluentMassFraction);
 
     /// <summary>True when all inputs lie inside the correlation's stated validity range.</summary>
     public static bool IsWithinValidity(

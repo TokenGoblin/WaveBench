@@ -18,6 +18,20 @@ public enum InjectorLocation
 /// </summary>
 public static class ChargeCooling
 {
+    // Cached standard-air mixture per database: the Fuel-record overload is
+    // called inside cycle iteration and must not rebuild air each time.
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<SpeciesDatabase, MixtureThermo>
+        AirCache = new();
+
+    /// <summary>
+    /// WaveBench engineering defaults for the pre-valve evaporated fraction —
+    /// not a literature correlation. They represent the commonly reported
+    /// 20–30% pre-valve evaporation for port fuel injection of gasoline and
+    /// alcohols (throttle-body higher via the longer, hotter path; direct
+    /// injection evaporates essentially entirely in-cylinder). Treat as
+    /// calibration parameters; the UI must present them as adjustable and
+    /// label them empirical (plan §2.4).
+    /// </summary>
     public static double DefaultEvaporatedFraction(InjectorLocation location) => location switch
     {
         InjectorLocation.ThrottleBody => 0.40,
@@ -57,7 +71,7 @@ public static class ChargeCooling
         SpeciesDatabase database,
         double chargeTemperature = PhysicalConstants.ReferenceTemperature)
     {
-        var air = new MixtureThermo(GasComposition.DryAir(database), database);
+        var air = AirCache.GetValue(database, db => new MixtureThermo(GasComposition.DryAir(db), db));
         var vapourCp = database[fuel.VapourSpeciesName].Cp(chargeTemperature);
         return TemperatureDrop(
             DefaultEvaporatedFraction(location),

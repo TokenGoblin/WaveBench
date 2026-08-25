@@ -21,6 +21,9 @@ public interface ISpeciesThermo
     /// <summary>J/kg, including formation enthalpy.</summary>
     double Enthalpy(double t);
 
+    /// <summary>Specific internal energy e = h − R·T, J/kg.</summary>
+    double InternalEnergy(double t) => Enthalpy(t) - SpecificGasConstant * t;
+
     /// <summary>J/(kg·K) at the reference pressure.</summary>
     double StandardEntropy(double t);
 
