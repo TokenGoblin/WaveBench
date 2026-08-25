@@ -20,9 +20,9 @@ This repository is public at `https://github.com/TokenGoblin/WaveBench`. The
 owner's identity, machine and network must never appear in it:
 
 - Git author/committer for every commit MUST be
-  `TokenGoblin <tokengoblin@users.noreply.github.com>`. This is set in the
-  repo-local git config — never override it with a personal name or email, and
-  never commit with `--author` pointing at a real identity.
+  `TokenGoblin <42847007+TokenGoblin@users.noreply.github.com>`. This is set in
+  the repo-local git config — never override it with a personal name or email,
+  and never commit with `--author` pointing at a real identity.
 - No absolute local paths (`C:\Users\...`, drive letters, home directories) in
   code, tests, docs, configs, scripts, commit messages or CI workflows. Use
   relative paths from the repo root.
