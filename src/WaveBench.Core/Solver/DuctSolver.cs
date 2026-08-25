@@ -69,10 +69,23 @@ public sealed class DuctSolver
 
     private readonly double[] _hWall;           // per-cell inner heat-transfer coefficient
 
+    // Devirtualized fast path: when the gas is the sealed perfect-gas model,
+    // the hot loops use closed-form EOS math instead of interface dispatch
+    // (~8 virtual calls per cell per step otherwise — measured dominant).
+    private readonly bool _isPerfect;
+    private readonly double _pgGamma;
+    private readonly double _pgR;
+
     public DuctSolver(DuctGeometry geometry, IGasModel gas)
     {
         _geometry = geometry;
         _gas = gas;
+        if (gas is PerfectGasModel perfect)
+        {
+            _isPerfect = true;
+            _pgGamma = perfect.Gas.Gamma;
+            _pgR = perfect.Gas.SpecificGasConstant;
+        }
         _n = geometry.CellCount;
         _dx = geometry.CellSize;
 
@@ -261,20 +274,19 @@ public sealed class DuctSolver
         }
     }
 
+    private double _maxWaveSpeed;
+
     public double StableTimestep()
     {
-        ComputePrimitives();
-        var maxSpeed = 0.0;
-        for (var c = Ghost; c < Ghost + _n; c++)
+        // The wave-speed maximum is cached by ComputePrimitives during each
+        // step; the one-step lag is standard practice and covered by the CFL
+        // margin. Only the very first call pays for a fresh evaluation.
+        if (_maxWaveSpeed <= 0.0)
         {
-            var speed = Math.Abs(_wU[c]) + _a[c];
-            if (speed > maxSpeed)
-            {
-                maxSpeed = speed;
-            }
+            ComputePrimitives();
         }
 
-        return Cfl * _dx / maxSpeed;
+        return Cfl * _dx / _maxWaveSpeed;
     }
 
     public void Step(double dt)
@@ -412,6 +424,33 @@ public sealed class DuctSolver
 
     private void ComputePrimitives()
     {
+        var maxSpeed = 0.0;
+
+        if (_isPerfect)
+        {
+            var g1 = _pgGamma - 1.0;
+            for (var c = 0; c < _rho.Length; c++)
+            {
+                var rho = _rho[c];
+                var u = _mom[c] / rho;
+                var p = g1 * (_ener[c] - 0.5 * _mom[c] * u);
+                _wU[c] = u;
+                _wP[c] = p;
+                _t[c] = p / (rho * _pgR);
+                _gamma[c] = _pgGamma;
+                var a = Math.Sqrt(_pgGamma * p / rho);
+                _a[c] = a;
+                var speed = Math.Abs(u) + a;
+                if (speed > maxSpeed)
+                {
+                    maxSpeed = speed;
+                }
+            }
+
+            _maxWaveSpeed = maxSpeed;
+            return;
+        }
+
         Span<double> y = _gas.SpeciesCount > 0 ? stackalloc double[_gas.SpeciesCount] : default;
         for (var c = 0; c < _rho.Length; c++)
         {
@@ -427,7 +466,15 @@ public sealed class DuctSolver
             _t[c] = state.T;
             _gamma[c] = state.Gamma;
             _a[c] = state.SoundSpeed;
+
+            var speed = Math.Abs(state.U) + state.SoundSpeed;
+            if (speed > maxSpeed)
+            {
+                maxSpeed = speed;
+            }
         }
+
+        _maxWaveSpeed = maxSpeed;
     }
 
     private void ReconstructAndEvolveFaces(double dt)
@@ -476,8 +523,17 @@ public sealed class DuctSolver
 
             // Hancock half-step in area-weighted conservative form, including
             // the p·dA source with the same face areas (well-balanced at rest).
-            var eL = _gas.TotalEnergy(lRho, lU, lP, yL);
-            var eR = _gas.TotalEnergy(rRho, rU, rP, yR);
+            double eL, eR;
+            if (_isPerfect)
+            {
+                eL = lP / (_pgGamma - 1.0) + 0.5 * lRho * lU * lU;
+                eR = rP / (_pgGamma - 1.0) + 0.5 * rRho * rU * rU;
+            }
+            else
+            {
+                eL = _gas.TotalEnergy(lRho, lU, lP, yL);
+                eR = _gas.TotalEnergy(rRho, rU, rP, yR);
+            }
             var (flRho, flMom, flEner) = Flux(lRho, lU, lP, eL);
             var (frRho, frMom, frEner) = Flux(rRho, rU, rP, eR);
 
@@ -538,8 +594,20 @@ public sealed class DuctSolver
             return;
         }
 
-        var state = _gas.FromConserved(rho, mom, ener, y, _t[c]);
-        if (state.P <= 0)
+        double u, p;
+        if (_isPerfect)
+        {
+            u = mom / rho;
+            p = (_pgGamma - 1.0) * (ener - 0.5 * mom * u);
+        }
+        else
+        {
+            var state = _gas.FromConserved(rho, mom, ener, y, _t[c]);
+            u = state.U;
+            p = state.P;
+        }
+
+        if (p <= 0)
         {
             outRho[c] = rho0;
             outU[c] = u0;
@@ -548,8 +616,8 @@ public sealed class DuctSolver
         }
 
         outRho[c] = rho;
-        outU[c] = state.U;
-        outP[c] = state.P;
+        outU[c] = u;
+        outP[c] = p;
     }
 
     private void ComputeInterfaceFluxes()
@@ -561,22 +629,35 @@ public sealed class DuctSolver
             var (lRho, lU, lP) = (_faceRRho[c], _faceRU[c], _faceRP[c]);
             var (rRho, rU, rP) = (_faceLRho[c + 1], _faceLU[c + 1], _faceLP[c + 1]);
 
-            for (var k = 0; k < y.Length; k++)
+            double eL, gL, eR, gR;
+            if (_isPerfect)
             {
-                y[k] = _faceRY[k][c];
+                var g1 = _pgGamma - 1.0;
+                eL = lP / g1 + 0.5 * lRho * lU * lU;
+                eR = rP / g1 + 0.5 * rRho * rU * rU;
+                gL = _pgGamma;
+                gR = _pgGamma;
+            }
+            else
+            {
+                for (var k = 0; k < y.Length; k++)
+                {
+                    y[k] = _faceRY[k][c];
+                }
+
+                eL = _gas.TotalEnergy(lRho, lU, lP, y);
+                gL = _gas.Gamma(lRho, lP, y);
+
+                for (var k = 0; k < y.Length; k++)
+                {
+                    y[k] = _faceLY[k][c + 1];
+                }
+
+                eR = _gas.TotalEnergy(rRho, rU, rP, y);
+                gR = _gas.Gamma(rRho, rP, y);
             }
 
-            var eL = _gas.TotalEnergy(lRho, lU, lP, y);
-            var gL = _gas.Gamma(lRho, lP, y);
             var aL = SoundSpeedOf(lRho, lP, gL);
-
-            for (var k = 0; k < y.Length; k++)
-            {
-                y[k] = _faceLY[k][c + 1];
-            }
-
-            var eR = _gas.TotalEnergy(rRho, rU, rP, y);
-            var gR = _gas.Gamma(rRho, rP, y);
             var aR = SoundSpeedOf(rRho, rP, gR);
 
             (_fluxRho[j], _fluxMom[j], _fluxEner[j]) = HllcFlux.Compute(

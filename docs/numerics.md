@@ -131,3 +131,30 @@ Scaling with sound speed, 3 mm in hot exhaust (a ≈ 600 m/s) corresponds to
 acoustic mesh. The bandwidth test runs in CI and pins these values; the UI
 must grey out spectra above the measured bandwidth of the mesh actually used,
 and the §5.6 hybrid hands higher frequencies to the TMM.
+
+## 6. Performance (§5.7, Phase 7)
+
+Budget case (`WaveBench.Bench -- budget`): fired four-cylinder, 8 pipes,
+30 cycles at 8000 rpm, 7.5 mm cells (inside the §5.3 performance-run range;
+VE is mesh-insensitive between 6 and 7.5 mm on this case).
+**Measured: 4.3 s best-of-3 — budget met** (< 5 s target; ±40% run-to-run
+background-load noise on the dev desktop, hence best-of-3).
+
+The profiling story, recorded per the plan's "miss → profile" rule
+(15.6 s → 4.3 s):
+
+1. `StableTimestep` recomputed all primitives every step — the max wave
+   speed is now cached by the step itself (one-step lag inside CFL margin).
+2. The hot loops made ~8 interface-dispatch EOS calls per cell; the sealed
+   perfect-gas model now takes a devirtualised closed-form path
+   (isolated kernel: 97 ns/cell-step at 3000 cells, 81 ns in engine context).
+3. Parallel duct stepping (plan §5.7 barrier pattern) pays only above ~2000
+   total cells — below that the per-step dispatch overhead exceeds the work,
+   so small networks step sequentially (measured, gated on cell count).
+4. Valve joint-solve: warm-started bracket around the previous face pressure
+   with a 1e-5·p tolerance (≈ 1 Pa) instead of 60 fixed bisections.
+
+Remaining §5.7 items when the 3000-cell collector networks arrive:
+`Vector<double>` flux kernels and the deterministic fixed-order junction
+reduction under parallel pipes. The BenchmarkDotNet kernel benchmark
+(`SolverBenchmarks`) is the CI regression anchor.

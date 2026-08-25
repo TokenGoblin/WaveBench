@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Phase 7: headless product v0.1. Serialisable model schema with validation
+  rules and stable JSON, EngineBuilder, OperatingPointRunner (parallel
+  sweeps, mesh-sensitivity study), SQLite results store with float32 probe
+  captures, the `wavebench` CLI (run/sweep/mesh/validate/info) with ScottPlot
+  output, validation report artefacts committed under `validation/`, and the
+  §5.7 performance budget: profiled 15.6 s → 4.3 s (devirtualised EOS hot
+  path, cached wave speeds, warm-started valve solve, cell-count-gated
+  parallel pipes) — budget met and recorded.
+
 - Phase 6: combustion, heat transfer, knock, friction. Wiebe (single/double),
   quasi-two-zone knock tracking (isentropic unburned zone + Livengood–Wu;
   RON95/E85/M100 ranking gate passes), Woschni/Hohenberg/Annand with exact

@@ -14,12 +14,43 @@ audio never leave your machine.
 
 ## Status
 
-**Phase 0 complete** (foundations: solution scaffolding, CI, units layer).
-The complete build specification lives in
-[`docs/WaveBench-Master-Plan.md`](docs/WaveBench-Master-Plan.md) — a staged
-build contract with 26 phases, each with a hard acceptance gate. Physics
-before pixels: Phases 0–15 produce a headless, test-covered, validated
-engine; no UI exists before Phase 16.
+**Phases 0–7 complete — headless v0.1.** The complete build specification
+lives in [`docs/WaveBench-Master-Plan.md`](docs/WaveBench-Master-Plan.md) — a
+staged build contract with 26 phases, each with a hard acceptance gate.
+Physics before pixels: Phases 0–15 produce a headless, test-covered,
+validated engine; no UI exists before Phase 16.
+
+What works today: species-resolved 1D gas dynamics (MUSCL-Hancock + HLLC,
+verified against exact Riemann solutions), well-balanced variable area,
+friction/heat/wall-thermal sources, reservoir/orifice/plenum/junction
+components, an FSAE restrictor that chokes at theory, motored and fired
+single/multi-cylinder engines with wave-tuned VE curves, Wiebe combustion
+with knock tracking, and a CLI that runs models, sweeps, mesh-sensitivity
+studies and the validation suite.
+
+## Headless CLI
+
+```
+wavebench info   examples/single-360.json
+wavebench run    examples/single-360.json --rpm 5000
+wavebench sweep  examples/single-360.json --from 4000 --to 9000 --step 500 \
+                 --db results.db --plot sweep.png
+wavebench mesh   examples/single-360.json --rpm 7000
+wavebench validate --out validation
+```
+
+## Validation
+
+Every claim is backed by a committed comparison (see `validation/` and
+`docs/physics.md`). First published-data case: the open-access CSU thesis
+runner-length study — WaveBench reproduces the published optimum exactly at
+800 mm and within the 250 rpm gate at 600 mm:
+
+![Yin runner-length validation](validation/yin-runner-length.png)
+
+Have dyno data with known geometry (especially FSAE)? Please open an issue —
+a measured case with provenance is the most valuable contribution this
+project can receive.
 
 ## Building
 

@@ -1,0 +1,36 @@
+{
+  "schemaVersion": "0.1",
+  "name": "Example 360cc tuned single",
+  "ambient": { "pressureKPa": 100.0, "temperatureK": 300.0 },
+  "engine": {
+    "boreMm": 86.0,
+    "strokeMm": 62.0,
+    "rodLengthMm": 107.0,
+    "compressionRatio": 11.0,
+    "cylinderCount": 1
+  },
+  "intakeValves": {
+    "headDiameterMm": 31.0,
+    "count": 2,
+    "maxLiftMm": 10.0,
+    "openDeg": 340.0,
+    "closeDeg": 580.0
+  },
+  "exhaustValves": {
+    "headDiameterMm": 26.0,
+    "count": 2,
+    "maxLiftMm": 10.0,
+    "openDeg": 140.0,
+    "closeDeg": 380.0
+  },
+  "intakeRunner": { "lengthMm": 600.0, "diameterMm": 38.0 },
+  "exhaustRunner": { "lengthMm": 200.0, "diameterMm": 35.0 },
+  "combustion": {
+    "startDeg": -15.0,
+    "durationDeg": 55.0,
+    "fuel": "RON95",
+    "lambda": 1.0,
+    "trackKnock": true
+  },
+  "solver": { "cellSizeMm": 6.0, "minCycles": 5, "maxCycles": 25 }
+}

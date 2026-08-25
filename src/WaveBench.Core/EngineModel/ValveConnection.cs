@@ -40,6 +40,8 @@ public sealed class ValveConnection
     /// <summary>Mass flow of the last update, positive into the cylinder, kg/s.</summary>
     public double MassFlow { get; private set; }
 
+    private double _lastFacePressure;
+
     public double CurrentLift { get; private set; }
 
     private int AdjacentCell => _ductLeftEnd ? 0 : _duct.CellCount - 1;
@@ -112,9 +114,27 @@ public sealed class ValveConnection
 
         // Bracket and bisect on face pressure. The face flux increases with
         // decreasing pressure (larger u on the invariant); the orifice term
-        // moves the other way, so the residual is monotone.
-        var pLo = 0.2 * Math.Min(s.P, pCyl);
-        var pHi = 3.0 * Math.Max(s.P, pCyl);
+        // moves the other way, so the residual is monotone. Warm-start the
+        // bracket around the previous step's solution — the face pressure
+        // moves little between timesteps — with a fallback to the wide
+        // bracket when the narrow one misses the sign change.
+        double pLo, pHi;
+        if (_lastFacePressure > 0)
+        {
+            pLo = 0.85 * _lastFacePressure;
+            pHi = 1.18 * _lastFacePressure;
+            if (Residual(pLo) * Residual(pHi) > 0)
+            {
+                pLo = 0.2 * Math.Min(s.P, pCyl);
+                pHi = 3.0 * Math.Max(s.P, pCyl);
+            }
+        }
+        else
+        {
+            pLo = 0.2 * Math.Min(s.P, pCyl);
+            pHi = 3.0 * Math.Max(s.P, pCyl);
+        }
+
         var fLo = Residual(pLo);
         var fHi = Residual(pHi);
         double pFaceSolved;
@@ -126,13 +146,17 @@ public sealed class ValveConnection
         }
         else
         {
-            for (var i = 0; i < 60; i++)
+            // Tolerance 1e-5·p ≈ 1 Pa: far below any physical significance,
+            // and it is what lets the warm-started bracket converge in a
+            // handful of iterations.
+            for (var i = 0; i < 44 && pHi - pLo > 1e-5 * pHi; i++)
             {
                 var mid = 0.5 * (pLo + pHi);
-                if (Residual(mid) * fLo > 0)
+                var fMid = Residual(mid);
+                if (fMid * fLo > 0)
                 {
                     pLo = mid;
-                    fLo = Residual(pLo);
+                    fLo = fMid;
                 }
                 else
                 {
@@ -143,6 +167,7 @@ public sealed class ValveConnection
             pFaceSolved = 0.5 * (pLo + pHi);
         }
 
+        _lastFacePressure = pFaceSolved;
         var (rhoFace, uFace, aFace) = Face(pFaceSolved);
         var mDotIntoDuct = rhoFace * uFace * FaceArea;
         MassFlow = -mDotIntoDuct;

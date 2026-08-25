@@ -36,14 +36,36 @@ public sealed class EngineSimulator
     /// <summary>Net work done BY the gas on the pistons since start, J.</summary>
     public double CumulativePistonWork => Cylinders.Sum(c => c.CumulativeWork);
 
+    /// <summary>
+    /// Opt-in wall-time breakdown of Step phases (dev/profiling aid; off by
+    /// default, deterministic results unaffected).
+    /// </summary>
+    public static bool EnableProfiling;
+
+    public static readonly long[] ProfileTicks = new long[5]; // valves, ducts, cylinders, junctions, other
+
+    private int _totalCells;
+
     public void Step()
     {
-        var dt = Ducts.Min(d => d.StableTimestep());
+        var t0 = EnableProfiling ? System.Diagnostics.Stopwatch.GetTimestamp() : 0L;
+
+        var dt = double.MaxValue;
+        for (var d = 0; d < Ducts.Count; d++)
+        {
+            var candidate = Ducts[d].StableTimestep();
+            if (candidate < dt)
+            {
+                dt = candidate;
+            }
+        }
 
         foreach (var junction in Junctions)
         {
             junction.Update();
         }
+
+        var t1 = EnableProfiling ? System.Diagnostics.Stopwatch.GetTimestamp() : 0L;
 
         foreach (var valve in Valves)
         {
@@ -55,10 +77,35 @@ public sealed class EngineSimulator
             connector.Update(dt);
         }
 
-        foreach (var duct in Ducts)
+        var t2 = EnableProfiling ? System.Diagnostics.Stopwatch.GetTimestamp() : 0L;
+
+        // Pipes stepped in parallel with the coupling barrier already passed
+        // (plan §5.7). Each duct's arithmetic is independent within a step, so
+        // scheduling cannot change any result — determinism holds bit-exactly.
+        // Parallel dispatch only pays for itself on big meshes: below ~2000
+        // total cells the per-step scheduling overhead exceeds the work
+        // (measured), so small networks step sequentially.
+        if (_totalCells == 0)
         {
-            duct.Step(dt);
+            foreach (var duct in Ducts)
+            {
+                _totalCells += duct.CellCount;
+            }
         }
+
+        if (Ducts.Count >= 4 && _totalCells >= 2000)
+        {
+            Parallel.For(0, Ducts.Count, d => Ducts[d].Step(dt));
+        }
+        else
+        {
+            foreach (var duct in Ducts)
+            {
+                duct.Step(dt);
+            }
+        }
+
+        var t3 = EnableProfiling ? System.Diagnostics.Stopwatch.GetTimestamp() : 0L;
 
         foreach (var plenum in Plenums)
         {
@@ -73,6 +120,15 @@ public sealed class EngineSimulator
         var dTheta = Omega * dt * 180.0 / Math.PI;
         Angle += dTheta;
         Time += dt;
+
+        if (EnableProfiling)
+        {
+            var t4 = System.Diagnostics.Stopwatch.GetTimestamp();
+            ProfileTicks[3] += t1 - t0; // dt scan + junctions
+            ProfileTicks[0] += t2 - t1; // valves + connectors
+            ProfileTicks[1] += t3 - t2; // ducts
+            ProfileTicks[2] += t4 - t3; // plenums + cylinders
+        }
     }
 
     /// <summary>Advance exactly one 720° cycle, integrating per-valve flows and per-cylinder metrics.</summary>

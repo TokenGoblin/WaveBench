@@ -101,6 +101,32 @@ public sealed class CamProfile
         return new CamProfile(angles.ToArray(), lifts.ToArray(), isGeneric: true);
     }
 
+    /// <summary>
+    /// Half-sine lift over the open duration, L·sin(π·(θ−θ₀)/Δθ) — the shape
+    /// used by simplified literature models (e.g. the Yin CSU thesis Eq. 4).
+    /// Generic like the harmonic profile.
+    /// </summary>
+    public static CamProfile HalfSine(double openDeg, double closeDeg, double maxLift, int samples = 721)
+    {
+        if (closeDeg <= openDeg)
+        {
+            closeDeg += 720.0;
+        }
+
+        var duration = closeDeg - openDeg;
+        var angles = new double[samples];
+        var lifts = new double[samples];
+        for (var i = 0; i < samples; i++)
+        {
+            var a = 720.0 * i / (samples - 1);
+            var rel = (a - openDeg + 720.0) % 720.0;
+            angles[i] = a;
+            lifts[i] = rel <= duration ? maxLift * Math.Sin(Math.PI * rel / duration) : 0.0;
+        }
+
+        return new CamProfile(angles, lifts, isGeneric: true);
+    }
+
     /// <summary>Import "angleDeg,lift" CSV (lift in m or mm, inferred; comments with #).</summary>
     public static CamProfile FromCsv(TextReader reader)
     {

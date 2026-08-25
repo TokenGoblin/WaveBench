@@ -6,6 +6,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\WaveBench.Core\WaveBench.Core.csproj" />
     <ProjectReference Include="..\..\src\WaveBench.Model\WaveBench.Model.csproj" />
+    <ProjectReference Include="..\..\src\WaveBench.Analysis\WaveBench.Analysis.csproj" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="FluentAssertions" Version="7.*" />
