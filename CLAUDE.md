@@ -6,8 +6,9 @@
 relevant parts before writing code. 26 phases, strictly in order, each with a
 hard acceptance gate (Part 12). Never let a session span two phases.
 
-**Phase status:** Phases 0–1 complete. Next: Phase 2 (1D solver core:
-HLLC, MUSCL, Sod/Lax/123 verification).
+**Phase status:** Phases 0–2 complete. Next: Phase 3 (source terms and
+thermal model: variable area (well-balanced), friction, wall heat transfer,
+species transport, wall thermal nodes, acoustic bandwidth test §5.5).
 
 Non-negotiables (plan Part 0): TDD in physics layers · cite every empirical
 correlation in an XML doc comment with source and validity range ·

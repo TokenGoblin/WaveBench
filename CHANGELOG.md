@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Phase 2: 1D solver core. MUSCL-Hancock finite-volume scheme with HLLC
+  fluxes (Toro), slope limiters (van Leer/minmod/van Albada), positivity
+  guards, CFL control, transmissive/reflective/periodic boundaries, and the
+  exact Riemann solver as verification reference (anchored to Toro Table
+  4.3). Verification suite: Sod/Lax/123 vs exact, observed order > 1.8,
+  machine-precision conservation, acoustic pulse > 98% amplitude retention
+  over 20 lengths. `docs/numerics.md` started.
+
 - Phase 1: thermodynamics and fuels. NASA-7 species database (GRI-Mech 3.0 +
   Burcat, with a WaveBench NIST-JANAF-fitted H2O upper range), CHEMKIN parser,
   mixture properties (R, cp, γ, a, h, u, s) with a tabulated fast path,
