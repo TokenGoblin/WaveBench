@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Phase 6: combustion, heat transfer, knock, friction. Wiebe (single/double),
+  quasi-two-zone knock tracking (isentropic unburned zone + Livengood–Wu;
+  RON95/E85/M100 ranking gate passes), Woschni/Hohenberg/Annand with exact
+  scaling tests, Chen–Flynn friction, blowby and isothermal crevices,
+  IMEP/BMEP/torque/BSFC metrics, seeded deterministic cycle-to-cycle
+  variability. First §6.2 validation case (Yin CSU thesis runner-length
+  study): 800 mm optimum exact, 600 mm within the 250 rpm gate; short-runner
+  discrepancy documented (unpublished thesis Cd curve).
+
 - Phase 5: engine assembly (motored). Exact slider-crank kinematics, cam
   profiles (harmonic generic + CSV import), Blair-convention valve areas
   with a 2D generic Cd map, the valve boundary solved jointly with the duct

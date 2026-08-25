@@ -10,7 +10,7 @@ namespace WaveBench.Core.EngineModel;
 /// junctions, valves, connectors, ducts, plenums, cylinders. Crank speed is
 /// prescribed.
 /// </summary>
-public sealed class MotoredEngine
+public sealed class EngineSimulator
 {
     public List<DuctSolver> Ducts { get; } = [];
 
@@ -75,13 +75,21 @@ public sealed class MotoredEngine
         Time += dt;
     }
 
-    /// <summary>Advance exactly one 720° cycle, integrating per-valve flows.</summary>
+    /// <summary>Advance exactly one 720° cycle, integrating per-valve flows and per-cylinder metrics.</summary>
     public CycleResult RunCycle()
     {
         var start = Angle;
+        var startTime = Time;
         var intakeIn = new double[Valves.Count];
-        var previousDt = 0.0;
+        var workBefore = Cylinders.Select(c => c.CumulativeWork).ToArray();
+        var fuelBefore = Cylinders.Select(c => c.CumulativeFuelBurned).ToArray();
+        var knockBefore = Cylinders.Select(c => c.CumulativeKnockIntegral).ToArray();
+        foreach (var cyl in Cylinders)
+        {
+            cyl.ResetPeakPressure();
+        }
 
+        var previousDt = 0.0;
         while (Angle - start < 720.0)
         {
             var tBefore = Time;
@@ -93,10 +101,27 @@ public sealed class MotoredEngine
             }
         }
 
+        var imep = new double[Cylinders.Count];
+        var peak = new double[Cylinders.Count];
+        var fuel = new double[Cylinders.Count];
+        var knock = new double[Cylinders.Count];
+        for (var c = 0; c < Cylinders.Count; c++)
+        {
+            imep[c] = (Cylinders[c].CumulativeWork - workBefore[c]) / Cylinders[c].Geometry.DisplacedVolume;
+            peak[c] = Cylinders[c].CyclePeakPressure;
+            fuel[c] = Cylinders[c].CumulativeFuelBurned - fuelBefore[c];
+            knock[c] = Cylinders[c].CumulativeKnockIntegral - knockBefore[c];
+        }
+
         return new CycleResult
         {
             NetValveMass = intakeIn,
             EndAngle = Angle,
+            CycleDuration = Time - startTime,
+            Imep = imep,
+            PeakPressure = peak,
+            FuelMass = fuel,
+            KnockIntegral = knock,
         };
     }
 
@@ -142,6 +167,37 @@ public sealed class CycleResult
     public required double[] NetValveMass { get; init; }
 
     public required double EndAngle { get; init; }
+
+    /// <summary>Wall-clock duration of the cycle, s.</summary>
+    public double CycleDuration { get; init; }
+
+    /// <summary>Net indicated mean effective pressure per cylinder, Pa (full-cycle, pumping included).</summary>
+    public double[] Imep { get; init; } = [];
+
+    public double[] PeakPressure { get; init; } = [];
+
+    public double[] FuelMass { get; init; } = [];
+
+    public double[] KnockIntegral { get; init; } = [];
+}
+
+/// <summary>Brake-side performance from cycle metrics (plan §2.5).</summary>
+public static class PerformanceMetrics
+{
+    /// <summary>Brake MEP = net IMEP − Chen–Flynn FMEP, Pa.</summary>
+    public static double Bmep(double imep, ChenFlynnFriction friction, double peakPressure, double meanPistonSpeed) =>
+        imep - friction.Fmep(peakPressure, meanPistonSpeed);
+
+    /// <summary>Brake torque of a four-stroke, N·m: T = BMEP·V_d,total/(4π).</summary>
+    public static double Torque(double bmep, double totalDisplacement) =>
+        bmep * totalDisplacement / (4.0 * Math.PI);
+
+    /// <summary>Brake power, W.</summary>
+    public static double Power(double torque, double rpm) => torque * rpm * 2.0 * Math.PI / 60.0;
+
+    /// <summary>Brake-specific fuel consumption, kg/J (multiply by 3.6e9 for g/kWh).</summary>
+    public static double Bsfc(double fuelMassPerCycle, double cycleDuration, double brakePower) =>
+        fuelMassPerCycle / cycleDuration / brakePower;
 }
 
 /// <summary>

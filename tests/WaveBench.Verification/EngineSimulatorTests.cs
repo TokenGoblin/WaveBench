@@ -12,7 +12,7 @@ namespace WaveBench.Verification;
 /// curve with a visible tuning peak near the organ-pipe estimate; mass and
 /// energy conserve; repeated runs are bit-identical.
 /// </summary>
-public class MotoredEngineTests(ITestOutputHelper output)
+public class EngineSimulatorTests(ITestOutputHelper output)
 {
     private static readonly PerfectGas Gas = new(1.4, 287.05);
 
@@ -32,7 +32,7 @@ public class MotoredEngineTests(ITestOutputHelper output)
     private const double IntakeOpen = 340.0;
     private const double IntakeClose = 580.0;
 
-    private static MotoredEngine BuildEngine(double rpm, bool sealedEnds = false)
+    private static EngineSimulator BuildEngine(double rpm, bool sealedEnds = false)
     {
         var gasModel = new PerfectGasModel(Gas);
         var rho0 = AmbientP / (Gas.SpecificGasConstant * AmbientT);
@@ -73,7 +73,7 @@ public class MotoredEngineTests(ITestOutputHelper output)
             CamProfile.Harmonic(140.0, 380.0, 0.010),
             new ValveGeometry { HeadDiameter = 0.026, ValveCount = 2 });
 
-        var engine = new MotoredEngine { Rpm = rpm };
+        var engine = new EngineSimulator { Rpm = rpm };
         engine.Ducts.Add(intake);
         engine.Ducts.Add(exhaust);
         engine.Cylinders.Add(cylinder);

@@ -6,12 +6,15 @@
 relevant parts before writing code. 26 phases, strictly in order, each with a
 hard acceptance gate (Part 12). Never let a session span two phases.
 
-**Phase status:** Phases 0–5 complete. Next: Phase 6 (combustion: Wiebe +
-two-zone, Woschni/Hohenberg/Annand heat transfer, blowby/crevices, knock
-integral wiring, Chen–Flynn friction, BMEP/torque/BSFC, cycle-to-cycle
-variability). Known deferrals: junction branch-angle loss coefficients
-(Bassett 2001 — verify papers first; current model is Idelchik 90° tee);
-polydyne cam generator (harmonic generic profile shipped, flagged).
+**Phase status:** Phases 0–6 complete (Phase 6 published-case gate met in
+the runner-resonance regime of the Yin CSU thesis case; short-runner
+discrepancy documented in docs/physics.md §1.9 — closing it needs the
+thesis's Cd figure digitised). Next: Phase 7 (headless product v0.1: model
+schema + serialisation, SQLite results store, CLI run/sweep/validate,
+parallel operating points, mesh-sensitivity utility, §5.7 performance
+budget via BenchmarkDotNet). Known deferrals: junction branch-angle loss
+coefficients (Bassett 2001); polydyne cam generator; full two-zone energy
+split (quasi-two-zone knock tracking shipped).
 
 Non-negotiables (plan Part 0): TDD in physics layers · cite every empirical
 correlation in an XML doc comment with source and validity range ·

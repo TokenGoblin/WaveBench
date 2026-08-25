@@ -174,6 +174,53 @@ return by the 25%-lift effective closing): **5015 rpm — 0.3% from the
 solved peak**. Sealed-engine mass conserved to 1e-6; energy budget closes
 against ∮p·dV to 0.1%; repeated runs bit-identical.
 
+## 1.9 Combustion, heat transfer, knock, friction (Phase 6)
+
+- **Wiebe** (single and double, a = 5, m = 2 defaults): heat release into the
+  single zone; premixed charge energy Q = m·f_fuel·LHV·η_c frozen at start of
+  combustion. Anchors verified (99.33% at θ0+Δθ, exact midpoint value).
+  **Known optimism:** with the perfect-gas model (γ = 1.4 in burned gas vs
+  ~1.27 real) indicated efficiency comes out high (~49% → BSFC ~170 g/kWh);
+  this is precisely the §2.2 argument for species-resolved burned-gas
+  properties, and the multi-species model closes it.
+- **Quasi-two-zone knock tracking**: unburned-zone temperature by isentropic
+  compression from start of combustion (plan §2.4), feeding Douaud–Eyzat +
+  Livengood–Wu during the burn. Gate: at fixed geometry the knock integrals
+  rank RON95 (6.33) &gt; E85 (4.36) &gt; M100 (3.97) — correct qualitative
+  ordering.
+- **Wall heat transfer**: Woschni (SAE 670931, default), Hohenberg
+  (SAE 790825), Annand (1963) with exact scaling-exponent tests and
+  published-range magnitude checks (500–5000 W/m²K firing); exposed area =
+  head + crown + instantaneous liner band; fixed wall temperatures
+  (thermal-network nodes later). Woschni losses take a visible bite out of
+  IMEP versus adiabatic.
+- **Chen–Flynn friction**: FMEP = A + B·p_max + C·c_m + D·c_m² with exposed,
+  documented default coefficients (≈2.3 bar at c_m 15, 80 bar peak).
+- **Blowby**: effective ring-gap orifice to crankcase (choked-capable), mass
+  and enthalpy leave the cycle. **Crevices**: isothermal wall-temperature
+  crevice exchanging mass with pressure; clips the compression peak; charge
+  conserved including standing crevice content.
+- **Metrics**: net IMEP from ∮p·dV per cycle, BMEP, torque, power, BSFC.
+- **Cycle-to-cycle variability** (§3.4): seeded deterministic per-cylinder
+  per-cycle perturbations of phasing/duration/energy (CA50 σ 1.2°, energy CoV
+  2% defaults). Same seed → bit-identical stochastic cycles; measured IMEP
+  CoV 2.4%.
+
+### Validation case: Yin (CSU thesis) runner-length study
+
+First §6.2 validation case (nightly suite): the open-access Colorado State
+thesis engine (100×100 mm, rod 250, CR 10, sine-lift 10 mm valves 50/40 mm,
+IVO 10 BTDC/IVC 45 ABDC/EVO 45 BBDC/EVC 10 ATDC, heat release 35 BTDC/60°),
+intake runner swept 200–800 mm against its published GT-Power optimal-speed
+table. Result: **800 mm exact (3000 vs 3000 rpm), 600 mm within the 250 rpm
+gate (4000 vs 3750)** — the runner-resonance regime our solver computes.
+Short runners (200/400 mm) differ by 750–1000 rpm: the thesis's optima sit
+flat at its base-engine ram peak, set by its unpublished (figure-only)
+measured Cd curve; the thesis's own two models disagree by up to 1.8× there.
+Bounded in the test as a documented discrepancy; closing it requires
+digitising the thesis's Cd figure. Runner diameter (not stated) inferred at
+50 mm from the thesis's own Helmholtz column via its Eq. 24.
+
 ## 2. Fuel model (Phase 1)
 
 A fuel is a data record (`Fuel`), never a constant. Shipped library
