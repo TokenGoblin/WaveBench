@@ -1,0 +1,10 @@
+* text=auto
+*.cs text
+*.md text
+*.yml text
+*.csproj text
+*.props text
+*.sln text
+*.png binary
+*.wav binary
+*.flac binary

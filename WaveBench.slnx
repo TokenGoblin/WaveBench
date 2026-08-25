@@ -1,0 +1,18 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/WaveBench.Acoustics/WaveBench.Acoustics.csproj" />
+    <Project Path="src/WaveBench.Analysis/WaveBench.Analysis.csproj" />
+    <Project Path="src/WaveBench.App/WaveBench.App.csproj" />
+    <Project Path="src/WaveBench.Boost/WaveBench.Boost.csproj" />
+    <Project Path="src/WaveBench.Cli/WaveBench.Cli.csproj" />
+    <Project Path="src/WaveBench.Core/WaveBench.Core.csproj" />
+    <Project Path="src/WaveBench.Model/WaveBench.Model.csproj" />
+    <Project Path="src/WaveBench.Optimize/WaveBench.Optimize.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/WaveBench.Bench/WaveBench.Bench.csproj" />
+    <Project Path="tests/WaveBench.Core.Tests/WaveBench.Core.Tests.csproj" />
+    <Project Path="tests/WaveBench.Validation/WaveBench.Validation.csproj" />
+    <Project Path="tests/WaveBench.Verification/WaveBench.Verification.csproj" />
+  </Folder>
+</Solution>

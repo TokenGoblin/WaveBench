@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Placeholder project. The WinUI 3 / Windows App SDK shell lands in Phase 16
+       (plan Part 12: "No UI exists before Phase 16"). Keeping the UI framework
+       dependency out until then avoids Windows App SDK tooling friction in CI. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\WaveBench.Model\WaveBench.Model.csproj" />
+  </ItemGroup>
+</Project>

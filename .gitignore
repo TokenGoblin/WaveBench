@@ -31,6 +31,9 @@ AppPackages/
 *.msix
 *.appxbundle
 
+# Runtime logs
+logs/
+
 # Local results and scratch
 *.db
 *.db-wal
