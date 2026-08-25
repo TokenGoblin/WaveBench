@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Phase 4: boundaries and components. Characteristic-compatible reservoir
+  boundaries (nozzle within 0.5% of isentropic), compressible orifice with
+  choking, FSAE restrictor as solved geometry (chokes at theory within 1%,
+  sonic throat), 0D plenum verified against the exact blowdown ODE, orifice
+  connectors (duct/plenum/ambient), butterfly throttle, Benson
+  constant-pressure junctions plus an Idelchik 90° tee pressure-loss model
+  (published anchors: Crane 1.3, Idelchik combining formulas; branch-angle
+  generalisation deferred to collector work), and injector mass sources.
+
 - Phase 3: source terms and thermal model. Quasi-1D `DuctSolver` (supersedes
   the constant-area solver): well-balanced variable area (taper at rest
   < 1e-10 m/s), species transport with machine-precision ΣY = 1, the

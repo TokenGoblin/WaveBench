@@ -180,4 +180,7 @@ public sealed class MultiSpeciesGasModel : IGasModel
 
     public double Cp(double rho, double p, ReadOnlySpan<double> y) =>
         CpAt(p / (rho * GasConstant(y)), y);
+
+    /// <summary>Specific enthalpy of one species at T (injector energy flux), J/kg.</summary>
+    public double SpeciesEnthalpy(int speciesIndex, double t) => _species[speciesIndex].Enthalpy(t);
 }

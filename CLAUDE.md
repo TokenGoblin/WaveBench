@@ -6,10 +6,12 @@
 relevant parts before writing code. 26 phases, strictly in order, each with a
 hard acceptance gate (Part 12). Never let a session span two phases.
 
-**Phase status:** Phases 0–3 complete. Next: Phase 4 (boundaries and
-components: open/closed ends with Cd, orifice, throttle, area change, 0D
-plenum, junctions (constant-pressure + pressure-loss), restrictor with
-choking, injector mass source).
+**Phase status:** Phases 0–4 complete. Next: Phase 5 (engine assembly,
+motored: crank kinematics, cam handling/import, valve boundary with Cd maps,
+cylinder 0D gas exchange, firing order, network assembly, cycle convergence).
+Known deferral: junction branch-angle loss coefficients (Bassett 2001) —
+verify those papers' data before implementing; current model is Idelchik 90°
+tee only.
 
 Non-negotiables (plan Part 0): TDD in physics layers · cite every empirical
 correlation in an XML doc comment with source and validity range ·

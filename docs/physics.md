@@ -101,6 +101,46 @@ thermal node with radiation and surface treatments as (ε, R_ext) pairs.
 The wrapped-vs-bare wall temperature difference — which shifts tuned length
 via the gas temperature — is demonstrated in the verification suite.
 
+## 1.7 Boundaries and components (Phase 4)
+
+- **Reservoir / open end** (`ReservoirBoundary`): characteristic-compatible
+  subsonic boundary — inflow solves reservoir stagnation (h0, s0) against the
+  interior's outgoing Riemann invariant; outflow imposes ambient pressure on
+  the interior entropy and invariant. Verified: steady nozzle flow within
+  0.5% of the isentropic tables; equal pressures produce no flow. End C_d
+  (bellmouth ≈ 1.0, plain end ≈ 0.85) is an engineering default pending the
+  full Blair-style end treatment.
+- **Orifice / valve flow** (`CompressibleOrifice`): the §2.6 compressible
+  restriction with choking; Φ* = 0.6847 (γ = 1.4) and the critical ratio
+  0.5283 pinned against standard tables.
+- **FSAE restrictor**: modelled as geometry (cone–throat–diffuser via
+  `DuctGeometry.FromDiameterProfile`), so choking arises from the solved gas
+  dynamics, not a formula. Verified: chokes at the theoretical mass flow
+  within 1%, throat sonic, mass flow independent of further back-pressure
+  reduction.
+- **0D plenum** (`PlenumVolume`): open-system mass/energy/composition balance
+  with queued port flows and deterministic commit. Verified against the exact
+  adiabatic blowdown ODE within 0.5% (and it cools as it empties).
+- **Orifice connector** (`OrificeConnector` + endpoints): quasi-steady
+  coupling duct↔plenum↔ambient with per-direction C_d; duct side applied as
+  an end-face flux override carrying upstream enthalpy and composition.
+- **Throttle** (`ThrottleValve`): butterfly effective-area map by the
+  standard geometric approximation (1 − cosθ/cosθ₀) with leakage floor,
+  replaceable by a measured C_d(angle) map.
+- **Junctions** (`Junction`): Benson constant-pressure solve (linearised
+  characteristics, mixed enthalpy/composition to outflowing branches) and a
+  pressure-loss variant applying Idelchik 90° tee pair-coefficients
+  (`TeeJunctionLoss`, referenced to combined-leg head, under-relaxed).
+  Verified: mass conservation through a splitting junction within 1%, exact
+  symmetric split, and the published-anchor coefficient checks (Crane 1.3
+  dividing-branch value, Idelchik combining formulas). **Limitation:**
+  branch-angle dependence (Bassett, Winterbone & Pearson 2001) is deferred
+  to the collector work, where those papers' coefficients can be verified
+  directly; the current loss model is exact only for 90° tees.
+- **Injector** (`DuctMassSource`): metered vapour mass of one species into a
+  cell at a given temperature, zero axial momentum, enthalpy-consistent.
+  Verified: injected mass exactly matches the metered rate.
+
 ## 2. Fuel model (Phase 1)
 
 A fuel is a data record (`Fuel`), never a constant. Shipped library

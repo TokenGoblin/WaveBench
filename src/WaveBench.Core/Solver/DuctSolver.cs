@@ -13,6 +13,9 @@ public enum BoundaryKind
 
     /// <summary>Wrap-around; must be set on both ends.</summary>
     Periodic,
+
+    /// <summary>Ghost states supplied by an attached <see cref="IEndBoundary"/>.</summary>
+    External,
 }
 
 /// <summary>
@@ -128,6 +131,25 @@ public sealed class DuctSolver
 
     public BoundaryKind RightBoundary { get; set; } = BoundaryKind.Transmissive;
 
+    /// <summary>External boundary handler for <see cref="BoundaryKind.External"/> ends.</summary>
+    public IEndBoundary? LeftEnd { get; set; }
+
+    public IEndBoundary? RightEnd { get; set; }
+
+    /// <summary>
+    /// Direct interface-flux override at an end face (orifice/plenum-port
+    /// coupling): (mass, momentum, energy) flux in +x sense, plus the
+    /// composition carried by incoming mass. Persists until changed; the
+    /// network orchestrator sets it before each step.
+    /// </summary>
+    public (double FRho, double FMom, double FEner)? LeftFluxOverride { get; set; }
+
+    public (double FRho, double FMom, double FEner)? RightFluxOverride { get; set; }
+
+    public double[]? LeftFluxComposition { get; set; }
+
+    public double[]? RightFluxComposition { get; set; }
+
     /// <summary>Haaland/Darcy wall friction source (plan §2.1).</summary>
     public bool FrictionEnabled { get; set; }
 
@@ -140,6 +162,14 @@ public sealed class DuctSolver
 
     /// <summary>Pulsating-flow enhancement on Colburn h (empirical, plan §2.1).</summary>
     public double HeatTransferEnhancement { get; set; } = 1.3;
+
+    /// <summary>
+    /// Injector-style mass sources (plan §2.7): vapour mass of one species
+    /// added to a cell at a given temperature, at zero axial momentum.
+    /// Requires the multi-species gas model. Rates are settable per step
+    /// (injection timing/targeting arrives with the engine model).
+    /// </summary>
+    public List<DuctMassSource> MassSources { get; } = [];
 
     public void AttachWall(WallThermalModel wall)
     {
@@ -315,6 +345,18 @@ public sealed class DuctSolver
             }
         }
 
+        if (LeftBoundary == BoundaryKind.External)
+        {
+            ApplyExternalGhosts(LeftEnd ?? throw new InvalidOperationException("LeftEnd boundary not set."),
+                interiorCell: first, ghost0: 0, ghost1: 1, isLeftEnd: true);
+        }
+
+        if (RightBoundary == BoundaryKind.External)
+        {
+            ApplyExternalGhosts(RightEnd ?? throw new InvalidOperationException("RightEnd boundary not set."),
+                interiorCell: last, ghost0: last + 1, ghost1: last + 2, isLeftEnd: false);
+        }
+
         void Copy(int from, int to)
         {
             _rho[to] = _rho[from];
@@ -324,6 +366,46 @@ public sealed class DuctSolver
             for (var s = 0; s < _gas.SpeciesCount; s++)
             {
                 _rhoY[s][to] = _rhoY[s][from];
+            }
+        }
+    }
+
+    private void ApplyExternalGhosts(IEndBoundary boundary, int interiorCell, int ghost0, int ghost1, bool isLeftEnd)
+    {
+        Span<double> y = _gas.SpeciesCount > 0 ? stackalloc double[_gas.SpeciesCount] : default;
+        FillMassFractions(interiorCell, y);
+        var interior = _gas.FromConserved(_rho[interiorCell], _mom[interiorCell], _ener[interiorCell], y, _t[interiorCell]);
+
+        var ghost = boundary.Ghost(interior, _rho[interiorCell], y, isLeftEnd, _gas);
+        Span<double> yGhost = _gas.SpeciesCount > 0 ? stackalloc double[_gas.SpeciesCount] : default;
+        if (_gas.SpeciesCount > 0)
+        {
+            if (ghost.MassFractions is { } provided)
+            {
+                if (provided.Length != _gas.SpeciesCount)
+                {
+                    throw new InvalidOperationException("Boundary composition length mismatch.");
+                }
+
+                provided.CopyTo(yGhost);
+            }
+            else
+            {
+                y.CopyTo(yGhost);
+            }
+        }
+
+        var w = ghost.State;
+        var mom = w.Rho * w.U;
+        var ener = _gas.TotalEnergy(w.Rho, w.U, w.P, yGhost);
+        foreach (var g in (ReadOnlySpan<int>)[ghost0, ghost1])
+        {
+            _rho[g] = w.Rho;
+            _mom[g] = mom;
+            _ener[g] = ener;
+            for (var k = 0; k < _gas.SpeciesCount; k++)
+            {
+                _rhoY[k][g] = w.Rho * yGhost[k];
             }
         }
     }
@@ -502,6 +584,16 @@ public sealed class DuctSolver
                 new HllcSide(rRho, rU, rP, eR, aR, gR));
         }
 
+        if (LeftFluxOverride is { } left)
+        {
+            (_fluxRho[0], _fluxMom[0], _fluxEner[0]) = left;
+        }
+
+        if (RightFluxOverride is { } right)
+        {
+            (_fluxRho[_n], _fluxMom[_n], _fluxEner[_n]) = right;
+        }
+
         static double SoundSpeedOf(double rho, double p, double gamma) => Math.Sqrt(gamma * p / rho);
     }
 
@@ -520,6 +612,19 @@ public sealed class DuctSolver
             {
                 var yLeftUp = _fluxRho[i] >= 0 ? _faceRY[k][i + 1] : _faceLY[k][i + 2];
                 var yRightUp = _fluxRho[i + 1] >= 0 ? _faceRY[k][i + 2] : _faceLY[k][i + 3];
+
+                // Flux-override ends: incoming mass carries the composition the
+                // external component prescribes.
+                if (i == 0 && LeftFluxOverride is not null && _fluxRho[0] >= 0 && LeftFluxComposition is { } yIn)
+                {
+                    yLeftUp = yIn[k];
+                }
+
+                if (i == _n - 1 && RightFluxOverride is not null && _fluxRho[_n] < 0 && RightFluxComposition is { } yInR)
+                {
+                    yRightUp = yInR[k];
+                }
+
                 _rhoY[k][c] -= f * (aR * _fluxRho[i + 1] * yRightUp - aL * _fluxRho[i] * yLeftUp);
             }
 
@@ -556,6 +661,25 @@ public sealed class DuctSolver
 
     private void ApplySources(double dt)
     {
+        foreach (var source in MassSources)
+        {
+            if (source.MassRate <= 0)
+            {
+                continue;
+            }
+
+            if (_gas is not MultiSpeciesGasModel multi)
+            {
+                throw new InvalidOperationException("Injector mass sources require the multi-species gas model.");
+            }
+
+            var c = source.Cell + Ghost;
+            var dmPerVolume = source.MassRate * dt / (_geometry.CellArea[source.Cell] * _dx);
+            _rho[c] += dmPerVolume;
+            _rhoY[source.SpeciesIndex][c] += dmPerVolume;
+            _ener[c] += dmPerVolume * multi.SpeciesEnthalpy(source.SpeciesIndex, source.Temperature);
+        }
+
         if (!FrictionEnabled && !HeatTransferEnabled)
         {
             return;
