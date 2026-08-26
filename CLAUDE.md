@@ -41,8 +41,8 @@ via `git commit -F` with a UTF-8-no-BOM file.
 Known deferrals: ISO 532-3 / ECMA-418-2 / fluctuation strength / DIN 45681
 (Phase 11 - no verification anchors available; ISO 532-1 and DIN 45692 are
 done and verified); Bassett 2001 UNSTEADY junction coefficients (branch-angle
-dependence is now carried via the Idelchik wye forms); polydyne cam
-generator; full two-zone energy split; Yin-case short-runner discrepancy
+dependence is now carried via the Idelchik wye forms); full two-zone energy
+split; Yin-case short-runner discrepancy
 (docs/physics.md §1.9); SIMD flux kernels when 3000-cell collector networks
 arrive (docs/numerics.md §6).
 

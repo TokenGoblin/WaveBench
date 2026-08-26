@@ -102,6 +102,204 @@ public sealed class CamProfile
     }
 
     /// <summary>
+    /// Polydyne (polynomial) lift profile — the family real cams are designed
+    /// from, after Dudley ("A New Approach to Cam Design", Machine Design,
+    /// 1948) and Thoren, Engemann &amp; Stoddart (SAE 1952). Lift is
+    ///   y(x) = 1 + C₂x² + C_p x^p + C_q x^q + C_r x^r,   x = (θ − θ_nose)/(Δθ/2)
+    /// with the four coefficients fixed by requiring lift, velocity,
+    /// acceleration AND jerk all to vanish at the seat (x = ±1).
+    ///
+    /// <b>Why this rather than the harmonic profile.</b> The cosine flank
+    /// reaches the seat with a finite acceleration — 0.5·L·(2π/Δθ)² — so
+    /// acceleration steps discontinuously to zero at seating and jerk is
+    /// infinite there. That is precisely what makes a follower bounce, and it
+    /// is why no real cam is a raised cosine. A polydyne closes to zero jerk,
+    /// which is the entire reason the family exists.
+    ///
+    /// Exponents default to the classic 2-8-10-12 set. They must be distinct
+    /// and greater than 3, or the boundary conditions are not independent.
+    ///
+    /// Still marked generic: this is a correctly-shaped profile, not the
+    /// user's cam. Measured lift data always wins.
+    /// </summary>
+    /// <param name="openDeg">Opening angle in cycle coordinates, degrees.</param>
+    /// <param name="closeDeg">Closing angle in cycle coordinates, degrees.</param>
+    /// <param name="maxLift">Peak lift at the nose, m.</param>
+    /// <param name="p">Second exponent (default 8).</param>
+    /// <param name="q">Third exponent (default 10).</param>
+    /// <param name="r">Fourth exponent (default 12).</param>
+    /// <param name="samples">Table resolution over the 720° cycle.</param>
+    public static CamProfile Polydyne(
+        double openDeg, double closeDeg, double maxLift,
+        int p = 8, int q = 10, int r = 12, int samples = 721)
+    {
+        if (closeDeg <= openDeg)
+        {
+            closeDeg += 720.0;
+        }
+
+        var coefficients = PolydyneCoefficients(p, q, r);
+        var duration = closeDeg - openDeg;
+        var half = duration / 2.0;
+
+        var angles = new double[samples];
+        var lifts = new double[samples];
+        for (var i = 0; i < samples; i++)
+        {
+            var a = 720.0 * i / (samples - 1);
+            var rel = (a - openDeg + 720.0) % 720.0;
+            angles[i] = a;
+            lifts[i] = rel <= duration
+                ? maxLift * Math.Max(0.0, PolydyneLift((rel - half) / half, p, q, r, coefficients))
+                : 0.0;
+        }
+
+        return new CamProfile(angles, lifts, isGeneric: true);
+    }
+
+    /// <summary>
+    /// Normalised polydyne lift at x ∈ [−1, 1], 1 at the nose and 0 at the
+    /// seat. Public so the profile's derivatives can be checked directly
+    /// rather than only through a sampled table.
+    /// </summary>
+    public static double PolydyneLift(double x, int p = 8, int q = 10, int r = 12, double[]? coefficients = null)
+    {
+        var c = coefficients ?? PolydyneCoefficients(p, q, r);
+        var t = Math.Abs(x);
+        return 1.0 + (c[0] * t * t) + (c[1] * Math.Pow(t, p)) + (c[2] * Math.Pow(t, q)) + (c[3] * Math.Pow(t, r));
+    }
+
+    /// <summary>
+    /// Exact <paramref name="order"/>-th derivative of the normalised
+    /// polydyne lift with respect to x, at x ∈ [−1, 1]. Order 1, 2 and 3 are
+    /// the follower's velocity, acceleration and jerk in normalised units —
+    /// which are what a cam is actually designed against, and what a finite
+    /// difference cannot resolve near the seat where all of them vanish.
+    /// </summary>
+    public static double PolydyneDerivative(
+        double x, int order, int p = 8, int q = 10, int r = 12, double[]? coefficients = null)
+    {
+        if (order is < 0 or > 4)
+        {
+            throw new ArgumentOutOfRangeException(nameof(order), order, "Order must be 0–4.");
+        }
+
+        var c = coefficients ?? PolydyneCoefficients(p, q, r);
+        var t = Math.Abs(x);
+
+        // d^k/dt^k of t^n is n!/(n−k)! · t^(n−k), zero once k > n.
+        static double Term(double coefficient, int n, int order, double t)
+        {
+            if (order > n)
+            {
+                return 0.0;
+            }
+
+            var factor = 1.0;
+            for (var i = 0; i < order; i++)
+            {
+                factor *= n - i;
+            }
+
+            return coefficient * factor * Math.Pow(t, n - order);
+        }
+
+        var value = Term(c[0], 2, order, t) + Term(c[1], p, order, t)
+                    + Term(c[2], q, order, t) + Term(c[3], r, order, t);
+
+        if (order == 0)
+        {
+            value += 1.0;
+        }
+
+        // Odd derivatives change sign on the opening flank, because the
+        // profile is |x|-symmetric about the nose.
+        return order % 2 == 1 && x < 0 ? -value : value;
+    }
+
+    /// <summary>
+    /// Solves for [C₂, C_p, C_q, C_r] from the seating conditions
+    /// y(1) = y′(1) = y″(1) = y‴(1) = 0.
+    /// </summary>
+    public static double[] PolydyneCoefficients(int p = 8, int q = 10, int r = 12)
+    {
+        if (p <= 3 || q <= p || r <= q)
+        {
+            throw new ArgumentException(
+                $"Polydyne exponents must satisfy 3 < p < q < r; got {p}, {q}, {r}.", nameof(p));
+        }
+
+        // Rows: value, first, second and third derivative at x = 1.
+        // Columns: C₂, C_p, C_q, C_r. Right-hand side is −(the constant term).
+        double D1(int n) => n;
+        double D2(int n) => (double)n * (n - 1);
+        double D3(int n) => (double)n * (n - 1) * (n - 2);
+
+        var m = new[,]
+        {
+            { 1.0, 1.0, 1.0, 1.0, -1.0 },
+            { D1(2), D1(p), D1(q), D1(r), 0.0 },
+            { D2(2), D2(p), D2(q), D2(r), 0.0 },
+            { D3(2), D3(p), D3(q), D3(r), 0.0 },
+        };
+
+        return SolveFourByFour(m);
+    }
+
+    /// <summary>Gaussian elimination with partial pivoting on a 4×5 augmented matrix.</summary>
+    private static double[] SolveFourByFour(double[,] m)
+    {
+        const int n = 4;
+        for (var col = 0; col < n; col++)
+        {
+            var pivot = col;
+            for (var row = col + 1; row < n; row++)
+            {
+                if (Math.Abs(m[row, col]) > Math.Abs(m[pivot, col]))
+                {
+                    pivot = row;
+                }
+            }
+
+            if (Math.Abs(m[pivot, col]) < 1e-14)
+            {
+                throw new InvalidOperationException("Polydyne boundary conditions are singular for these exponents.");
+            }
+
+            if (pivot != col)
+            {
+                for (var k = col; k <= n; k++)
+                {
+                    (m[col, k], m[pivot, k]) = (m[pivot, k], m[col, k]);
+                }
+            }
+
+            for (var row = col + 1; row < n; row++)
+            {
+                var factor = m[row, col] / m[col, col];
+                for (var k = col; k <= n; k++)
+                {
+                    m[row, k] -= factor * m[col, k];
+                }
+            }
+        }
+
+        var x = new double[n];
+        for (var row = n - 1; row >= 0; row--)
+        {
+            var sum = m[row, n];
+            for (var k = row + 1; k < n; k++)
+            {
+                sum -= m[row, k] * x[k];
+            }
+
+            x[row] = sum / m[row, row];
+        }
+
+        return x;
+    }
+
+    /// <summary>
     /// Half-sine lift over the open duration, L·sin(π·(θ−θ₀)/Δθ) — the shape
     /// used by simplified literature models (e.g. the Yin CSU thesis Eq. 4).
     /// Generic like the harmonic profile.

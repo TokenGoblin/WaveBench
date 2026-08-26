@@ -180,9 +180,37 @@ via the gas temperature — is demonstrated in the verification suite.
   and wrist-pin offset; V(θ), dV/dθ, mean piston speed, max-piston-speed
   angle. Verified: TDC/BDC volumes exact, ∮|dV| = 2·Vd, pin offset shifts
   true TDC to sinθ = e/(l+a).
-- **Cam** (`CamProfile`): measured-table import (CSV, mm/m inferred) and a
-  generic harmonic analytic profile (flagged generic; polydyne generator
-  pending), event detection, effective-closing angle at a lift fraction.
+- **Cam** (`CamProfile`): measured-table import (CSV, mm/m inferred), a
+  generic harmonic analytic profile, a half-sine, and a **polydyne
+  generator** — all analytic profiles flagged generic, since measured lift
+  always wins. Plus event detection and effective-closing angle at a lift
+  fraction.
+
+  The polydyne (Dudley, *Machine Design* 1948; Thoren, Engemann & Stoddart,
+  SAE 1952) is the family real cams are designed from:
+  y = 1 + C₂x² + C_px^p + C_qx^q + C_rx^r on x = (θ − θ_nose)/(Δθ/2), with
+  the four coefficients fixed by requiring lift, velocity, acceleration **and
+  jerk** all to vanish at the seat. Default exponents 2-8-10-12.
+
+  This matters because the raised cosine — the previous generic profile —
+  reaches the seat with a finite acceleration of ½L(2π/Δθ)². Measured: 4.935
+  in normalised units, which is π²/2 exactly. Acceleration therefore steps
+  discontinuously to zero at seating and jerk is unbounded, which is what
+  makes a follower bounce, and why no real cam is a cosine. The polydyne
+  arrives with all three at zero.
+
+  Verified against exact analytic derivatives rather than finite differences
+  — near the seat every quantity vanishes together, so a difference stencil
+  measures its own truncation error (it reported 3e-5 for something
+  identically zero). The strongest check turned up by accident: with
+  exponents 2-4-6-8 the solver returns C = [−4, 6, −4, 1], the binomial
+  coefficients of **(1 − x²)⁴**, which satisfies the seating conditions by
+  inspection. The linear solve is therefore checked against an independent
+  closed form, matched to 1e-12 across the whole flank.
+
+  One thing it is *not*: a breathing gain. The polydyne encloses 99.5% of the
+  cosine's lift-area at equal peak and duration. The advantage is entirely
+  kinematic.
 - **Valve flow** (§2.6): reference area = valve curtain, effective area =
   min(curtain, throat) — Blair's convention; C_d(L/D, pressure ratio) 2D map
   with a generic pent-roof default (flagged; replace with flow-bench data).

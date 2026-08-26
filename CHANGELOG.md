@@ -37,6 +37,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - DIN 45692:2009 sharpness in acum, on the ISO 532-1 specific-loudness
   pattern. The standard's reference signal measures 1.028 acum against the
   defined 1.0.
+- Polydyne cam generator (`CamProfile.Polydyne`), closing that deferral.
+  y = 1 + C₂x² + C_px^p + C_qx^q + C_rx^r with the coefficients solved from
+  zero lift, velocity, acceleration and jerk at the seat (Dudley 1948;
+  Thoren, Engemann & Stoddart, SAE 1952); default exponents 2-8-10-12. The
+  raised cosine it replaces reaches the seat with acceleration π²/2 in
+  normalised units, so its jerk is unbounded — which is what bounces a
+  follower. Also `CamProfile.PolydyneDerivative` for exact follower velocity,
+  acceleration and jerk. Verified against a closed form: the 2-4-6-8 family
+  is exactly (1 − x²)⁴, matched to 1e-12 across the flank.
 - Branch-angle dependence in the junction pressure-loss model, via the cos α
   terms of Idelchik's converging- and diverging-wye formulas.
   `Junction.Connect` takes a branch angle; 90° reduces bit-identically to the
