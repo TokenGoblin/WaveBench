@@ -241,9 +241,20 @@ against ∮p·dV to 0.1%; repeated runs bit-identical.
   single zone; premixed charge energy Q = m·f_fuel·LHV·η_c frozen at start of
   combustion. Anchors verified (99.33% at θ0+Δθ, exact midpoint value).
   **Known optimism:** with the perfect-gas model (γ = 1.4 in burned gas vs
-  ~1.27 real) indicated efficiency comes out high (~49% → BSFC ~170 g/kWh);
-  this is precisely the §2.2 argument for species-resolved burned-gas
-  properties, and the multi-species model closes it.
+  ~1.27 real) efficiency comes out high — the fired fixture below returns
+  173 g/kWh, which on a 44 MJ/kg fuel is 47% *brake* thermal efficiency
+  against a real naturally-aspirated peak nearer 35–38%. This is precisely
+  the §2.2 argument for species-resolved burned-gas properties, and the
+  multi-species model closes it.
+
+> **All fired figures in this section were re-measured after the burn-phasing
+> fix below.** Anything quoted for Phase 6 in `CHANGELOG.md` predates it and
+> is kept as a historical record, not as a current claim. Motored results
+> (§1.8, Phase 5) are unaffected — there is no combustion in them.
+
+**Phase 6 fixture** (86×62 single, CR 11, 4-valve, 5000 rpm, Woschni,
+T_wall 420 K, −15° spark / 55° burn, λ = 1 RON95): IMEP 20.99 bar, peak
+98.8 bar, BMEP 19.12 bar, torque 54.8 N·m, power 28.7 kW, BSFC 173 g/kWh.
 - **Burn bookkeeping cycles at gas-exchange TDC, not at the local-angle
   wrap.** This was a real and serious defect, found by review of the two-zone
   work and pre-dating it. Local angle runs 0–720 with 0 at firing TDC, so a
@@ -322,8 +333,15 @@ against ∮p·dV to 0.1%; repeated runs bit-identical.
 
 - **Knock tracking** rides on the same unburned zone (plan §2.4), feeding
   Douaud–Eyzat + Livengood–Wu during the burn. Gate: at fixed geometry the
-  knock integrals rank RON95 (6.33) &gt; E85 (4.36) &gt; M100 (3.97) — correct
-  qualitative ordering.
+  knock integrals rank RON95 (6.828) &gt; E85 (4.703) &gt; M100 (4.277) —
+  correct qualitative ordering, which is what the gate asks for.
+
+  These rose about 8% with the burn-phasing fix, and that is the expected
+  direction: the start-of-combustion reference was previously frozen at TDC,
+  so the unburned zone's isentropic compression was measured from the wrong
+  state and over a shorter span. The integral now accumulates across the real
+  pre-TDC portion of the burn. The **ordering** is the verified claim; the
+  absolute values are model output, not a validated prediction.
 - **Wall heat transfer**: Woschni (SAE 670931, default), Hohenberg
   (SAE 790825), Annand (1963) with exact scaling-exponent tests and
   published-range magnitude checks (500–5000 W/m²K firing); exposed area =
@@ -340,7 +358,15 @@ against ∮p·dV to 0.1%; repeated runs bit-identical.
 - **Cycle-to-cycle variability** (§3.4): seeded deterministic per-cylinder
   per-cycle perturbations of phasing/duration/energy (CA50 σ 1.2°, energy CoV
   2% defaults). Same seed → bit-identical stochastic cycles; measured IMEP
-  CoV 2.4%.
+  CoV **1.96%**, in the 1–3% band typical of a well-behaved engine.
+
+  This fell from 2.4% with the burn-phasing fix, and again the direction is
+  the expected one. The per-cycle perturbation is drawn at the cycle reset,
+  which used to sit at firing TDC — in the middle of the burn — so a phase
+  shift moved the single-step heat dump that the old bookkeeping produced,
+  which is a far more violent perturbation than shifting a smooth burn. The
+  draw now happens at gas-exchange TDC, before the burn starts, and the same
+  1.2° CA50 scatter produces the smaller and more physical IMEP spread.
 
 ### Validation case: Yin (CSU thesis) runner-length study
 
