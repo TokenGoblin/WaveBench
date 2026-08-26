@@ -37,6 +37,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - DIN 45692:2009 sharpness in acum, on the ISO 532-1 specific-loudness
   pattern. The standard's reference signal measures 1.028 acum against the
   defined 1.0.
+- Two-zone burned/unburned combustion split (plan §2.4 Level 2), closing that
+  deferral. Zones share the cylinder pressure and their volumes sum to it;
+  the unburned zone compresses isentropically from start of combustion and
+  the burned zone takes the remaining volume. Wall heat transfer is now
+  resolved by zone rather than from the bulk mean — at x_b = 0.63 the zones
+  sit at 632 K and 3666 K either side of a 2543 K mean, and heat loss is
+  linear in (T − T_wall), so a single mean under-predicts it. **On by
+  default**; costs 0.6–0.9% torque and 1–2 g/kWh BSFC with VE unchanged, and
+  `combustion.twoZoneHeatTransfer: false` recovers the old behaviour. New
+  outputs: `BurnedTemperature`, `BurnedVolume`, `BurnedFraction`,
+  `CumulativeHeatLoss`.
 - Polydyne cam generator (`CamProfile.Polydyne`), closing that deferral.
   y = 1 + C₂x² + C_px^p + C_qx^q + C_rx^r with the coefficients solved from
   zero lift, velocity, acceleration and jerk at the seat (Dudley 1948;

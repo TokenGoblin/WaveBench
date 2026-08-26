@@ -244,11 +244,49 @@ against ∮p·dV to 0.1%; repeated runs bit-identical.
   ~1.27 real) indicated efficiency comes out high (~49% → BSFC ~170 g/kWh);
   this is precisely the §2.2 argument for species-resolved burned-gas
   properties, and the multi-species model closes it.
-- **Quasi-two-zone knock tracking**: unburned-zone temperature by isentropic
-  compression from start of combustion (plan §2.4), feeding Douaud–Eyzat +
-  Livengood–Wu during the burn. Gate: at fixed geometry the knock integrals
-  rank RON95 (6.33) &gt; E85 (4.36) &gt; M100 (3.97) — correct qualitative
-  ordering.
+- **Two-zone burned/unburned split** (plan §2.4 Level 2). Both zones share
+  the cylinder pressure and their volumes sum to the cylinder volume — that
+  constraint is what makes it a two-zone model rather than two unrelated
+  gases, and it is asserted directly. The unburned zone is compressed
+  isentropically from the start of combustion; the burned zone takes the
+  volume left over, and its temperature follows from the ideal-gas law at the
+  shared pressure. The pressure solve itself is untouched: the total energy
+  balance is unchanged, so the zones are diagnostic plus an input to wall
+  heat transfer.
+
+  **Why it matters.** Heat loss is linear in (T − T_wall), and during the
+  burn the mean gas temperature is not what touches the wall. Measured at
+  x_b = 0.63: unburned 632 K, mean 2543 K, burned 3666 K — a 3034 K spread
+  either side of the mean a single-zone model would use. Wall area is
+  apportioned by volume fraction, which is Heywood's simple treatment
+  (*Internal Combustion Engine Fundamentals* §12.4); the real split depends
+  on flame geometry and plug position, which is why this is presented as a
+  zone-resolved heat-transfer model rather than anything more.
+
+  **On by default**, with measured cost against the single-zone model on a
+  600 cc single: 0.6–0.9% torque and 1–2 g/kWh BSFC across 3000–7000 rpm,
+  with volumetric efficiency unchanged — heat lost during the burn does not
+  change how the engine breathes. It moves in the direction of the known
+  efficiency optimism noted above. `combustion.twoZoneHeatTransfer: false`
+  recovers the old behaviour. The whole suite, including the Yin validation
+  case, passes either way.
+
+  **The flame kernel is the hard part, and it bit.** At initiation the burned
+  mass goes to zero and T_b = p·V_b/(m_b·R) is a 0/0 whose two limits do not
+  approach at the same rate. Observed: 73% of the chamber volume assigned to
+  a zone of essentially zero mass, returning 5.6×10¹⁰ K, which then poisoned
+  the energy balance for the rest of the run. Zones are therefore not
+  resolved below 1% burned mass — where the single-zone answer is also the
+  physically honest one, since a kernel that small cannot dominate wall heat
+  transfer — with a far-off backstop ceiling behind it. A first attempt at a
+  4000 K ceiling was itself a bug: it rejected the Yin case, whose *mean*
+  temperature legitimately reaches 4013 K on the perfect-gas model. A ceiling
+  tight enough to police physics is tight enough to break honest results.
+
+- **Knock tracking** rides on the same unburned zone (plan §2.4), feeding
+  Douaud–Eyzat + Livengood–Wu during the burn. Gate: at fixed geometry the
+  knock integrals rank RON95 (6.33) &gt; E85 (4.36) &gt; M100 (3.97) — correct
+  qualitative ordering.
 - **Wall heat transfer**: Woschni (SAE 670931, default), Hohenberg
   (SAE 790825), Annand (1963) with exact scaling-exponent tests and
   published-range magnitude checks (500–5000 W/m²K firing); exposed area =

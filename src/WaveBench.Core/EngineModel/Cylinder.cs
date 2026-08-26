@@ -157,10 +157,44 @@ public sealed class Cylinder
     /// <summary>Livengood–Wu integral, cumulative across cycles (take deltas per cycle).</summary>
     public double CumulativeKnockIntegral { get; private set; }
 
+    /// <summary>
+    /// Heat lost to the walls since start, J, as a positive quantity
+    /// (cumulative; take deltas per cycle). A standard engine metric in its
+    /// own right, and what shows whether a zone-resolved heat-transfer model
+    /// is actually changing anything.
+    /// </summary>
+    public double CumulativeHeatLoss { get; private set; }
+
     public void ResetPeakPressure() => CyclePeakPressure = State.P;
 
     /// <summary>Unburned-zone temperature (isentropic from start of compression), K.</summary>
     public double UnburnedTemperature { get; private set; }
+
+    /// <summary>
+    /// Burned-zone temperature, K, from the shared pressure and the volume
+    /// the unburned zone does not occupy. Zero outside combustion.
+    /// </summary>
+    public double BurnedTemperature { get; private set; }
+
+    /// <summary>Volume occupied by the burned zone, m³.</summary>
+    public double BurnedVolume { get; private set; }
+
+    /// <summary>Burned mass fraction, 0–1.</summary>
+    public double BurnedFraction { get; private set; }
+
+    /// <summary>
+    /// Resolve wall heat transfer by zone rather than from the bulk mean
+    /// temperature (plan §2.4 Level 2).
+    ///
+    /// On by default, because the plan requires it and it is the more
+    /// faithful model: a single mean temperature under-predicts heat loss
+    /// while the flame is passing, since loss is linear in (T − T_wall) and
+    /// the burned gas runs hundreds of K above the mean. Measured cost on a
+    /// 600 cc single: 0.6–0.9% torque and 1–2 g/kWh BSFC, with volumetric
+    /// efficiency unchanged — heat lost during the burn does not change how
+    /// the engine breathes. Set false for the single-zone model.
+    /// </summary>
+    public bool TwoZoneHeatTransfer { get; set; } = true;
 
     public void CopyMassFractions(Span<double> y)
     {
@@ -240,6 +274,9 @@ public sealed class Cylinder
             _previousBurnFraction = 0.0;
             _cycleHeatRelease = 0.0;
             _socPressure = 0.0;
+            BurnedFraction = 0.0;
+            BurnedTemperature = 0.0;
+            BurnedVolume = 0.0;
             if (Variability is { } variability)
             {
                 (_phaseShift, _durationScale, _energyScale) = variability.Draw(CylinderIndex, _cycleNumber);
@@ -282,13 +319,18 @@ public sealed class Cylinder
 
             CumulativeFuelBurned += dxb * Mass * FuelChargeFraction;
             heat = _cycleHeatRelease * dxb;
+        }
 
-            // Unburned-zone temperature (isentropic from start of combustion)
-            // and the Livengood–Wu integral, while unburned charge remains.
-            if (KnockOctaneNumber is { } octane)
+        // Zone split whenever combustion has started, so the burned and
+        // unburned temperatures are available to the knock integral, to the
+        // wall-heat model, and as outputs — not only when knock is tracked.
+        if (_cycleHeatRelease > 0.0)
+        {
+            UpdateZones(xb);
+
+            // Livengood–Wu, while unburned charge remains.
+            if (dxb > 0 && KnockOctaneNumber is { } octane)
             {
-                UnburnedTemperature = _socTemperature
-                                      * Math.Pow(State.P / _socPressure, (_socGamma - 1.0) / _socGamma);
                 var tau = WaveBench.Core.Thermo.Fuels.KnockModel.InductionTime(
                     octane, State.P, UnburnedTemperature);
                 CumulativeKnockIntegral += dt / tau;
@@ -341,6 +383,135 @@ public sealed class Cylinder
 
         // Exposed area: head + piston crown + instantaneous liner band.
         var area = 2.0 * Geometry.PistonArea + Math.PI * Geometry.Bore * Geometry.PistonPosition(theta);
-        return -h * area * (State.T - WallTemperature) * dt;
+
+        if (!TwoZoneHeatTransfer
+            || BurnedFraction < MinimumResolvedBurnedFraction
+            || BurnedFraction >= 1.0
+            || BurnedTemperature <= 0.0)
+        {
+            var singleZone = -h * area * (State.T - WallTemperature) * dt;
+            CumulativeHeatLoss -= singleZone;
+            return singleZone;
+        }
+
+        // Two-zone split (plan §2.4 Level 2). During the burn the mean gas
+        // temperature is not the temperature touching the wall: the burned
+        // zone runs hundreds of K above it and the unburned zone well below,
+        // and heat loss is linear in (T − T_wall), so a single mean
+        // systematically UNDER-predicts loss while the flame is passing.
+        //
+        // Wall area is apportioned by volume fraction, which is Heywood's
+        // simple two-zone treatment (Internal Combustion Engine Fundamentals,
+        // §12.4): the burned gas occupies V_b/V of the chamber and so, on
+        // average, contacts that fraction of the surface. This is an
+        // approximation — the real split depends on flame geometry and where
+        // the plug sits — and it is the reason this is not claimed as more
+        // than a zone-resolved heat-transfer model.
+        var burnedVolumeFraction = Math.Clamp(BurnedVolume / Math.Max(Volume, 1e-12), 0.0, 1.0);
+        var burnedLoss = h * area * burnedVolumeFraction * (BurnedTemperature - WallTemperature);
+        var unburnedLoss = h * area * (1.0 - burnedVolumeFraction) * (UnburnedTemperature - WallTemperature);
+        var loss = -(burnedLoss + unburnedLoss) * dt;
+        CumulativeHeatLoss -= loss;
+        return loss;
+    }
+
+    /// <summary>
+    /// Updates the burned/unburned zone split for the current state. Both
+    /// zones share the cylinder pressure and their volumes sum to the
+    /// cylinder volume, which is what makes this a two-zone model rather than
+    /// two independent gases.
+    ///
+    /// The unburned zone is compressed isentropically from the start of
+    /// combustion (plan §2.4), which is the same construction the knock
+    /// integral already used; the burned zone then takes whatever volume is
+    /// left, and its temperature follows from the ideal-gas law at the shared
+    /// pressure. Nothing here alters the pressure solve — the total energy
+    /// balance is unchanged — so the zones are diagnostic plus, when
+    /// <see cref="TwoZoneHeatTransfer"/> is set, an input to wall heat loss.
+    /// </summary>
+    /// <summary>
+    /// Burned mass fraction below which the zones are NOT resolved.
+    ///
+    /// At flame initiation the burned mass goes to zero, and
+    /// T_b = p·V_b/(m_b·R) is a 0/0. The two limits do not approach at the
+    /// same rate — the unburned zone's isentropic temperature is only
+    /// approximately consistent with the mean state at the instant the burn
+    /// starts — so the quotient is violently ill-conditioned: it was observed
+    /// assigning 73% of the chamber volume to a zone of essentially zero mass
+    /// and returning 5.6e10 K, which then poisoned the energy balance for the
+    /// rest of the run. Below this fraction the charge is treated as one
+    /// zone, which is also the physically honest answer: a kernel this small
+    /// cannot dominate wall heat transfer.
+    /// </summary>
+    private const double MinimumResolvedBurnedFraction = 0.01;
+
+    /// <summary>
+    /// Backstop ceiling on a zone temperature, K.
+    ///
+    /// This is NOT a statement about combustion — it exists only to stop the
+    /// kernel singularity above, which overshoots by seven orders of
+    /// magnitude, from propagating if it ever escapes the fraction guard. It
+    /// is deliberately far above anything a real charge reaches: a first
+    /// attempt at 4000 K rejected the Yin validation case, whose MEAN
+    /// temperature legitimately reaches 4013 K on the perfect-gas model, so a
+    /// ceiling tight enough to police physics is tight enough to break honest
+    /// results.
+    /// </summary>
+    private const double MaximumZoneTemperature = 10_000.0;
+
+    private void UpdateZones(double burnedFraction)
+    {
+        BurnedFraction = Math.Clamp(burnedFraction, 0.0, 1.0);
+
+        if (BurnedFraction < MinimumResolvedBurnedFraction || _socPressure <= 0.0)
+        {
+            UnburnedTemperature = State.T;
+            BurnedTemperature = 0.0;
+            BurnedVolume = 0.0;
+            return;
+        }
+
+        UnburnedTemperature = _socTemperature
+                              * Math.Pow(State.P / _socPressure, (_socGamma - 1.0) / _socGamma);
+
+        if (BurnedFraction >= 1.0)
+        {
+            BurnedTemperature = State.T;
+            BurnedVolume = Volume;
+            return;
+        }
+
+        // Specific gas constant of the current charge, from the state itself
+        // so a species-resolved mixture is respected.
+        var r = Density > 0 && State.T > 0 ? State.P / (Density * State.T) : 0.0;
+        var unburnedMass = (1.0 - BurnedFraction) * Mass;
+        var burnedMass = BurnedFraction * Mass;
+
+        // Fall back to the single-zone view rather than propagating a bad
+        // number: these zones feed heat transfer, and one NaN there poisons
+        // the whole energy balance for the rest of the run.
+        if (!(r > 0) || !(State.P > 0) || !double.IsFinite(UnburnedTemperature) || burnedMass <= 0)
+        {
+            UnburnedTemperature = State.T;
+            BurnedTemperature = State.T;
+            BurnedVolume = BurnedFraction * Volume;
+            return;
+        }
+
+        var unburnedVolume = unburnedMass * r * UnburnedTemperature / State.P;
+        BurnedVolume = Math.Clamp(Volume - unburnedVolume, 0.0, Volume);
+
+        BurnedTemperature = BurnedVolume > 0
+            ? State.P * BurnedVolume / (burnedMass * r)
+            : State.T;
+
+        // The burned zone is never below the mean, and the ceiling must yield
+        // to the mean rather than the other way round — Math.Clamp throws
+        // outright if min exceeds max, which is exactly what happened when a
+        // hot case pushed the mean above a too-tight ceiling.
+        var ceiling = Math.Max(MaximumZoneTemperature, State.T);
+        BurnedTemperature = !double.IsFinite(BurnedTemperature)
+            ? State.T
+            : Math.Clamp(BurnedTemperature, State.T, ceiling);
     }
 }

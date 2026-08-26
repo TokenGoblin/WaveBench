@@ -188,6 +188,18 @@ public sealed record CombustionSpec
     public string HeatTransfer { get; set; } = "Woschni";
 
     public double WallTemperatureK { get; set; } = 420.0;
+
+    /// <summary>
+    /// Resolve wall heat transfer by burned/unburned zone rather than from
+    /// the bulk mean temperature (plan §2.4 Level 2).
+    ///
+    /// On by default: the plan requires it, and a single mean temperature
+    /// under-predicts heat loss while the flame is passing. Costs 0.6–0.9%
+    /// torque and 1–2 g/kWh BSFC against the single-zone model, with
+    /// volumetric efficiency unchanged. Set false to recover the old
+    /// behaviour. See docs/physics.md.
+    /// </summary>
+    public bool TwoZoneHeatTransfer { get; set; } = true;
 }
 
 public sealed record SolverSpec

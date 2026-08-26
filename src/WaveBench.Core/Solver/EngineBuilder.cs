@@ -107,6 +107,7 @@ public static class EngineBuilder
                 cylinder.CombustionEfficiency = combustion.Efficiency;
                 cylinder.HeatTransfer = Enum.Parse<HeatTransferCorrelation>(combustion.HeatTransfer, ignoreCase: true);
                 cylinder.WallTemperature = combustion.WallTemperatureK;
+                cylinder.TwoZoneHeatTransfer = combustion.TwoZoneHeatTransfer;
                 if (combustion.TrackKnock && fuel.Ron is { } ron)
                 {
                     cylinder.KnockOctaneNumber = ron;
