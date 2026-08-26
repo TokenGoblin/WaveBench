@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Phase 8: linear acoustics engine (TMM). Four-pole element library in the
+  [p, U] convention — damped duct with mean flow, area discontinuity with
+  end correction, quarter-wave stub, Helmholtz resonator, Levine–Schwinger
+  radiation, five termination kinds — with TL/IL/impedance/transfer outputs.
+  §6.1 gates: chamber TL to 0.1 dB, stub 1%, Helmholtz 2%, convective shift
+  0.5%, reciprocity, 20-element sweep in 4.3 ms, and TMM-vs-nonlinear
+  agreement worst 0.45 dB (gate < 1 dB) on a shared smooth-taper chamber.
+  Documented: abrupt steps belong to components, not meshed geometry (FV is
+  first-order at slope discontinuities). docs/acoustics.md started.
+
 - Phase 7: headless product v0.1. Serialisable model schema with validation
   rules and stable JSON, EngineBuilder, OperatingPointRunner (parallel
   sweeps, mesh-sensitivity study), SQLite results store with float32 probe
