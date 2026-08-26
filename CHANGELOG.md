@@ -52,6 +52,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Verified two ways, as the deferral demanded: `FlacReader` round-trips every
   sample exactly while validating both frame CRCs and the STREAMINFO MD5, and
   a CI job runs the reference `flac -t` over every file a render produces.
+  Confirmed against reference libFLAC (via libsndfile 1.2.2): all six stems
+  of a render and fourteen block-boundary lengths from 1 to 65537 samples
+  decode to exactly the WAV samples, maximum difference 0 in all 20 cases.
 - The broadband and mechanical stems, completing the plan's four-stem render
   (exhaust · intake · broadband · mechanical). Probes now capture velocity
   alongside pressure, so broadband flow noise comes from the same solve and

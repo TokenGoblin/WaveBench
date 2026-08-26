@@ -204,6 +204,15 @@ band-kill test.
   and 12290 samples: RFC 9639 §8.2 requires the minimum block size to be at
   least 16, and 4097 samples would otherwise leave a 1-sample final frame.
 
+  **Confirmed against reference libFLAC.** Every file of a six-stem render,
+  and every one of fourteen block-boundary lengths from 1 to 65537 samples,
+  decodes through libsndfile 1.2.2 (which wraps libFLAC) to *exactly* the
+  samples in the matching WAV — maximum difference 0 in all twenty cases.
+  That is an implementation with no shared ancestry with this one, so it is
+  the check that rules out a shared misreading of the spec. Anyone can
+  repeat it: `pip install soundfile`, then compare `sf.read(flac,
+  dtype='int32')` against the WAV.
+
   Two defects found while building it, both real. The first version emitted
   only 4-bit Rice parameters, capping the parameter at 14 — but 24-bit audio
   routinely needs 15–20, because the low bits of a rendered stem are
