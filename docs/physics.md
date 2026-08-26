@@ -129,14 +129,47 @@ via the gas temperature — is demonstrated in the verification suite.
   replaceable by a measured C_d(angle) map.
 - **Junctions** (`Junction`): Benson constant-pressure solve (linearised
   characteristics, mixed enthalpy/composition to outflowing branches) and a
-  pressure-loss variant applying Idelchik 90° tee pair-coefficients
+  pressure-loss variant applying Idelchik pair-coefficients
   (`TeeJunctionLoss`, referenced to combined-leg head, under-relaxed).
   Verified: mass conservation through a splitting junction within 1%, exact
   symmetric split, and the published-anchor coefficient checks (Crane 1.3
-  dividing-branch value, Idelchik combining formulas). **Limitation:**
-  branch-angle dependence (Bassett, Winterbone & Pearson 2001) is deferred
-  to the collector work, where those papers' coefficients can be verified
-  directly; the current loss model is exact only for 90° tees.
+  dividing-branch value, Idelchik combining formulas).
+
+  **Branch angle** is now carried, via the cos α terms of Idelchik's
+  converging- and diverging-wye formulas: `Junction.Connect` takes a branch
+  angle, 90° being a plain tee and a collector merging primaries typically
+  10–30°. It matters — charging a shallow collector the right-angle
+  coefficient overstates its loss substantially.
+
+  Three things anchor it, none of them a fit. At 90° every cos term is zero,
+  so all coefficients reduce **bit-identically** to the previously verified
+  right-angle model (asserted to 1e-12, not to a tolerance). With all the
+  flow through an aligned equal-area branch the junction is a straight pipe
+  and ξ comes out exactly 0. And loss falls monotonically as the angle
+  closes, 0.413 → 0.138 at q = 0.5.
+
+  The combining branch coefficient **can be negative, and is allowed to be.**
+  A primary merging into a larger collector decelerates and is dragged along
+  by the faster combined stream, gaining total pressure at the other streams'
+  expense — an ejector. Idelchik's converging-wye tables carry negative
+  branch coefficients for this, the previous right-angle model already
+  returned them at small q, and it is the scavenging a collector exists to
+  produce: a 4-1 at 15° with A_s/A_c = 0.5 measures ξ = −0.079 where the same
+  geometry as a tee measures +0.084. Only the junction as a whole must
+  dissipate, not each leg pair. No clamp is applied — the bound falls out of
+  the algebra, since the bracket's minimum is −1 at q = 0 and A ≤ 1, and a
+  sweep asserts it. The welded-tee correction k < 1 in the dividing
+  coefficient is a right-angle artefact and is faded out as the branch aligns
+  (k_eff = k + (1 − k)·cos α), which leaves 90° untouched and is what keeps
+  a dividing branch from going negative at shallow angles.
+
+  **Limitation, unchanged:** these are *steady-flow* coefficients applied
+  quasi-steadily. The unsteady junction coefficients of Bassett, Winterbone &
+  Pearson (2001) and Bassett et al. (SAE 2003-01-0370), which the plan names,
+  are still not implemented, and the angle dependence above is verified at
+  its limits rather than against those papers' measured data. The Phase 4
+  gate ("junction loss coefficients match published steady-flow data across
+  branch angles and area ratios") is therefore closer but not fully met.
 - **Injector** (`DuctMassSource`): metered vapour mass of one species into a
   cell at a given temperature, zero axial momentum, enthalpy-consistent.
   Verified: injected mass exactly matches the metered rate.

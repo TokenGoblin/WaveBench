@@ -37,6 +37,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - DIN 45692:2009 sharpness in acum, on the ISO 532-1 specific-loudness
   pattern. The standard's reference signal measures 1.028 acum against the
   defined 1.0.
+- Branch-angle dependence in the junction pressure-loss model, via the cos α
+  terms of Idelchik's converging- and diverging-wye formulas.
+  `Junction.Connect` takes a branch angle; 90° reduces bit-identically to the
+  previously verified right-angle model. A shallow collector now shows
+  pressure recovery rather than loss (ξ = −0.079 at 15° where the same
+  geometry as a tee gives +0.084), which is the scavenging effect the
+  geometry exists to produce. Bassett's unsteady coefficients remain
+  unimplemented; see docs/physics.md.
 - FLAC export (`render --flac`), closing the last Phase 10 deferral. Written
   from RFC 9639 to the fixed-predictor subset (CONSTANT / FIXED 0–4 /
   VERBATIM with partitioned Rice residuals); ~69% of WAV size on a real

@@ -38,11 +38,13 @@ references, units). Use the Edit tool, or `[IO.File]::ReadAllText/WriteAllText`
 with `New-Object Text.UTF8Encoding $false`. Same reason commit messages go
 via `git commit -F` with a UTF-8-no-BOM file.
 
-Known deferrals: standardised psychoacoustics (Phase 11); junction
-branch-angle loss coefficients (Bassett 2001); polydyne cam generator; full
-two-zone energy split; Yin-case short-runner discrepancy (docs/physics.md
-§1.9); SIMD flux kernels when 3000-cell collector networks arrive
-(docs/numerics.md §6).
+Known deferrals: ISO 532-3 / ECMA-418-2 / fluctuation strength / DIN 45681
+(Phase 11 - no verification anchors available; ISO 532-1 and DIN 45692 are
+done and verified); Bassett 2001 UNSTEADY junction coefficients (branch-angle
+dependence is now carried via the Idelchik wye forms); polydyne cam
+generator; full two-zone energy split; Yin-case short-runner discrepancy
+(docs/physics.md §1.9); SIMD flux kernels when 3000-cell collector networks
+arrive (docs/numerics.md §6).
 
 Non-negotiables (plan Part 0): TDD in physics layers · cite every empirical
 correlation in an XML doc comment with source and validity range ·

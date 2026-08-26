@@ -44,6 +44,9 @@ public sealed class Junction
         /// <summary>Under-relaxed loss correction, Pa (signed).</summary>
         public double AppliedLoss { get; set; }
 
+        /// <summary>Angle to the combined-leg axis, degrees; 90° is a plain tee.</summary>
+        public double BranchAngleDeg { get; init; } = TeeJunctionLoss.RightAngleDeg;
+
         public int AdjacentCell => LeftEnd ? 0 : Duct.CellCount - 1;
 
         public double Area => LeftEnd ? Duct.Geometry.FaceArea[0] : Duct.Geometry.FaceArea[^1];
@@ -70,14 +73,28 @@ public sealed class Junction
     /// <summary>Junction pressure of the last update, Pa.</summary>
     public double Pressure { get; private set; }
 
-    public void Connect(DuctSolver duct, bool leftEnd, bool isSideBranch = false)
+    /// <summary>
+    /// Adds a branch. <paramref name="branchAngleDeg"/> is the angle between
+    /// this branch and the combined-leg axis and is used only for the side
+    /// branch under <see cref="JunctionModel.TeeWithLosses"/>: 90° is a plain
+    /// tee, a collector merging primaries is typically 10–30°.
+    /// </summary>
+    public void Connect(
+        DuctSolver duct, bool leftEnd, bool isSideBranch = false,
+        double branchAngleDeg = TeeJunctionLoss.RightAngleDeg)
     {
         if (duct.Gas != _gas)
         {
             throw new ArgumentException("All junction branches must share the gas model.");
         }
 
-        var branch = new Branch(duct, leftEnd);
+        if (branchAngleDeg is < 0.0 or > 180.0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(branchAngleDeg), branchAngleDeg, "Branch angle must be between 0° and 180°.");
+        }
+
+        var branch = new Branch(duct, leftEnd) { BranchAngleDeg = branchAngleDeg };
         _branches.Add(branch);
         if (isSideBranch)
         {
@@ -253,9 +270,10 @@ public sealed class Junction
 
         var combining = flows[side] > 0; // side branch feeds the junction
 
+        var angle = _branches[side].BranchAngleDeg;
         var xiSide = combining
-            ? TeeJunctionLoss.CombiningBranch(q, areaRatio)
-            : TeeJunctionLoss.DividingBranch(q, areaRatio);
+            ? TeeJunctionLoss.CombiningBranch(q, areaRatio, angle)
+            : TeeJunctionLoss.DividingBranch(q, areaRatio, angle);
         var straight = others.First(i => i != combined);
         var xiStraight = combining
             ? TeeJunctionLoss.CombiningStraight(q)
