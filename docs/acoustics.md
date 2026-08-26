@@ -307,10 +307,52 @@ A second real bug fell out of it — band power over a zero-padded FFT was
 normalised by the padded length instead of the signal length, understating
 every band by 10·log₁₀(N_pad/N_sig), or 1.35 dB for one second at 48 kHz.
 
-**Not** checked against the Annex B validation signals, which are paywalled.
-The definition anchors constrain the core loudness and the slope integration
-jointly and are reproduced to 1%, so the risk is a shared bias in the
-tabulated coefficients rather than in the control flow.
+#### Declaration of conformance (ISO 532-1 §5.1)
+
+ISO publishes its reference implementation and the Annex B validation
+signals free of charge at `standards.iso.org/iso/532/-1/ed-1/en`. That
+package is ISO-copyrighted and is **not** redistributed here, but
+`Iso532ConformanceTests` runs against it when `WAVEBENCH_ISO532_DIR` points
+at an extracted copy. Measured against it:
+
+| Annex B case | WaveBench | Reference | Deviation |
+|---|---|---|---|
+| B.2 third-octave levels | 83.2957 sone | 83.2957 sone | **0.00%** |
+| B.2 specific loudness, all 240 Bark points | — | — | **worst 0.01%** |
+| B.3 signal 2, 250 Hz 80 dB | 14.6701 | 14.6545 | +0.11% |
+| B.3 signal 3, 1 kHz 60 dB | 4.0106 | 4.0192 | −0.21% |
+| B.3 signal 4, 4 kHz 40 dB | 1.5490 | 1.5494 | −0.02% |
+| B.3 signal 5, pink noise 60 dB | 10.5363 | 10.4978 | +0.37% |
+
+against a permitted ±5% or ±0.1 sone. The B.2 band-level path is exact to
+the reference's own float precision; the B.3 signal path carries the
+additional error of substituting an FFT power-response filter bank for the
+standard's 6th-order Chebyshev one, which costs under 0.4% even on pink
+noise.
+
+Three real defects were found by running this, all invisible to the sone
+anchors above:
+
+1. **A missing step.** The lowest critical band takes a further correction,
+   N'₀ ← N'₀·(0.4 + 0.32·N'₀^0.2), because the threshold in quiet runs very
+   steeply across it (LTQ falls 30 → 18 dB between the first two bands).
+   Worth 16% on that band and 1.2% on the total.
+2. **The upper-slope steepness column indexes the masking band (i − 1), not
+   the band being filled.** This ran band 3's decay at 2.35 sone/Bark where
+   it should be 2.80 — 5.6% in that band, 0.1% in the total.
+3. **The slope's level-range index is state that persists across bands**,
+   re-derived only on a genuine rise. Recomputing it per segment from the
+   current value looks equivalent and is not.
+
+Every one of those is a pattern-shaped error that a total-loudness check
+absorbs, which is why the conformance test compares all 240 Bark points and
+not just the scalar. The tabulated coefficients were independently correct
+apart from a single mistyped upper-slope value (USL[12][4], 0.24 for 0.22).
+
+The 16-bit test signals need calibrating: full scale is 2·√2 Pa, i.e. a
+full-scale 1 kHz sine is 100 dB SPL. Every file in the package agrees on
+that to 0.9%. Reading them as full-scale = 1 Pa understates by ~9 dB and
+loses half the loudness.
 
 ### Sharpness — DIN 45692 (done, verified)
 

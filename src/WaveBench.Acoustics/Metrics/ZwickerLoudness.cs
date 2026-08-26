@@ -108,7 +108,7 @@ public static class ZwickerLoudness
         { 1.5, 1.2, 0.94, 0.86, 0.82, 0.82, 0.82, 0.82 },
         { 0.72, 0.67, 0.64, 0.63, 0.62, 0.62, 0.62, 0.62 },
         { 0.59, 0.53, 0.51, 0.50, 0.42, 0.42, 0.42, 0.42 },
-        { 0.40, 0.33, 0.26, 0.24, 0.24, 0.22, 0.22, 0.22 },
+        { 0.40, 0.33, 0.26, 0.24, 0.22, 0.22, 0.22, 0.22 },
         { 0.27, 0.21, 0.20, 0.18, 0.17, 0.17, 0.17, 0.17 },
         { 0.16, 0.15, 0.14, 0.12, 0.11, 0.11, 0.11, 0.11 },
         { 0.12, 0.11, 0.10, 0.08, 0.08, 0.08, 0.08, 0.08 },
@@ -191,73 +191,116 @@ public static class ZwickerLoudness
             nm[i] = Math.Max(0.0, mp1 * mp2);
         }
 
+        // The lowest critical band gets an extra correction, because the
+        // threshold in quiet runs very steeply across it (LTQ falls 30 → 18 dB
+        // between the first two bands) and a single core-loudness value taken
+        // at one threshold therefore overstates it. ISO 532-1:2017 Annex A:
+        //   N'₀ ← N'₀·(0.4 + 0.32·N'₀^0.2), applied only where that attenuates.
+        // Worth 16% on the first band and 1.2% on the total for the Annex B.2
+        // signal — small enough to hide behind a total-loudness check, which
+        // is why the conformance test compares every Bark.
+        var correction = 0.4 + 0.32 * Math.Pow(nm[0], 0.2);
+        if (correction < 1.0)
+        {
+            nm[0] *= correction;
+        }
+
         // --- Step 3: upward masking slopes and integration ------------------
+        // Each band's loudness decays toward higher critical-band rate along a
+        // slope selected by TWO indices, and getting either wrong produces a
+        // pattern that still integrates to nearly the right total:
+        //
+        //  * the USL column is the MASKING band (i − 1), not the band being
+        //    filled. Using the latter runs band 3's decay at 2.35 sone/Bark
+        //    where it should be 2.80 — a 5.6% error in that band and 0.1% in
+        //    the total, which is exactly the kind of thing a scalar check
+        //    cannot see;
+        //  * the USL row is a level range that PERSISTS across bands. It is
+        //    re-derived only on a genuine rise, and otherwise walks downward
+        //    one range at a time as the slope decays. Recomputing it per
+        //    segment from the current value looks equivalent and is not.
         var specific = new double[SpecificLoudnessBins];
         const double dz = 24.0 / SpecificLoudnessBins;
 
         double total = 0.0;
-        var z1 = 0.0;   // current position, Bark
-        var n1 = 0.0;   // specific loudness carried from the previous band
-        var bin = 0;    // next output bin to fill
+        var z1 = 0.0;      // current position, Bark
+        var n1 = 0.0;      // specific loudness carried in from the last segment
+        var range = 0;     // index into Rns/Usl rows — persistent, see above
+        var bin = 0;       // next output bin to fill
 
         for (var i = 0; i < 21; i++)
         {
-            var ig = Math.Min(i, 7);
+            var coreLoudness = nm[i];
             var zup = Zup[i] + 1e-4;
-            var nmi = nm[i];
+            var maskerBand = Math.Clamp(i - 1, 0, Usl.GetLength(1) - 1);
+            var nextBand = false;
 
-            while (true)
+            do
             {
-                if (n1 <= nmi)
+                double n2;
+                double z2;
+
+                if (n1 > coreLoudness)
                 {
-                    // This band is at least as loud: step up and run flat to
-                    // its upper edge — masking spreads upward, not downward.
-                    var z2 = zup;
-                    total += nmi * (z2 - z1);
-                    Fill(specific, ref bin, z2, dz, nmi);
-                    z1 = z2;
-                    n1 = nmi;
-                    break;
+                    // Decaying from a louder lower band across this one.
+                    var slope = Usl[range, maskerBand];
+                    n2 = Math.Max(Rns[range], coreLoudness);
+                    z2 = z1 + (n1 - n2) / slope;
+
+                    if (z2 > zup)
+                    {
+                        // The decay does not reach the floor before the band
+                        // edge; truncate and carry the remainder onward.
+                        nextBand = true;
+                        z2 = zup;
+                        n2 = n1 - (z2 - z1) * slope;
+                    }
+
+                    total += 0.5 * (n1 + n2) * (z2 - z1);
+
+                    // Grid points are indexed by their upper edge: bin k holds
+                    // the value at z = (k+1)·0.1 Bark.
+                    while (bin < specific.Length && (bin + 1) * dz <= z2 + 1e-9)
+                    {
+                        specific[bin] = n1 - ((bin + 1) * dz - z1) * slope;
+                        bin++;
+                    }
+                }
+                else
+                {
+                    // This band is at least as loud as what reaches it, so the
+                    // pattern rises to it and runs flat to the band edge.
+                    // Masking spreads upward in frequency, never downward.
+                    if (n1 < coreLoudness)
+                    {
+                        range = 0;
+                        while (range < Rns.Length - 1 && Rns[range] >= coreLoudness)
+                        {
+                            range++;
+                        }
+                    }
+
+                    nextBand = true;
+                    z2 = zup;
+                    n2 = coreLoudness;
+                    total += n2 * (z2 - z1);
+
+                    while (bin < specific.Length && (bin + 1) * dz <= z2 + 1e-9)
+                    {
+                        specific[bin] = n2;
+                        bin++;
+                    }
                 }
 
-                // Decaying from the louder previous band. The slope depends on
-                // the level range the current specific loudness sits in.
-                var j = 0;
-                while (j < Rns.Length - 1 && Rns[j] >= n1)
+                while (n2 <= Rns[range] && range < Rns.Length - 1)
                 {
-                    j++;
+                    range++;
                 }
 
-                var floorLevel = Math.Max(nmi, Rns[j]);
-                var slope = Usl[j, ig];
-                var zDecay = z1 + (n1 - floorLevel) / slope;
-
-                if (zDecay >= zup)
-                {
-                    // The slope does not reach the floor before the band edge.
-                    var n2 = n1 - (zup - z1) * slope;
-                    total += 0.5 * (n1 + n2) * (zup - z1);
-                    FillRamp(specific, ref bin, z1, zup, n1, n2, dz);
-                    n1 = Math.Max(n2, nmi);
-                    z1 = zup;
-                    break;
-                }
-
-                total += 0.5 * (n1 + floorLevel) * (zDecay - z1);
-                FillRamp(specific, ref bin, z1, zDecay, n1, floorLevel, dz);
-                z1 = zDecay;
-                n1 = floorLevel;
-
-                if (n1 <= nmi)
-                {
-                    // Reached this band's own level; the rest is flat.
-                    total += nmi * (zup - z1);
-                    Fill(specific, ref bin, zup, dz, nmi);
-                    z1 = zup;
-                    n1 = nmi;
-                    break;
-                }
+                z1 = z2;
+                n1 = n2;
             }
+            while (!nextBand);
         }
 
         return new Result(Math.Max(0.0, total), specific);

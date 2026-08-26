@@ -22,9 +22,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   verification against published reference signals. Tracked in code via
   `PsychoacousticStatus`.
 - ISO 532-1:2017 method B (Zwicker) stationary loudness, in sone and as the
-  specific loudness pattern N'(z) on a 0.1 Bark grid. Reproduces the sone
-  definition and its doubling law to within 1% at 40/50/60/70/80 dB, against
-  the ±5% conformance band the standard sets. One-third-octave analysis now
+  specific loudness pattern N'(z) on a 0.1 Bark grid. **Verified against the
+  standard's own Annex B validation data** (published free by ISO; not
+  redistributable, so `Iso532ConformanceTests` runs against a local copy via
+  `WAVEBENCH_ISO532_DIR`): exact on the B.2 third-octave case — 0.00% on the
+  total and worst 0.01% across all 240 Bark points — and within 0.4% on all
+  four B.3 signals including pink noise, against a permitted ±5%. Also
+  reproduces the sone definition and its doubling law to within 1% at
+  40/50/60/70/80 dB. One-third-octave analysis now
   applies the IEC 61260-1 filter magnitude response with its order solved for
   the 20 dB adjacent-band damping ISO 532-1 §4 requires, reproducing the
   standard's own worked 50/70/50 dB example — the filter skirts carry ~7% of
@@ -38,6 +43,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - One-third-octave band power over a zero-padded FFT was normalised by the
   padded length rather than the signal length, understating every band by
   10·log₁₀(N_pad/N_sig) — 1.35 dB for one second at 48 kHz.
+- Three defects in the Zwicker loudness pattern, all found by the Annex B
+  conformance run and all invisible to a total-loudness check: the lowest
+  critical band was missing its threshold-in-quiet correction (16% on that
+  band); the upper-slope steepness column indexed the band being filled
+  rather than the masking band below it (5.6% on band 3); and the slope's
+  level-range index was recomputed per segment instead of persisting across
+  bands. One mistyped upper-slope coefficient (USL[12][4]) as well.
 
 ### Changed
 

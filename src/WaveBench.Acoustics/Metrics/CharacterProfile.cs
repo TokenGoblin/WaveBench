@@ -350,10 +350,10 @@ public static class PsychoacousticStatus
         new("Time weighting F/S/I", "IEC 61672-1", "s", true,
             "Exact time constants 125 ms / 1 s / 35 ms."),
         new("Loudness (stationary)", "ISO 532-1 (Zwicker)", "sone", true,
-            "Reproduces the sone definition and Stevens' doubling law to within 1% over "
-            + "40–80 dB at 1 kHz, and the filter bank reproduces the standard's own worked "
-            + "50/70/50 dB example. Inside the ±5% conformance band of ISO 532-1 §5.1. Not "
-            + "checked against the paywalled Annex B signals — see docs/acoustics.md §4."),
+            "Verified against the standard's own Annex B validation data: exact on the B.2 "
+            + "third-octave case (0.00% total, worst 0.01% across all 240 Bark points) and "
+            + "within 0.4% on all four B.3 signals, against a permitted ±5%. Run it with "
+            + "WAVEBENCH_ISO532_DIR — see docs/acoustics.md §4."),
         new("Sharpness", "DIN 45692", "acum", true,
             "Reference signal (1 kHz narrowband, 60 dB) measures 1.03 acum against the "
             + "defined 1.0; monotonic in centre frequency and near-invariant with level."),
