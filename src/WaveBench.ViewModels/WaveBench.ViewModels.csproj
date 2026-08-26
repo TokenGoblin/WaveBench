@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    View models for the desktop head. Targets plain net10.0 and contains ZERO
+    UI-framework types (plan §7.1: "keep all UI logic in view models with zero
+    WinUI types, so a WPF or Avalonia head remains a plausible future
+    addition"). That rule also makes three of the four Phase 16 gate criteria
+    testable headlessly, which is why this is a separate project rather than
+    living inside WaveBench.App.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\WaveBench.Core\WaveBench.Core.csproj" />
+    <ProjectReference Include="..\WaveBench.Model\WaveBench.Model.csproj" />
+    <ProjectReference Include="..\WaveBench.Acoustics\WaveBench.Acoustics.csproj" />
+    <ProjectReference Include="..\WaveBench.Analysis\WaveBench.Analysis.csproj" />
+  </ItemGroup>
+</Project>

@@ -1,12 +1,28 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <!-- Placeholder project. The WinUI 3 / Windows App SDK shell lands in Phase 16
-       (plan Part 12: "No UI exists before Phase 16"). Keeping the UI framework
-       dependency out until then avoids Windows App SDK tooling friction in CI. -->
+  <!--
+    Desktop head.
+
+    FRAMEWORK DECISION (plan §7.1): the plan names WinUI 3 on Windows App SDK
+    as primary and WPF as "the safe fallback if WinUI 3 tooling causes
+    friction… can host the same MVVM layer with minimal change". This machine
+    has no Windows App SDK workload installed, and an unpackaged WinUI 3 app
+    additionally needs the WindowsAppSDK runtime present to launch — so the
+    app would build into something that could not be run or demonstrated here.
+
+    WPF is therefore the head today. That costs almost nothing to reverse:
+    every line of UI logic lives in WaveBench.ViewModels, which targets plain
+    net10.0 and references no UI framework at all, so a WinUI head is a new
+    XAML layer over the same view models rather than a rewrite. Revisit when
+    the workload is available.
+  -->
   <PropertyGroup>
-    <OutputType>Exe</OutputType>
-    <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\WaveBench.Model\WaveBench.Model.csproj" />
+    <ProjectReference Include="..\WaveBench.ViewModels\WaveBench.ViewModels.csproj" />
   </ItemGroup>
 </Project>

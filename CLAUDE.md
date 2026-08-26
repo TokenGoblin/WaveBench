@@ -6,26 +6,34 @@
 relevant parts before writing code. 26 phases, strictly in order, each with a
 hard acceptance gate (Part 12). Never let a session span two phases.
 
-**Phase status:** Phases 0–10 complete. **Phase 11 PARTIAL — do not claim
-v0.4.** Done and verified: IEC 61672 weighting (all 34 published bands),
-time weighting, FSAE versioned rules + derived test speed + uncertainty
-band with three-way verdict, the §3.7 character metric set, target
-profiles, Reference Match. **Outstanding (blocks the Phase 11 gate):**
-ISO 532-1/-3 loudness, DIN 45692 sharpness, ECMA-418-2, fluctuation
-strength, DIN 45681 — each needs the standard's algorithm AND its published
-verification signals; deferred deliberately because an unverified
-psychoacoustic number is worse than none. See `PsychoacousticStatus` and
-docs/acoustics.md §4. Finish these before starting Phase 12, or record an
-explicit decision to carry them.
+**Phase status:** Phases 0-10 complete; Phase 11 PARTIAL (compliance done,
+standardised psychoacoustics outstanding - see PsychoacousticStatus and
+docs/acoustics.md §4); **Phase 16 complete** (GUI pulled forward per the
+Part 12 allowance, all four gate criteria pass). Next: Phase 17 (Design
+workspace: Engine, Head & Cam, Fuel & Combustion screens with all inputs,
+imports and derived readouts; templates; autosave. Gate: a complete model
+can be built and saved entirely through the UI and produces byte-identical
+results to the same model run from the CLI).
 
-**The user has seen and heard output** (torque plots, rendered WAVs) and
-chose "make it audible" over pulling the GUI forward. The plan permits
-pulling Phases 16–19 forward at any time from here — offer it again when a
-natural pause comes. Known deferrals:
-junction branch-angle loss coefficients (Bassett 2001); polydyne cam
-generator; full two-zone energy split; Yin-case short-runner discrepancy
-(docs/physics.md §1.9); SIMD flux kernels when 3000-cell collector networks
-arrive (docs/numerics.md §6).
+**UI framework:** WPF, not WinUI 3 - no Windows App SDK workload here and
+unpackaged WinUI needs its runtime present. The plan sanctions WPF as the
+fallback. ALL UI logic lives in WaveBench.ViewModels (plain net10.0, zero
+UI types), so switching heads is a new XAML layer, not a rewrite. Never put
+logic in WaveBench.App beyond view construction.
+
+**Colour rule:** Tokens.xaml is the ONLY file that may contain a colour
+literal - three tests enforce it, including one that resolves every
+resource key because XAML lookups fail at runtime, not compile time.
+
+**Never drive synthetic mouse/keyboard input at the desktop to capture the
+app.** Use `WaveBench.App.exe --screenshot <dir>`, which renders the
+visual tree offscreen.
+
+Known deferrals: standardised psychoacoustics (Phase 11); junction
+branch-angle loss coefficients (Bassett 2001); polydyne cam generator; full
+two-zone energy split; Yin-case short-runner discrepancy (docs/physics.md
+§1.9); SIMD flux kernels when 3000-cell collector networks arrive
+(docs/numerics.md §6).
 
 Non-negotiables (plan Part 0): TDD in physics layers · cite every empirical
 correlation in an XML doc comment with source and validity range ·

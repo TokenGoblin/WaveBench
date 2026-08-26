@@ -1,0 +1,128 @@
+<Window x:Class="WaveBench.App.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="WaveBench" Height="820" Width="1320"
+        Background="{DynamicResource Brush.Canvas}"
+        FontFamily="{StaticResource Type.Family}"
+        TextOptions.TextFormattingMode="Ideal">
+
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="Auto" />
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+
+        <!-- ===== Workspace rail (plan §8.3) ===== -->
+        <Border Grid.Column="0" Background="{DynamicResource Brush.Surface}"
+                BorderBrush="{DynamicResource Brush.BorderSubtle}" BorderThickness="0,0,1,0">
+            <DockPanel Width="216">
+                <Border DockPanel.Dock="Top" Padding="20,20,20,16">
+                    <StackPanel>
+                        <TextBlock Text="WaveBench" Style="{StaticResource Text.Title}" />
+                        <TextBlock x:Name="ProjectLabel" Style="{StaticResource Text.Caption}" Margin="0,2,0,0" />
+                    </StackPanel>
+                </Border>
+
+                <ItemsControl x:Name="WorkspaceRail" DockPanel.Dock="Top" Margin="8,0,8,0">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Button Command="{Binding NavigateCommand}"
+                                    HorizontalContentAlignment="Stretch"
+                                    Padding="12,9" Margin="0,1"
+                                    Background="{Binding Background}"
+                                    BorderThickness="0"
+                                    Cursor="Hand"
+                                    ToolTip="{Binding ToolTip}"
+                                    AutomationProperties.Name="{Binding AutomationName}">
+                                <Button.Template>
+                                    <ControlTemplate TargetType="Button">
+                                        <Border Background="{TemplateBinding Background}"
+                                                CornerRadius="{StaticResource Radius.Input}"
+                                                Padding="{TemplateBinding Padding}">
+                                            <ContentPresenter />
+                                        </Border>
+                                    </ControlTemplate>
+                                </Button.Template>
+                                <DockPanel>
+                                    <TextBlock Text="{Binding Glyph}" Width="24" FontSize="15"
+                                               Foreground="{Binding Foreground}" />
+                                    <TextBlock Text="{Binding Title}" FontSize="{StaticResource Type.Body}"
+                                               Foreground="{Binding Foreground}" />
+                                </DockPanel>
+                            </Button>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+
+                <!-- Hidden workspaces stay discoverable rather than vanishing (§8.3). -->
+                <Border DockPanel.Dock="Bottom" Margin="16,12,16,16" Padding="12"
+                        Background="{DynamicResource Brush.SurfaceAlt}"
+                        CornerRadius="{StaticResource Radius.Input}"
+                        x:Name="HiddenHint" Visibility="Collapsed">
+                    <StackPanel>
+                        <TextBlock x:Name="HiddenHintTitle" Style="{StaticResource Text.Caption}"
+                                   FontWeight="SemiBold" TextWrapping="Wrap" />
+                        <TextBlock x:Name="HiddenHintBody" Style="{StaticResource Text.Caption}"
+                                   TextWrapping="Wrap" Margin="0,4,0,0" />
+                    </StackPanel>
+                </Border>
+
+                <Grid />
+            </DockPanel>
+        </Border>
+
+        <!-- ===== Main column ===== -->
+        <DockPanel Grid.Column="1">
+
+            <!-- Header: project, mode toggle, fuel, run (§8.3) -->
+            <Border DockPanel.Dock="Top" Background="{DynamicResource Brush.Surface}"
+                    BorderBrush="{DynamicResource Brush.BorderSubtle}" BorderThickness="0,0,0,1"
+                    Padding="24,14">
+                <DockPanel>
+                    <StackPanel Orientation="Horizontal" DockPanel.Dock="Right">
+                        <Button x:Name="ModeToggle" Click="ModeToggle_Click" Padding="14,7" Margin="0,0,8,0"
+                                Cursor="Hand" BorderThickness="1"
+                                BorderBrush="{DynamicResource Brush.BorderStrong}"
+                                Background="{DynamicResource Brush.Surface}"
+                                Foreground="{DynamicResource Brush.TextPrimary}"
+                                AutomationProperties.Name="Toggle Simple or Advanced mode" />
+                        <Button x:Name="ThemeToggle" Click="ThemeToggle_Click" Content="Theme"
+                                Padding="14,7" Margin="0,0,8,0" Cursor="Hand" BorderThickness="1"
+                                BorderBrush="{DynamicResource Brush.BorderStrong}"
+                                Background="{DynamicResource Brush.Surface}"
+                                Foreground="{DynamicResource Brush.TextPrimary}"
+                                AutomationProperties.Name="Toggle light or dark theme" />
+                        <Button x:Name="RunButton" Content="▶  Run" Padding="18,7" Cursor="Hand"
+                                BorderThickness="0" Click="RunButton_Click"
+                                Background="{DynamicResource Brush.Accent}" Foreground="White"
+                                AutomationProperties.Name="Run a sweep" />
+                    </StackPanel>
+
+                    <StackPanel VerticalAlignment="Center">
+                        <TextBlock x:Name="WorkspaceTitle" Style="{StaticResource Text.Title}" />
+                        <TextBlock x:Name="WorkspaceSubTabs" Style="{StaticResource Text.Caption}" Margin="0,2,0,0" />
+                    </StackPanel>
+                </DockPanel>
+            </Border>
+
+            <!-- Status line (§8.3) -->
+            <Border DockPanel.Dock="Bottom" Background="{DynamicResource Brush.SurfaceAlt}"
+                    BorderBrush="{DynamicResource Brush.BorderSubtle}" BorderThickness="0,1,0,0"
+                    Padding="24,8">
+                <TextBlock x:Name="StatusLine" Style="{StaticResource Text.Caption}" />
+            </Border>
+
+            <!-- Simple-mode banner: advanced settings are declared, never hidden (§8.8 rule 2) -->
+            <Border DockPanel.Dock="Top" x:Name="AdvancedBanner" Visibility="Collapsed"
+                    Background="{DynamicResource Brush.AccentSubtle}"
+                    BorderBrush="{DynamicResource Brush.BorderSubtle}" BorderThickness="0,0,0,1"
+                    Padding="24,10">
+                <TextBlock x:Name="AdvancedBannerText" Style="{StaticResource Text.Small}" TextWrapping="Wrap" />
+            </Border>
+
+            <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="24">
+                <StackPanel x:Name="WorkspaceHost" />
+            </ScrollViewer>
+        </DockPanel>
+    </Grid>
+</Window>

@@ -8,6 +8,7 @@
     <Project Path="src/WaveBench.Core/WaveBench.Core.csproj" />
     <Project Path="src/WaveBench.Model/WaveBench.Model.csproj" />
     <Project Path="src/WaveBench.Optimize/WaveBench.Optimize.csproj" />
+    <Project Path="src/WaveBench.ViewModels/WaveBench.ViewModels.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/WaveBench.Bench/WaveBench.Bench.csproj" />

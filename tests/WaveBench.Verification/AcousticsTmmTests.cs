@@ -168,11 +168,18 @@ public class AcousticsTmmTests(ITestOutputHelper output)
 
         network.TransmissionLossSweep(frequencies); // warm-up
 
-        // Best of several: the gate is the achievable solve time, and this
-        // test shares cores with the engine simulations xUnit runs in
-        // parallel, which otherwise makes a wall-clock assertion flaky.
+        // The gate is the ACHIEVABLE solve time — whether a UI slider can
+        // refresh in under 10 ms. This test shares cores with the engine
+        // simulations xUnit runs in parallel, so a single wall-clock sample
+        // measures contention rather than the algorithm. Take the best of
+        // many: one uncontended timeslice is enough to establish the bound,
+        // and a genuine regression makes every attempt slow.
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+
+        const int attempts = 25;
         var best = double.MaxValue;
-        for (var attempt = 0; attempt < 7; attempt++)
+        for (var attempt = 0; attempt < attempts; attempt++)
         {
             var stopwatch = Stopwatch.StartNew();
             network.TransmissionLossSweep(frequencies);
@@ -180,7 +187,7 @@ public class AcousticsTmmTests(ITestOutputHelper output)
             best = Math.Min(best, stopwatch.Elapsed.TotalMilliseconds);
         }
 
-        output.WriteLine($"20-element, 512-frequency sweep: {best:F2} ms (best of 7)");
+        output.WriteLine($"20-element, 512-frequency sweep: {best:F2} ms (best of {attempts})");
         best.Should().BeLessThan(10.0, "gate: interactive TMM (plan Phase 8)");
     }
 
