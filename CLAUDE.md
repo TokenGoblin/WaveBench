@@ -6,9 +6,10 @@
 relevant parts before writing code. 26 phases, strictly in order, each with a
 hard acceptance gate (Part 12). Never let a session span two phases.
 
-**Phase status:** Phases 0-10 complete; Phase 11 PARTIAL (compliance done,
-standardised psychoacoustics outstanding - see PsychoacousticStatus and
-docs/acoustics.md §4); **Phase 16 complete** (GUI pulled forward per the
+**Phase status:** Phases 0-10 complete; Phase 11 PARTIAL (compliance done;
+ISO 532-1 loudness and DIN 45692 sharpness done and verified; ISO 532-3,
+ECMA-418-2, fluctuation strength and DIN 45681 outstanding - see
+PsychoacousticStatus and docs/acoustics.md §4); **Phase 16 complete** (GUI pulled forward per the
 Part 12 allowance, all four gate criteria pass). Next: Phase 17 (Design
 workspace: Engine, Head & Cam, Fuel & Combustion screens with all inputs,
 imports and derived readouts; templates; autosave. Gate: a complete model

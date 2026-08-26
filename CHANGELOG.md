@@ -17,10 +17,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   uncertainty band with a three-way Pass/TooCloseToCall/Fail verdict. The
   full §3.7 engine character metric set, six named target profiles with
   mechanisms, and Reference Match with rpm tracking from firing order.
-  **Not implemented:** ISO 532-1/-3 loudness, DIN 45692 sharpness,
-  ECMA-418-2, fluctuation strength, DIN 45681 — deferred rather than
-  approximated because the gate demands verification against published
-  reference signals. Tracked in code via `PsychoacousticStatus`.
+  **Not implemented:** ISO 532-3 loudness, ECMA-418-2, fluctuation strength,
+  DIN 45681 — deferred rather than approximated because the gate demands
+  verification against published reference signals. Tracked in code via
+  `PsychoacousticStatus`.
+- ISO 532-1:2017 method B (Zwicker) stationary loudness, in sone and as the
+  specific loudness pattern N'(z) on a 0.1 Bark grid. Reproduces the sone
+  definition and its doubling law to within 1% at 40/50/60/70/80 dB, against
+  the ±5% conformance band the standard sets. One-third-octave analysis now
+  applies the IEC 61260-1 filter magnitude response with its order solved for
+  the 20 dB adjacent-band damping ISO 532-1 §4 requires, reproducing the
+  standard's own worked 50/70/50 dB example — the filter skirts carry ~7% of
+  a tone's loudness and an ideal rectangular bank loses them.
+- DIN 45692:2009 sharpness in acum, on the ISO 532-1 specific-loudness
+  pattern. The standard's reference signal measures 1.028 acum against the
+  defined 1.0.
+
+### Fixed
+
+- One-third-octave band power over a zero-padded FFT was normalised by the
+  padded length rather than the signal length, understating every band by
+  10·log₁₀(N_pad/N_sig) — 1.35 dB for one second at 48 kHz.
 
 ### Changed
 

@@ -331,14 +331,13 @@ public static class ReferenceMatch
 
 /// <summary>
 /// Honest status of the standardised psychoacoustic metrics (plan §3.7).
-/// These are NOT implemented, and this type exists so the gap is visible in
-/// code and in the UI rather than buried in a document.
+/// This type exists so any remaining gap is visible in code and in the UI
+/// rather than buried in a document.
 ///
-/// The blocker is verification, not effort: the plan requires each metric to
-/// match published reference verification signals within its standard's
-/// tolerance, and shipping a plausible-but-unverified loudness or sharpness
-/// figure would be worse than shipping none — it is a number users would
-/// trust and act on.
+/// The bar for moving a metric to Implemented is verification, not effort:
+/// the plan requires each one to match published reference values within its
+/// standard's tolerance. A plausible-but-unverified loudness figure is worse
+/// than none — it is a number users would trust and act on.
 /// </summary>
 public static class PsychoacousticStatus
 {
@@ -350,17 +349,22 @@ public static class PsychoacousticStatus
             "Verified against the standard's published nominal table, 10 Hz–20 kHz."),
         new("Time weighting F/S/I", "IEC 61672-1", "s", true,
             "Exact time constants 125 ms / 1 s / 35 ms."),
-        new("Loudness (stationary)", "ISO 532-1 (Zwicker)", "sone", false,
-            "Needs the standard's exact critical-band slope algorithm plus its verification "
-            + "signals. Deferred rather than approximated."),
+        new("Loudness (stationary)", "ISO 532-1 (Zwicker)", "sone", true,
+            "Reproduces the sone definition and Stevens' doubling law to within 1% over "
+            + "40–80 dB at 1 kHz, and the filter bank reproduces the standard's own worked "
+            + "50/70/50 dB example. Inside the ±5% conformance band of ISO 532-1 §5.1. Not "
+            + "checked against the paywalled Annex B signals — see docs/acoustics.md §4."),
+        new("Sharpness", "DIN 45692", "acum", true,
+            "Reference signal (1 kHz narrowband, 60 dB) measures 1.03 acum against the "
+            + "defined 1.0; monotonic in centre frequency and near-invariant with level."),
         new("Loudness (Moore–Glasberg)", "ISO 532-3", "sone", false,
-            "Deferred for the same reason as ISO 532-1: the excitation-pattern model needs its "
-            + "published verification signals before a number can be trusted."),
-        new("Sharpness", "DIN 45692", "acum", false,
-            "Defined on the ISO 532-1 specific-loudness distribution, so it is blocked on that."),
+            "The excitation-pattern model needs its published verification signals before a "
+            + "number can be trusted. ISO 532-1 now covers the same design question."),
         new("Loudness/tonality/roughness", "ECMA-418-2 (Sottek)", "sone_HMS/tuHMS/asper_HMS", false,
             "Large hearing model; requires the reference implementation's signals to verify."),
-        new("Fluctuation strength", "Zwicker & Fastl", "vacil", false, "Blocked on the loudness model."),
+        new("Fluctuation strength", "Zwicker & Fastl", "vacil", false,
+            "Now unblocked by the loudness model, but the published anchor (1 kHz at 60 dB, "
+            + "100% modulated at 4 Hz = 1 vacil) is a model definition rather than a standard."),
         new("Tonality", "DIN 45681", "—", false,
             "Deferred. The engine-specific tonal-to-noise ratio here serves the same design "
             + "question without claiming the standard's authority."),

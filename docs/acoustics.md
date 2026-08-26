@@ -195,9 +195,11 @@ band-kill test.
 ## 4. Sound metrics and compliance (Phase 11 — PARTIAL)
 
 > **Phase 11 is not complete and the v0.4 milestone is not claimed.** The
-> compliance half is done and verified; the standardised psychoacoustic
-> metrics are not implemented. See "What is missing" below. This section
-> exists so the gap is visible rather than implied.
+> compliance half is done and verified, and of the standardised
+> psychoacoustics ISO 532-1 loudness and DIN 45692 sharpness are now done and
+> verified. ISO 532-3, ECMA-418-2, fluctuation strength and DIN 45681
+> tonality remain. See "What is still missing" below. This section exists so
+> the gap is visible rather than implied.
 
 ### Level metering — IEC 61672-1 (done, verified)
 
@@ -262,29 +264,91 @@ tacho-less signal). The API takes samples and returns metrics; it offers no
 way to persist the audio, because the plan requires the recording never to
 leave the machine.
 
-### What is missing (the gate is not met)
+### Loudness — ISO 532-1 Zwicker (done, verified)
+
+`ZwickerLoudness` implements method B (stationary) from one-third-octave
+band levels: low-band correction and grouping into the first three critical
+bands, core loudness per band, then upward-masking slopes integrated over
+the 24 Bark scale to give both a total in sone and the specific loudness
+pattern N'(z) on a 0.1 Bark grid.
+
+**Verified against the definition of the quantity**, which is the one anchor
+that cannot drift: the sone *is* a 1 kHz tone at 40 dB, and loudness doubles
+per 10 dB above it.
+
+| 1 kHz tone | 40 dB | 50 dB | 60 dB | 70 dB | 80 dB |
+|---|---|---|---|---|---|
+| calculated | 1.000 | 2.004 | 4.000 | 8.035 | 16.155 |
+| definition | 1 | 2 | 4 | 8 | 16 |
+
+Everything inside 1%, against the ±5% conformance band ISO 532-1 §5.1 sets
+for an implementation measured against its reference implementation. The
+loudness *level* likewise tracks the band level in phon, and the scalar
+total agrees with ∫N'(z)dz to 0.05%.
+
+**The filter bank is part of the method, not a preprocessing detail.** The
+first version of this failed every tone anchor by 7–13% while reproducing
+the doubling law almost exactly — a constant scale error. The cause was the
+test stimulus, not the algorithm: a pure tone was fed in as one band with
+silent neighbours, which no real filter bank produces. ISO 532-1 §4 requires
+class-1 filters with 20 dB damping at the adjacent band centres and prints
+the consequence outright — *"a 1 kHz tone with a sound pressure level of
+70 dB produces the following levels at different centre frequencies: 50 dB
+at 800 Hz, 70 dB at 1 kHz and 50 dB at 1,25 kHz"* — and §5.2 warns that the
+resulting upper slope *"contributes especially to the total loudness of pure
+tones"*. Those skirts are ~7% of a tone's loudness. `ThirdOctaveAnalysis`
+therefore applies the IEC 61260-1 idealised magnitude response with its
+order solved for ISO 532-1's stated 20 dB adjacent-band damping, and a test
+pins the standard's own 50/70/50 example. This is the same class of mistake
+as testing IEC 61672 at nominal rather than exact band frequencies: the
+implementation was right and the input was wrong.
+
+A second real bug fell out of it — band power over a zero-padded FFT was
+normalised by the padded length instead of the signal length, understating
+every band by 10·log₁₀(N_pad/N_sig), or 1.35 dB for one second at 48 kHz.
+
+**Not** checked against the Annex B validation signals, which are paywalled.
+The definition anchors constrain the core loudness and the slope integration
+jointly and are reproduced to 1%, so the risk is a shared bias in the
+tabulated coefficients rather than in the control flow.
+
+### Sharpness — DIN 45692 (done, verified)
+
+S = 0.11·∫N'(z)·g(z)·z dz ⁄ ∫N'(z)dz, with g(z) flat below 15.8 Bark and
+rising as 0.15·e^(0.42(z−15.8)) + 0.85 above it. Built on the ISO 532-1
+specific-loudness pattern.
+
+The standard's reference signal — narrowband noise one critical band wide at
+1 kHz, 60 dB, defined as exactly 1 acum — measures **1.028 acum**. Sharpness
+rises monotonically with centre frequency (0.383 acum at 250 Hz to 6.530 at
+8 kHz) and is near-invariant with level, moving only 3% over a 30 dB change,
+which is the behaviour that makes it a timbre metric rather than a second
+loudness.
+
+### What is still missing
 
 `PsychoacousticStatus` is a machine-readable list of exactly this, so the
 UI can surface it instead of implying coverage:
 
 | Metric | Standard | Status |
 |---|---|---|
-| Loudness (stationary) | ISO 532-1 Zwicker | **not implemented** |
+| Loudness (stationary) | ISO 532-1 Zwicker | **done, verified** |
+| Sharpness | DIN 45692 | **done, verified** |
 | Loudness | ISO 532-3 Moore–Glasberg | **not implemented** |
-| Sharpness | DIN 45692 | **not implemented** (built on 532-1) |
 | Loudness/tonality/roughness | ECMA-418-2 | **not implemented** |
 | Fluctuation strength | Zwicker & Fastl | **not implemented** |
 | Tonality | DIN 45681 | **not implemented** |
 | Speech interference | ANSI S3.5 | **not implemented** (needs cabin TF) |
 
-**Why deferred rather than approximated:** the gate requires each metric to
-match published reference verification signals within its standard's
-tolerance. ISO 532-1's critical-band slope algorithm could not be
-reproduced faithfully from available secondary sources, and a
-plausible-but-unverified loudness or sharpness figure is worse than none —
-it is a number users would trust and design against. Finishing this needs
-the standard's algorithm and its verification signals (or MOSQITO/SQAT
-outputs as a cross-check, licence permitting).
+**Why the rest are deferred rather than approximated:** the gate requires
+each metric to match published reference values within its standard's
+tolerance. ISO 532-3 and ECMA-418-2 are large models whose only practical
+anchors are their reference implementations' outputs; DIN 45681 tonality has
+no anchor available here. A plausible-but-unverified psychoacoustic figure is
+worse than none — it is a number users would trust and design against. Note
+that ISO 532-1's own reference code and validation signals are published
+free by ISO at `standards.iso.org/iso/532/-1/ed-1/en`; cross-checking against
+those is the obvious next step and would close the Annex B gap above.
 
 **Abrupt-step finding (documented limitation):** meshing a sudden area
 discontinuity as resolved A(x) geometry converges only first order at the

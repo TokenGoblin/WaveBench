@@ -308,11 +308,24 @@ public class MetricsAndComplianceTests(ITestOutputHelper output)
         // The plan requires honesty about gaps; this is the machine-readable
         // form of it, so the UI can surface it rather than implying coverage.
         PsychoacousticStatus.Implemented.Should().Contain(m => m.Standard.Contains("61672"));
-        PsychoacousticStatus.Outstanding.Should().Contain(m => m.Standard.Contains("532-1"));
-        PsychoacousticStatus.Outstanding.Should().Contain(m => m.Standard.Contains("45692"));
+        PsychoacousticStatus.Implemented.Should().Contain(m => m.Standard.Contains("532-1"),
+            "ISO 532-1 loudness reproduces the sone definition to 1% — see ZwickerLoudnessTests");
+        PsychoacousticStatus.Implemented.Should().Contain(m => m.Standard.Contains("45692"),
+            "DIN 45692 sharpness reproduces its reference signal — see SharpnessTests");
+
+        PsychoacousticStatus.Outstanding.Should().Contain(m => m.Standard.Contains("532-3"));
         PsychoacousticStatus.Outstanding.Should().Contain(m => m.Standard.Contains("ECMA-418-2"));
         PsychoacousticStatus.Outstanding.Should().OnlyContain(m => m.Note.Length > 20,
             "each gap states why, not just that");
+
+        // The claim side needs guarding too: an entry flipped to Implemented
+        // without evidence is exactly the dishonesty this list exists to
+        // prevent, so every implemented metric must say how it was checked.
+        PsychoacousticStatus.Implemented.Should().OnlyContain(
+            m => m.Note.Contains("Verified") || m.Note.Contains("verified")
+                 || m.Note.Contains("reproduces") || m.Note.Contains("Exact")
+                 || m.Note.Contains("measures"),
+            "an implemented metric states what it was checked against");
 
         foreach (var m in PsychoacousticStatus.Outstanding)
         {
