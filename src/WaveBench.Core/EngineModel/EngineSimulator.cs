@@ -340,9 +340,25 @@ public sealed class ProbeCapture(Solver.DuctSolver duct, int cell, string name)
     /// <summary>Raw samples at solver steps (non-uniform Δt), Pa.</summary>
     public List<float> Pressure { get; } = [];
 
-    internal void Record() => Pressure.Add((float)_duct.GetPressure(_cell));
+    /// <summary>
+    /// Axial velocity at the same steps, m/s, signed. Broadband flow noise
+    /// scales as a power of velocity (plan §3.4), so it needs this rather
+    /// than pressure — the two are not interchangeable at a termination,
+    /// where pressure goes to nearly zero exactly where velocity peaks.
+    /// </summary>
+    public List<float> Velocity { get; } = [];
 
-    public void Clear() => Pressure.Clear();
+    internal void Record()
+    {
+        Pressure.Add((float)_duct.GetPressure(_cell));
+        Velocity.Add((float)_duct.GetVelocity(_cell));
+    }
+
+    public void Clear()
+    {
+        Pressure.Clear();
+        Velocity.Clear();
+    }
 
     /// <summary>
     /// Resample onto a uniform crank-angle grid over whole 720° cycles —
@@ -351,9 +367,19 @@ public sealed class ProbeCapture(Solver.DuctSolver duct, int cell, string name)
     /// so linear interpolation on angle is the correct resampler; the result
     /// is what both the results store and the order/auralisation chain want.
     /// </summary>
-    public float[] ResampleToCrankAngle(CaptureTimeline timeline, int samplesPerCycle = 1440)
+    public float[] ResampleToCrankAngle(CaptureTimeline timeline, int samplesPerCycle = 1440) =>
+        Resample(Pressure, timeline, samplesPerCycle);
+
+    /// <summary>
+    /// The same resampling applied to <see cref="Velocity"/> — the input the
+    /// broadband flow-noise generator needs.
+    /// </summary>
+    public float[] ResampleVelocityToCrankAngle(CaptureTimeline timeline, int samplesPerCycle = 1440) =>
+        Resample(Velocity, timeline, samplesPerCycle);
+
+    private static float[] Resample(List<float> series, CaptureTimeline timeline, int samplesPerCycle)
     {
-        if (timeline.SampleCount < 2 || Pressure.Count != timeline.SampleCount)
+        if (timeline.SampleCount < 2 || series.Count != timeline.SampleCount)
         {
             throw new InvalidOperationException("Probe and timeline sample counts must match and be non-trivial.");
         }
@@ -379,7 +405,7 @@ public sealed class ProbeCapture(Solver.DuctSolver duct, int cell, string name)
             var a0 = timeline.AnglesDeg[index];
             var a1 = timeline.AnglesDeg[index + 1];
             var w = a1 > a0 ? Math.Clamp((target - a0) / (a1 - a0), 0.0, 1.0) : 0.0;
-            output[i] = (float)(Pressure[index] + w * (Pressure[index + 1] - Pressure[index]));
+            output[i] = (float)(series[index] + w * (series[index + 1] - series[index]));
         }
 
         return output;

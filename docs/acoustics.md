@@ -241,7 +241,33 @@ band-kill test.
   character regardless. That needs the outlet's radiation pattern and
   belongs with the cabin work in Phase 20. `ListenerChain.Describe` states
   this in the render metadata rather than letting a preset name imply it.
-- **The mechanical layer** (parametric, cosmetic) is not implemented.
+- ~~The mechanical layer is not implemented.~~ **Done**, and the broadband
+  stem with it — the plan's four stems (exhaust · intake · broadband ·
+  mechanical) now all render. `--broadband` and `--mechanical` set their
+  levels; both default sensibly and both can be switched off.
+
+  **Broadband** comes from the same solve as the tonal stems: the probes now
+  capture velocity alongside pressure, and a velocity wavetable rides the
+  same rpm × load grid. Velocity tables keep their mean, unlike pressure
+  tables — the source scales on |U|, so removing the DC would delete the
+  flow. Tailpipe exit uses the U⁸ quadrupole law (Lighthill 1952), the intake
+  mouth the U⁶ dipole law (Curle 1955; Nelson & Morfey 1981), and both are
+  verified directly: doubling the velocity gives 8.10× and 16.21× the
+  radiated pressure against 8 and 16 exactly. The spectral peak sits on the
+  St = 0.2 Strouhal frequency. **The absolute level is not calibrated** — it
+  enters as one constant scale over the whole render, which fixes the unknown
+  constant without touching the physical variation within it, and the console
+  says so on every render.
+
+  **Mechanical is cosmetic and predicts nothing**, as the plan requires it be
+  labelled. Nothing here solves for valve-seating velocity, chain dynamics or
+  injector solenoid motion, so no level in it is a prediction. What *is* real
+  is the timing: events are placed on the crank angles the engine's own
+  geometry gives, verified at exactly 50 / 100 / 200 valve events per second
+  for one cylinder at 3000 rpm, one at 6000, and four at 3000; and the
+  timing-drive whine lands at 666.5 Hz against the 666.7 Hz its tooth count
+  and half-speed camshaft predict. It stays a separate stem so it can be
+  soloed or muted and can never contaminate a metric or a compliance figure.
 
 ## 4. Sound metrics and compliance (Phase 11 — PARTIAL)
 

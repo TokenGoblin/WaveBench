@@ -1,4 +1,5 @@
 using System.CommandLine;
+using WaveBench.Acoustics;
 using WaveBench.Acoustics.Auralisation;
 using WaveBench.Analysis;
 using WaveBench.Analysis.ValidationCases;
@@ -176,12 +177,23 @@ public static class Program
             Description = "Manifold pressure fraction after the lift",
         };
         cruiseLoadOption.DefaultValueFactory = _ => 0.35;
+        var broadbandOption = new Option<double>("--broadband")
+        {
+            Description = "Broadband flow-noise stem level, as a fraction of tonal RMS "
+                          + "(shape is physical, absolute level is NOT calibrated; 0 disables)",
+        };
+        broadbandOption.DefaultValueFactory = _ => 0.06;
+        var mechanicalOption = new Option<double>("--mechanical")
+        {
+            Description = "Mechanical stem level — COSMETIC, predicts nothing; 0 disables",
+        };
+        mechanicalOption.DefaultValueFactory = _ => 0.0;
 
         var renderCommand = new Command("render", "Auralise a model: solve an rpm × load grid and synthesise audio")
         {
             modelArg, renderFromOption, renderToOption, secondsOption, gridOption,
             audioOutOption, seedOption, lufsOption, burbleOption, listenerOption, outletHeightOption,
-            loadsOption, liftAtOption, cruiseLoadOption,
+            loadsOption, liftAtOption, cruiseLoadOption, broadbandOption, mechanicalOption,
         };
         renderCommand.SetAction(parse =>
         {
@@ -215,7 +227,7 @@ public static class Program
             var synth = new WavetableSynthesizer(seed);
             var stems = new List<AudioStem>();
             var heldFraction = 0.0;
-            foreach (var bank in banks.Values)
+            foreach (var bank in banks.Pressure.Values)
             {
                 stems.Add(synth.Render(
                     bank, profile, Loudness.SupportedSampleRate, variation: null, startAngleDeg: 0.0,
@@ -235,6 +247,80 @@ public static class Program
             // Intake radiates less than the tailpipe on an NA engine; the
             // relative gain is a documented default, adjustable per model.
             var parts = stems.Select(s => (s, s.Name == "intake" ? 0.35 : 1.0)).ToList();
+
+            // Broadband flow noise, from the SAME solve's velocity tables. Its
+            // spectral shape and its variation with speed and load are physical
+            // (§3.4 Curle/Lighthill scaling); its absolute level is not, so it
+            // enters as a user-set mix gain and is labelled uncalibrated.
+            var broadbandLevel = parse.GetValue(broadbandOption);
+            if (broadbandLevel > 0.0)
+            {
+                var tonalRms = Rms(StemMixer.Mix("tonal", parts.ToArray()).Samples);
+                foreach (var (name, velocityBank) in banks.Velocity)
+                {
+                    var track = synth.Render(
+                        velocityBank, profile, Loudness.SupportedSampleRate,
+                        SynthesisVariation.None, 0.0, loadProfile);
+
+                    var diameterMm = name == "intake"
+                        ? document.IntakeRunner.DiameterMm
+                        : document.ExhaustRunner.DiameterMm;
+
+                    // Exit-jet mixing noise at the tailpipe is quadrupole (U⁸,
+                    // Lighthill); the intake mouth is the dipole case (U⁶, Curle).
+                    var noise = FlowNoise.Generate(
+                        Array.ConvertAll(track.Samples, s => (double)s),
+                        Loudness.SupportedSampleRate, diameterMm * 1e-3, seed ^ 0x9E37,
+                        calibrationFactor: 1.0,
+                        velocityExponent: name == "intake" ? 6.0 : 8.0);
+
+                    var rms = Rms(noise);
+                    if (rms <= 0.0)
+                    {
+                        continue;
+                    }
+
+                    // One constant scale over the whole render: it fixes the
+                    // unknown absolute level without touching the physical
+                    // variation within it.
+                    var scale = broadbandLevel * tonalRms / rms;
+                    var samples = new float[noise.Length];
+                    for (var i = 0; i < samples.Length; i++)
+                    {
+                        samples[i] = (float)(noise[i] * scale);
+                    }
+
+                    var stem = new AudioStem($"broadband-{name}", samples, Loudness.SupportedSampleRate);
+                    stems.Add(stem);
+                    parts.Add((stem, 1.0));
+                }
+
+                Console.WriteLine(
+                    $"broadband: {broadbandLevel:F3} of tonal RMS — UNCALIBRATED. The U⁶/U⁸ scaling and " +
+                    "spectral shape are physical; the absolute level is a knob (plan §3.4).");
+            }
+
+            // Mechanical layer: cosmetic, and separate so it can be soloed,
+            // muted, and kept out of every metric.
+            var mechanicalLevel = parse.GetValue(mechanicalOption);
+            if (mechanicalLevel > 0.0)
+            {
+                var character = new MechanicalCharacter(
+                    ValveTrainLevel: 0.05 * mechanicalLevel,
+                    TimingDriveLevel: 0.02 * mechanicalLevel,
+                    InjectorLevel: document.Combustion is null ? 0.0 : 0.015 * mechanicalLevel);
+
+                var mechanical = MechanicalLayer.Render(
+                    profile, document.Engine.CylinderCount, document.IntakeValves.Count,
+                    Loudness.SupportedSampleRate, seed ^ 0x5EED, character);
+
+                stems.Add(mechanical);
+                parts.Add((mechanical, 1.0));
+                Console.WriteLine(
+                    "mechanical: COSMETIC — valve, timing-drive and injector events are placed on the "
+                    + "real crank angles, but their levels are knobs and predict nothing.");
+            }
+
             if (parse.GetValue(burbleOption))
             {
                 var burble = StemMixer.OverrunBurble(profile, Loudness.SupportedSampleRate, seed);
@@ -309,6 +395,28 @@ public static class Program
         return root.Parse(args).Invoke();
     }
 
+    private static double Rms(IReadOnlyList<float> samples)
+    {
+        double sum = 0;
+        foreach (var sample in samples)
+        {
+            sum += (double)sample * sample;
+        }
+
+        return samples.Count > 0 ? Math.Sqrt(sum / samples.Count) : 0.0;
+    }
+
+    private static double Rms(IReadOnlyList<double> samples)
+    {
+        double sum = 0;
+        foreach (var sample in samples)
+        {
+            sum += sample * sample;
+        }
+
+        return samples.Count > 0 ? Math.Sqrt(sum / samples.Count) : 0.0;
+    }
+
     /// <summary>Parses --loads: comma-separated manifold pressure fractions.</summary>
     private static IReadOnlyList<double> ParseLoads(string? value)
     {
@@ -341,14 +449,14 @@ public static class Program
     /// default: it is what earlier versions produced, and silently moving the
     /// microphone would change every existing render's output.
     /// </summary>
-    private static WaveBench.Acoustics.ListenerPreset? ResolveListener(string? name) =>
+    private static ListenerPreset? ResolveListener(string? name) =>
         (name ?? "source").Trim().ToLowerInvariant() switch
         {
             "" or "source" or "none" => null,
-            "fsae" or "fsae-static" => WaveBench.Acoustics.ListenerPreset.FsaeStatic,
-            "j1287" or "sae-j1287" => WaveBench.Acoustics.ListenerPreset.SaeJ1287,
-            "drive-by" or "driveby" => WaveBench.Acoustics.ListenerPreset.DriveBy,
-            "chase-cam" or "chasecam" => WaveBench.Acoustics.ListenerPreset.ChaseCam,
+            "fsae" or "fsae-static" => ListenerPreset.FsaeStatic,
+            "j1287" or "sae-j1287" => ListenerPreset.SaeJ1287,
+            "drive-by" or "driveby" => ListenerPreset.DriveBy,
+            "chase-cam" or "chasecam" => ListenerPreset.ChaseCam,
             var other => throw new ArgumentException(
                 $"Unknown listener '{other}'. Use source, fsae, j1287, drive-by or chase-cam."),
         };

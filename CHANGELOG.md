@@ -37,6 +37,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - DIN 45692:2009 sharpness in acum, on the ISO 532-1 specific-loudness
   pattern. The standard's reference signal measures 1.028 acum against the
   defined 1.0.
+- The broadband and mechanical stems, completing the plan's four-stem render
+  (exhaust · intake · broadband · mechanical). Probes now capture velocity
+  alongside pressure, so broadband flow noise comes from the same solve and
+  the same rpm × load grid as the tonal stems; the U⁸ tailpipe and U⁶ intake
+  scaling laws are verified directly (8.10× and 16.21× pressure for doubled
+  velocity, against 8 and 16). Its absolute level stays uncalibrated and is
+  labelled so on every render. The mechanical layer is cosmetic and says so:
+  event timing follows real crank geometry (50/100/200 valve events per
+  second for 1-cyl at 3000, 1-cyl at 6000, 4-cyl at 3000; timing-drive whine
+  at 666.5 Hz against a geometric 666.7) but every level is a knob.
+  `--broadband` and `--mechanical` on `render`.
 - Load as the second wavetable axis, closing the Phase 10 deferral that left
   the pipeline building a single load line. `WavetableBank` is now an
   rpm × load grid with bilinear interpolation, both axes blended in the

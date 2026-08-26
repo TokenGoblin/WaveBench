@@ -243,6 +243,16 @@ public sealed class DuctSolver
         return _gas.FromConserved(_rho[c], _mom[c], _ener[c], y, _t[c]).P;
     }
 
+    /// <summary>
+    /// Axial velocity of one cell, m/s — the probe fast path, u = (ρu)/ρ with
+    /// no EOS state recovery. Signed: positive is the +x sense.
+    /// </summary>
+    public double GetVelocity(int i)
+    {
+        var c = i + Ghost;
+        return _mom[c] / _rho[c];
+    }
+
     public GasState GetState(int i)
     {
         var c = i + Ghost;

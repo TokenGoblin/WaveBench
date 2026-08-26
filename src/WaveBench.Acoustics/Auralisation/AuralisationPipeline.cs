@@ -37,7 +37,7 @@ public static class AuralisationPipeline
     /// Cost is linear in the number of load lines, so the default pair doubles
     /// the solve. That is the price of being able to audition cruise.
     /// </summary>
-    public static IReadOnlyDictionary<string, WavetableBank> BuildBanks(
+    public static SourceBanks BuildBanks(
         EngineModelDocument document,
         IReadOnlyList<double> rpmGrid,
         IReadOnlyList<SourceProbe>? sources = null,
@@ -49,6 +49,7 @@ public static class AuralisationPipeline
         sources ??= DefaultSources;
         loadLines ??= [1.0];
         var banks = sources.ToDictionary(s => s.Name, s => new WavetableBank(s.Name));
+        var velocityBanks = sources.ToDictionary(s => s.Name, s => new WavetableBank(s.Name));
 
         foreach (var load in loadLines.Distinct().OrderByDescending(l => l))
         {
@@ -73,14 +74,30 @@ public static class AuralisationPipeline
                     var resampled = probe.ResampleToCrankAngle(engine.Capture, samplesPerCycle);
                     var table = CrankWavetable.FromCapture(rpm, resampled, samplesPerCycle, load).WithoutMean();
                     banks[source.Name].Add(table);
+
+                    // Velocity keeps its mean: the broadband source scales as a
+                    // power of |U|, so removing the DC would delete the flow.
+                    var velocity = probe.ResampleVelocityToCrankAngle(engine.Capture, samplesPerCycle);
+                    velocityBanks[source.Name].Add(
+                        CrankWavetable.FromCapture(rpm, velocity, samplesPerCycle, load));
                 }
 
                 progress?.Invoke($"{rpm,6:F0} rpm at {load * 100,3:F0}% load captured");
             }
         }
 
-        return banks;
+        return new SourceBanks(banks, velocityBanks);
     }
+
+    /// <summary>
+    /// What one solve of the rpm × load grid yields per source: the acoustic
+    /// pressure tables the tonal stems are synthesised from, and the velocity
+    /// tables the broadband stem needs. They come from the same probes in the
+    /// same solve, so they cannot drift apart.
+    /// </summary>
+    public sealed record SourceBanks(
+        IReadOnlyDictionary<string, WavetableBank> Pressure,
+        IReadOnlyDictionary<string, WavetableBank> Velocity);
 
     /// <summary>
     /// Default rpm grid at the plan's 250 rpm spacing (§3.6 step 1).

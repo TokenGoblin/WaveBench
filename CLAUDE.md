@@ -30,6 +30,14 @@ resource key because XAML lookups fail at runtime, not compile time.
 app.** Use `WaveBench.App.exe --screenshot <dir>`, which renders the
 visual tree offscreen.
 
+**Never edit files with `Get-Content | ... | Set-Content` in PowerShell 5.1.**
+`Get-Content` reads UTF-8 as the ANSI codepage and `Set-Content -Encoding
+UTF8` writes it back double-encoded plus a BOM, so every `§ × → —` in the
+file silently becomes `Â§ Ã— â†' â€"`. The source is full of them (plan
+references, units). Use the Edit tool, or `[IO.File]::ReadAllText/WriteAllText`
+with `New-Object Text.UTF8Encoding $false`. Same reason commit messages go
+via `git commit -F` with a UTF-8-no-BOM file.
+
 Known deferrals: standardised psychoacoustics (Phase 11); junction
 branch-angle loss coefficients (Bassett 2001); polydyne cam generator; full
 two-zone energy split; Yin-case short-runner discrepancy (docs/physics.md
