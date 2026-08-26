@@ -120,6 +120,7 @@ public sealed class EngineSimulator
         var dTheta = Omega * dt * 180.0 / Math.PI;
         Angle += dTheta;
         Time += dt;
+        RecordProbes();
 
         if (EnableProfiling)
         {
@@ -215,6 +216,56 @@ public sealed class EngineSimulator
         Ducts.Sum(d => d.ConservedTotals().Mass)
         + Plenums.Sum(p => p.Mass)
         + Cylinders.Sum(c => c.Mass);
+
+    /// <summary>
+    /// High-resolution probes (plan §3.4): pressure at chosen duct cells,
+    /// recorded every step with time and crank angle while capture is on
+    /// (typically the last k converged cycles). Feed to the results store as
+    /// float32 with the crank-angle basis, and to the order/auralisation
+    /// chain.
+    /// </summary>
+    public List<ProbeCapture> Probes { get; } = [];
+
+    public bool CaptureEnabled { get; set; }
+
+    private void RecordProbes()
+    {
+        if (!CaptureEnabled)
+        {
+            return;
+        }
+
+        foreach (var probe in Probes)
+        {
+            probe.Record(Time, Angle);
+        }
+    }
+}
+
+/// <summary>One capture probe: a duct cell recorded over time.</summary>
+public sealed class ProbeCapture(Solver.DuctSolver duct, int cell, string name)
+{
+    public string Name { get; } = name;
+
+    public List<double> Times { get; } = [];
+
+    public List<double> AnglesDeg { get; } = [];
+
+    public List<double> Pressure { get; } = [];
+
+    internal void Record(double time, double angleDeg)
+    {
+        Times.Add(time);
+        AnglesDeg.Add(angleDeg);
+        Pressure.Add(duct.GetPrimitive(cell).P);
+    }
+
+    public void Clear()
+    {
+        Times.Clear();
+        AnglesDeg.Clear();
+        Pressure.Clear();
+    }
 }
 
 public sealed class CycleResult

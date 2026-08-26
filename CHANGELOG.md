@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Phase 9: acoustic source, capture, propagation, order analysis. Collector
+  timing calculator (hand-exact, rpm-linear errors, wall-temperature
+  effect), scroll-separation index, pulse-train synthesis, crank-synchronous
+  order tracking (0.2 dB gate, sweeps included), OPI + character metrics —
+  crossplane/flat-plane gate: half-order 3.39 vs 2.5e-30. Monopole source
+  with bandwidth roll-off, ISO 9613-1 absorption (published anchors hit),
+  ground-reflection comb, listener presets, seeded Strouhal flow noise,
+  high-resolution probe capture.
+
 - Phase 8: linear acoustics engine (TMM). Four-pole element library in the
   [p, U] convention — damped duct with mean flow, area discontinuity with
   end correction, quarter-wave stub, Helmholtz resonator, Levine–Schwinger

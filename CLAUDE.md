@@ -6,13 +6,12 @@
 relevant parts before writing code. 26 phases, strictly in order, each with a
 hard acceptance gate (Part 12). Never let a session span two phases.
 
-**Phase status:** Phases 0–8 complete. Next: Phase 9 (acoustic source,
-capture, propagation, order analysis: frequency-domain source extraction,
-broadband flow noise, radiation + free-field propagation with atmospheric
-absorption and ground reflection, listener presets, crank-synchronous order
-tracking, OPI + character metrics, collector timing calculation; gate:
-crossplane-vs-flat-plane half-order test, collector timing vs hand calc,
-order tracking within 0.2 dB on synthetic signals). Known deferrals:
+**Phase status:** Phases 0–9 complete. Next: Phase 10 (auralisation:
+hybrid nonlinear/TMM combination, crank-angle wavetable synthesis,
+rev-sweep and load interpolation, stochastic variation, stems, Doppler and
+drive-by, WAV/FLAC export with metadata, loudness normalisation, A/B
+player, overrun burble; gate: artefact-free 1500→7200 sweep, seed-identical
+renders, A/B within 0.5 LU, audibly distinct crossplane vs flat-plane). Known deferrals:
 junction branch-angle loss coefficients (Bassett 2001); polydyne cam
 generator; full two-zone energy split; Yin-case short-runner discrepancy
 (docs/physics.md §1.9); SIMD flux kernels when 3000-cell collector networks
