@@ -9,6 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Phase 10: auralisation — WaveBench makes sound. Crank-angle wavetable
+  synthesis (phase-coherent, never time-stretched), seeded per-cycle
+  variation, BS.1770 gated loudness with level-matched A/B, own 24-bit WAV
+  writer with stems and a provenance sidecar, drive-by Doppler from the
+  changing propagation delay, overrun burble, and the §5.6 hybrid
+  nonlinear/TMM crossover. New `wavebench render` command. Gates: sweep
+  crest factor 7.51, bit-identical seeded renders, A/B within 0.5 LU,
+  crossplane vs flat-plane half-order 3.385 vs 5.07e-18 after matching.
+  Deferred and documented: FLAC, load interpolation, listener chain in the
+  render path, mechanical layer.
+
+### Changed
+
+- `Fft` moved from `WaveBench.Analysis` to `WaveBench.Core.Numerics`: it is
+  a numerical primitive, and `Acoustics` depending on the post-processing
+  assembly read backwards.
+
 - Phase 9: acoustic source, capture, propagation, order analysis. Collector
   timing calculator (hand-exact, rpm-linear errors, wall-temperature
   effect), scroll-separation index, pulse-train synthesis, crank-synchronous

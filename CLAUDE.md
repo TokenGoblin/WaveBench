@@ -6,12 +6,18 @@
 relevant parts before writing code. 26 phases, strictly in order, each with a
 hard acceptance gate (Part 12). Never let a session span two phases.
 
-**Phase status:** Phases 0–9 complete. Next: Phase 10 (auralisation:
-hybrid nonlinear/TMM combination, crank-angle wavetable synthesis,
-rev-sweep and load interpolation, stochastic variation, stems, Doppler and
-drive-by, WAV/FLAC export with metadata, loudness normalisation, A/B
-player, overrun burble; gate: artefact-free 1500→7200 sweep, seed-identical
-renders, A/B within 0.5 LU, audibly distinct crossplane vs flat-plane). Known deferrals:
+**Phase status:** Phases 0–10 complete. Next: Phase 11 (sound metrics and
+compliance · **v0.4 milestone**: ISO 532-1/-3 loudness, DIN 45692 sharpness,
+ECMA-418-2, fluctuation strength, weighted SPL; the engine-specific metric
+set; target profiles; Reference Match; FSAE / ISO 5130 / ISO 362 as
+versioned rules data with pass/fail and margin. Gate: metrics match
+published reference verification signals; FSAE test-speed calculation
+correct for known strokes; compliance carries an uncertainty band).
+
+**The user has seen and heard output** (torque plots, rendered WAVs) and
+chose "make it audible" over pulling the GUI forward. The plan permits
+pulling Phases 16–19 forward at any time from here — offer it again when a
+natural pause comes. Known deferrals:
 junction branch-angle loss coefficients (Bassett 2001); polydyne cam
 generator; full two-zone energy split; Yin-case short-runner discrepancy
 (docs/physics.md §1.9); SIMD flux kernels when 3000-cell collector networks

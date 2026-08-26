@@ -1,4 +1,5 @@
 using System.CommandLine;
+using WaveBench.Acoustics.Auralisation;
 using WaveBench.Analysis;
 using WaveBench.Analysis.ValidationCases;
 using WaveBench.Core.EngineModel;
@@ -134,9 +135,91 @@ public static class Program
             return 0;
         });
 
+        var renderFromOption = new Option<double>("--from") { Description = "Sweep start, rpm" };
+        renderFromOption.DefaultValueFactory = _ => 2000.0;
+        var renderToOption = new Option<double>("--to") { Description = "Sweep end, rpm" };
+        renderToOption.DefaultValueFactory = _ => 7000.0;
+        var secondsOption = new Option<double>("--seconds") { Description = "Sweep duration, s" };
+        secondsOption.DefaultValueFactory = _ => 8.0;
+        var gridOption = new Option<double>("--grid") { Description = "Wavetable rpm spacing (plan §3.6 default 250)" };
+        gridOption.DefaultValueFactory = _ => 250.0;
+        var audioOutOption = new Option<DirectoryInfo>("--out") { Description = "Output directory" };
+        audioOutOption.DefaultValueFactory = _ => new DirectoryInfo("render");
+        var seedOption = new Option<ulong>("--seed") { Description = "Stochastic seed (renders are reproducible)" };
+        seedOption.DefaultValueFactory = _ => 20260825UL;
+        var lufsOption = new Option<double>("--lufs") { Description = "Target integrated loudness" };
+        lufsOption.DefaultValueFactory = _ => -20.0;
+        var burbleOption = new Option<bool>("--burble") { Description = "Add overrun burble on decel (phenomenological)" };
+
+        var renderCommand = new Command("render", "Auralise a model: solve an rpm grid and synthesise audio")
+        {
+            modelArg, renderFromOption, renderToOption, secondsOption, gridOption,
+            audioOutOption, seedOption, lufsOption, burbleOption,
+        };
+        renderCommand.SetAction(parse =>
+        {
+            var document = LoadModel(parse.GetValue(modelArg)!);
+            var from = parse.GetValue(renderFromOption);
+            var to = parse.GetValue(renderToOption);
+            var seconds = parse.GetValue(secondsOption);
+            var seed = parse.GetValue(seedOption);
+            var outDir = parse.GetValue(audioOutOption)!;
+
+            var grid = AuralisationPipeline.Grid(from, to, parse.GetValue(gridOption));
+            Console.WriteLine($"solving {grid.Count} operating points for wavetables...");
+            var banks = AuralisationPipeline.BuildBanks(
+                document, grid, progress: line => Console.WriteLine("  " + line));
+
+            Console.WriteLine($"synthesising {from:F0} → {to:F0} rpm over {seconds:F1} s...");
+            var profile = RpmProfile.Sweep(from, to, seconds);
+            var synth = new WavetableSynthesizer(seed);
+            var stems = banks.Values
+                .Select(bank => synth.Render(bank, profile, Loudness.SupportedSampleRate))
+                .ToList();
+
+            // Intake radiates less than the tailpipe on an NA engine; the
+            // relative gain is a documented default, adjustable per model.
+            var parts = stems.Select(s => (s, s.Name == "intake" ? 0.35 : 1.0)).ToList();
+            if (parse.GetValue(burbleOption))
+            {
+                var burble = StemMixer.OverrunBurble(profile, Loudness.SupportedSampleRate, seed);
+                stems.Add(burble);
+                parts.Add((burble, 0.5));
+            }
+
+            var mix = StemMixer.Mix("mix", parts.ToArray());
+            var (normalised, gainDb) = Loudness.NormaliseTo(mix, parse.GetValue(lufsOption));
+
+            var metadata = new RenderMetadata
+            {
+                ModelName = document.Name,
+                ModelHash = RenderMetadata.HashOf(document.Save()),
+                RpmProfile = $"{from:F0}→{to:F0} rpm over {seconds:F1} s",
+                ListenerPreset = "source (no listener chain applied)",
+                Seed = seed,
+                // docs/numerics.md §5: measured −3 dB bandwidth at this mesh.
+                ResolvedBandwidthHz = 2800.0 * 6.0 / Math.Max(document.Solver.CellSizeMm, 1e-6),
+                IntegratedLufs = Loudness.IntegratedLufs(normalised.Samples, Loudness.SupportedSampleRate),
+            };
+
+            var baseName = Path.GetFileNameWithoutExtension(parse.GetValue(modelArg)!.Name);
+            var result = RenderExport.Write(outDir.FullName, baseName, normalised, stems, metadata);
+
+            Console.WriteLine($"loudness {metadata.IntegratedLufs:F1} LUFS (applied {gainDb:+0.0;-0.0} dB)");
+            Console.WriteLine($"mix:  {result.MixPath}");
+            foreach (var stem in result.StemPaths)
+            {
+                Console.WriteLine($"stem: {stem}");
+            }
+
+            Console.WriteLine($"meta: {result.MetadataPath}");
+            Console.WriteLine($"NOTE: content above {metadata.ResolvedBandwidthHz:F0} Hz is not physically resolved (plan §5.5).");
+            return 0;
+        });
+
         var root = new RootCommand("WaveBench headless engine gas-dynamics runner")
         {
-            runCommand, sweepCommand, meshCommand, validateCommand, infoCommand,
+            runCommand, sweepCommand, meshCommand, validateCommand, infoCommand, renderCommand,
         };
         return root.Parse(args).Invoke();
     }

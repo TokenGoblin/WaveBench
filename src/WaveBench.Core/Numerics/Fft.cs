@@ -1,4 +1,4 @@
-namespace WaveBench.Analysis;
+namespace WaveBench.Core.Numerics;
 
 /// <summary>
 /// In-place iterative radix-2 Cooley–Tukey FFT. Deterministic, dependency-free;

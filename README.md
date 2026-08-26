@@ -14,7 +14,7 @@ audio never leave your machine.
 
 ## Status
 
-**Phases 0–7 complete — headless v0.1.** The complete build specification
+**Phases 0–10 complete.** The complete build specification
 lives in [`docs/WaveBench-Master-Plan.md`](docs/WaveBench-Master-Plan.md) — a
 staged build contract with 26 phases, each with a hard acceptance gate.
 Physics before pixels: Phases 0–15 produce a headless, test-covered,
@@ -25,8 +25,12 @@ verified against exact Riemann solutions), well-balanced variable area,
 friction/heat/wall-thermal sources, reservoir/orifice/plenum/junction
 components, an FSAE restrictor that chokes at theory, motored and fired
 single/multi-cylinder engines with wave-tuned VE curves, Wiebe combustion
-with knock tracking, and a CLI that runs models, sweeps, mesh-sensitivity
-studies and the validation suite.
+with knock tracking, a transfer-matrix acoustics engine cross-validated
+against the nonlinear solver to 0.45 dB, collector pulse-timing analysis
+that reproduces the crossplane-vs-flat-plane signature from firing order
+alone, **audio synthesis** (phase-coherent crank-angle wavetables, BS.1770
+level-matched A/B, WAV export with provenance), and a CLI that runs models,
+sweeps, mesh studies, renders audio and executes the validation suite.
 
 ## Headless CLI
 
@@ -36,8 +40,15 @@ wavebench run    examples/single-360.json --rpm 5000
 wavebench sweep  examples/single-360.json --from 4000 --to 9000 --step 500 \
                  --db results.db --plot sweep.png
 wavebench mesh   examples/single-360.json --rpm 7000
+wavebench render examples/single-360.json --from 2500 --to 7500 --seconds 9
 wavebench validate --out validation
 ```
+
+`render` solves an rpm grid, builds crank-angle wavetables from the solved
+pressure history and synthesises phase-coherent audio — 24-bit/48 kHz WAV
+with separate exhaust/intake stems and a provenance sidecar recording the
+model hash, seed and resolved bandwidth. Content above that bandwidth is
+labelled as not physically resolved rather than presented as prediction.
 
 ## Validation
 

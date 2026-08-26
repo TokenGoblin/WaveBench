@@ -34,6 +34,12 @@ AppPackages/
 # Runtime logs
 logs/
 
+# Rendered audio (regenerate with `wavebench render`)
+render/
+render-*/
+*.wav
+*.flac
+
 # Local results and scratch
 *.db
 *.db-wal
