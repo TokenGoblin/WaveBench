@@ -182,10 +182,21 @@ public static class WavWriter
 /// </summary>
 public static class RenderExport
 {
-    public sealed record Result(string MixPath, IReadOnlyList<string> StemPaths, string MetadataPath, double PeakBeforeClip);
+    public sealed record Result(
+        string MixPath,
+        IReadOnlyList<string> StemPaths,
+        string MetadataPath,
+        double PeakBeforeClip,
+        IReadOnlyList<string> FlacPaths);
 
+    /// <summary>
+    /// Writes the render. <paramref name="flac"/> adds a FLAC alongside every
+    /// WAV (plan §3.6 asks for both); the two carry bit-identical audio
+    /// because both writers quantise the same way.
+    /// </summary>
     public static Result Write(
-        string directory, string baseName, AudioStem mix, IReadOnlyList<AudioStem> stems, RenderMetadata metadata)
+        string directory, string baseName, AudioStem mix, IReadOnlyList<AudioStem> stems, RenderMetadata metadata,
+        bool flac = false)
     {
         Directory.CreateDirectory(directory);
 
@@ -205,9 +216,24 @@ public static class RenderExport
             stemPaths.Add(path);
         }
 
+        var flacPaths = new List<string>();
+        if (flac)
+        {
+            var mixFlac = Path.ChangeExtension(mixPath, ".flac");
+            FlacWriter.Write(mixFlac, mix, fullScale);
+            flacPaths.Add(mixFlac);
+
+            for (var i = 0; i < stems.Count; i++)
+            {
+                var path = Path.ChangeExtension(stemPaths[i], ".flac");
+                FlacWriter.Write(path, stems[i], fullScale);
+                flacPaths.Add(path);
+            }
+        }
+
         var metadataPath = Path.Combine(directory, $"{baseName}.json");
         File.WriteAllText(metadataPath, metadata.ToJson());
 
-        return new Result(mixPath, stemPaths, metadataPath, peak / fullScale);
+        return new Result(mixPath, stemPaths, metadataPath, peak / fullScale, flacPaths);
     }
 }

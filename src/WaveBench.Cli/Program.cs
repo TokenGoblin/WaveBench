@@ -188,12 +188,16 @@ public static class Program
             Description = "Mechanical stem level — COSMETIC, predicts nothing; 0 disables",
         };
         mechanicalOption.DefaultValueFactory = _ => 0.0;
+        var flacOption = new Option<bool>("--flac")
+        {
+            Description = "Also write FLAC alongside every WAV (identical audio, roughly a third the size)",
+        };
 
         var renderCommand = new Command("render", "Auralise a model: solve an rpm × load grid and synthesise audio")
         {
             modelArg, renderFromOption, renderToOption, secondsOption, gridOption,
             audioOutOption, seedOption, lufsOption, burbleOption, listenerOption, outletHeightOption,
-            loadsOption, liftAtOption, cruiseLoadOption, broadbandOption, mechanicalOption,
+            loadsOption, liftAtOption, cruiseLoadOption, broadbandOption, mechanicalOption, flacOption,
         };
         renderCommand.SetAction(parse =>
         {
@@ -374,13 +378,22 @@ public static class Program
             };
 
             var baseName = Path.GetFileNameWithoutExtension(parse.GetValue(modelArg)!.Name);
-            var result = RenderExport.Write(outDir.FullName, baseName, normalised, stems, metadata);
+            var result = RenderExport.Write(
+                outDir.FullName, baseName, normalised, stems, metadata, parse.GetValue(flacOption));
 
             Console.WriteLine($"loudness {metadata.IntegratedLufs:F1} LUFS (applied {gainDb:+0.0;-0.0} dB)");
             Console.WriteLine($"mix:  {result.MixPath}");
             foreach (var stem in result.StemPaths)
             {
                 Console.WriteLine($"stem: {stem}");
+            }
+
+            if (result.FlacPaths.Count > 0)
+            {
+                var wavBytes = result.StemPaths.Append(result.MixPath).Sum(p => new FileInfo(p).Length);
+                var flacBytes = result.FlacPaths.Sum(p => new FileInfo(p).Length);
+                Console.WriteLine(
+                    $"flac: {result.FlacPaths.Count} files, {100.0 * flacBytes / Math.Max(wavBytes, 1):F0}% of the WAV size");
             }
 
             Console.WriteLine($"meta: {result.MetadataPath}");

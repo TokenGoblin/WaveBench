@@ -181,8 +181,37 @@ band-kill test.
 
 ### Phase 10 deferrals, stated plainly
 
-- **FLAC export** is not implemented; WAV is. A wrong FLAC file is worse
-  than none, and verifying an encoder needs a reference decoder in CI.
+- ~~FLAC export is not implemented.~~ **Done.** `render --flac` writes a
+  FLAC beside every WAV, carrying bit-identical audio because both writers
+  quantise the same way (a test asserts it). Roughly 69 % of WAV size on a
+  real render, 25–36 % on tonal material and 0.2 % on silence; white noise
+  correctly falls back to verbatim at 100 %.
+
+  Written from RFC 9639 to the fixed-predictor subset: CONSTANT, FIXED
+  (orders 0–4) or VERBATIM subframes with partitioned Rice residuals. Fixed
+  predictors need no stored coefficients and get most of FLAC's compression
+  on this material; general LPC would add solving and coefficient overhead
+  for a few percent more.
+
+  **The old deferral's reasoning was right and is now satisfied.** "A wrong
+  FLAC file is worse than none, and verifying an encoder needs a reference
+  decoder in CI" — so there are two layers. `FlacReader` decodes the stream
+  back and the samples must match bit for bit, validating both frame CRCs
+  and the STREAMINFO MD5 along the way; and a CI job installs the reference
+  `flac` tool and runs `flac -t` over every file a render produces, because
+  an encoder and decoder written from one reading of a spec can share a
+  misreading. Round-trips are pinned at 1, 15, 16, 4095, 4096, 4097, 8192
+  and 12290 samples: RFC 9639 §8.2 requires the minimum block size to be at
+  least 16, and 4097 samples would otherwise leave a 1-sample final frame.
+
+  Two defects found while building it, both real. The first version emitted
+  only 4-bit Rice parameters, capping the parameter at 14 — but 24-bit audio
+  routinely needs 15–20, because the low bits of a rendered stem are
+  rounding noise, so nearly every real block was declared incompressible and
+  sent to verbatim at 89 % of WAV size. The 5-bit parameter method exists for
+  exactly that. The second was in the decoder: corrupt input ran it off the
+  end of the buffer instead of reporting a bad stream, which matters because
+  it reads files a user supplies.
 - ~~Load interpolation is not implemented.~~ **Done.** The wavetable bank is
   now a two-dimensional rpm × load grid with bilinear interpolation, and
   every blend — both axes — happens in the crank-angle domain, so the result

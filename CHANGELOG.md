@@ -37,6 +37,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - DIN 45692:2009 sharpness in acum, on the ISO 532-1 specific-loudness
   pattern. The standard's reference signal measures 1.028 acum against the
   defined 1.0.
+- FLAC export (`render --flac`), closing the last Phase 10 deferral. Written
+  from RFC 9639 to the fixed-predictor subset (CONSTANT / FIXED 0–4 /
+  VERBATIM with partitioned Rice residuals); ~69% of WAV size on a real
+  render, 25–36% on tonal material, with bit-identical audio to the WAV.
+  Verified two ways, as the deferral demanded: `FlacReader` round-trips every
+  sample exactly while validating both frame CRCs and the STREAMINFO MD5, and
+  a CI job runs the reference `flac -t` over every file a render produces.
 - The broadband and mechanical stems, completing the plan's four-stem render
   (exhaust · intake · broadband · mechanical). Probes now capture velocity
   alongside pressure, so broadband flow noise comes from the same solve and

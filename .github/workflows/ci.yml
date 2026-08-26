@@ -26,3 +26,42 @@ jobs:
 
       - name: Verification suite
         run: dotnet test tests/WaveBench.Verification -c Release --no-build --verbosity normal
+
+  # The FLAC encoder is checked against the reference implementation, not
+  # only against our own decoder: an encoder and a decoder written from the
+  # same reading of RFC 9639 can share a misreading, and a wrong FLAC file is
+  # worse than no FLAC file. `flac -t` fully decodes the stream, validating
+  # every frame CRC and the STREAMINFO MD5 of the audio.
+  flac-conformance:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Install the reference FLAC tools
+        run: sudo apt-get update && sudo apt-get install -y flac
+
+      - name: Render a short clip with FLAC output
+        run: >
+          dotnet run --project src/WaveBench.Cli -c Release --
+          render examples/single-360.json
+          --from 3000 --to 3600 --seconds 1 --grid 600 --loads 1.0
+          --mechanical 1.0 --flac --out flac-check
+
+      - name: Verify every FLAC against the reference decoder
+        run: |
+          set -e
+          shopt -s nullglob
+          files=(flac-check/*.flac)
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "No FLAC files were produced — the render did not exercise the encoder."
+            exit 1
+          fi
+          for f in "${files[@]}"; do
+            echo "== $f"
+            flac -t "$f"
+          done
+          echo "All ${#files[@]} files passed reference verification."
