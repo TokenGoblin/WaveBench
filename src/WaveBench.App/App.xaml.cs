@@ -35,13 +35,21 @@ public partial class App : Application
         Bind("Brush.TextSecondary", "TextSecondary", "Light.TextSecondary");
     }
 
+    /// <summary>
+    /// The one preferences instance for the process. Previously startup
+    /// built a throwaway copy and the window built another, so the window's
+    /// idea of the current theme did not match what had been applied.
+    /// </summary>
+    public static UserPreferences Preferences { get; } = new();
+
     private void OnAppStartup(object sender, StartupEventArgs e)
     {
-        var preferences = new UserPreferences();
-        if (preferences.FollowSystemTheme)
+        if (Preferences.FollowSystemTheme)
         {
-            ApplyTheme(SystemPrefersDark());
+            Preferences.DarkTheme = SystemPrefersDark();
         }
+
+        ApplyTheme(Preferences.DarkTheme);
 
         // --screenshot <dir>: render the shell offscreen and exit. Used for
         // documentation and (later) visual regression; never shows a window
@@ -49,6 +57,7 @@ public partial class App : Application
         var index = Array.FindIndex(e.Args, a => a.Equals("--screenshot", StringComparison.OrdinalIgnoreCase));
         if (index >= 0 && index + 1 < e.Args.Length)
         {
+            Preferences.DarkTheme = false;
             ApplyTheme(false);
             OffscreenRenderer.CaptureAll(e.Args[index + 1]);
             Shutdown();

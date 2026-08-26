@@ -69,11 +69,17 @@ public sealed class ShellViewModel
 {
     private readonly ProjectSession _session;
 
-    public ShellViewModel(ProjectSession session, UserPreferences? preferences = null)
+    /// <summary>
+    /// <paramref name="jobs"/> accepts a tray recovered from disk. Without
+    /// it the app could checkpoint jobs but never show a restored one: the
+    /// status line would read "Jobs: idle" after a restart even with an
+    /// interrupted sweep sitting in jobs.json.
+    /// </summary>
+    public ShellViewModel(ProjectSession session, UserPreferences? preferences = null, JobTray? jobs = null)
     {
         _session = session;
         Preferences = preferences ?? new UserPreferences();
-        Jobs = new JobTray();
+        Jobs = jobs ?? new JobTray();
     }
 
     public UserPreferences Preferences { get; }

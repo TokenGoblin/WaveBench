@@ -34,18 +34,24 @@ public enum Provenance
 /// </summary>
 public sealed record ProvenanceEntry
 {
-    public required Provenance Origin { get; set; }
+    /// <summary>
+    /// Members are init-only: the map hands out stored instances, and a
+    /// mutable Origin would let any caller strip protection without going
+    /// through <c>ProjectSession</c> — which is the whole point of the type.
+    /// </summary>
+    public required Provenance Origin { get; init; }
 
     /// <summary>How an Auto value was derived ("0.85 × valve head diameter").</summary>
-    public string? Derivation { get; set; }
+    public string? Derivation { get; init; }
 
     /// <summary>Source for a correlation-derived default.</summary>
-    public string? Citation { get; set; }
+    public string? Citation { get; init; }
 
     /// <summary>For Imported: the file it came from. For Optimised: the run id.</summary>
-    public string? SourceRef { get; set; }
+    public string? SourceRef { get; init; }
 
     /// <summary>True for origins a wizard or auto-derivation may never silently overwrite.</summary>
+    [JsonIgnore]
     public bool IsProtected => Origin is Provenance.You or Provenance.Imported or Provenance.Optimised;
 }
 
@@ -60,7 +66,12 @@ public sealed record ProvenanceEntry
 /// </summary>
 public sealed class ProvenanceMap
 {
-    private readonly Dictionary<string, ProvenanceEntry> _entries = new(StringComparer.Ordinal);
+    // Case-insensitive because model paths are resolved case-insensitively.
+    // Keying this Ordinal while the document resolves IgnoreCase would let
+    // "Engine.BoreMm" miss protection recorded under "engine.boreMm" — a
+    // silent overwrite of a user's value. ProjectSession canonicalises paths
+    // as well; this is the belt to that pair of braces.
+    private readonly Dictionary<string, ProvenanceEntry> _entries = new(StringComparer.OrdinalIgnoreCase);
 
     public IReadOnlyDictionary<string, ProvenanceEntry> Entries => _entries;
 
@@ -117,13 +128,22 @@ public sealed record ProposedChange(
         $"{Path}: {CurrentValue} → {ProposedValue} [{CurrentOrigin}]{(Blocked ? " BLOCKED" : "")}";
 }
 
+/// <summary>A value that could not be written at all, and why.</summary>
+public sealed record RejectedChange(string Path, object? ProposedValue, string Reason)
+{
+    public override string ToString() => $"{Path}: {Reason}";
+}
+
 /// <summary>Outcome of applying a set of derived values.</summary>
 public sealed record ApplyResult(
     IReadOnlyList<ProposedChange> Applied,
     IReadOnlyList<ProposedChange> Blocked,
-    IReadOnlyList<ProposedChange> Unchanged)
+    IReadOnlyList<ProposedChange> Unchanged,
+    IReadOnlyList<RejectedChange> Rejected)
 {
     public bool AnythingBlocked => Blocked.Count > 0;
+
+    public bool AnythingRejected => Rejected.Count > 0;
 
     /// <summary>The §8.8 rule-3 diff preview: what a re-run would do, before it does it.</summary>
     public string DiffPreview()
@@ -139,10 +159,22 @@ public sealed record ApplyResult(
             lines.Add($"  KEPT (yours) {change.Path}: {change.CurrentValue} [{change.CurrentOrigin}]");
         }
 
+        foreach (var change in Rejected)
+        {
+            lines.Add($"  CANNOT SET {change}");
+        }
+
         return lines.Count == 0 ? "  (no changes)" : string.Join(Environment.NewLine, lines);
     }
 }
 
-[JsonSourceGenerationOptions(WriteIndented = true, PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
+// Enums persist as STRINGS. As integers, inserting a member ahead of You
+// would silently reinterpret every saved You entry as the new member —
+// protection lapsing on the user's own values, which is exactly what this
+// map exists to prevent. Strings also keep the file genuinely git-diffable.
+[JsonSourceGenerationOptions(
+    WriteIndented = true,
+    PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
+    UseStringEnumConverter = true)]
 [JsonSerializable(typeof(Dictionary<string, ProvenanceEntry>))]
 public partial class ProvenanceJsonContext : JsonSerializerContext;

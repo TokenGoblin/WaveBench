@@ -73,13 +73,25 @@ public sealed class JobTray
 
     public void Start(string id) => Find(id).State = JobState.Running;
 
-    /// <summary>Record progress and a resume token — the checkpoint a crash restores from.</summary>
+    /// <summary>
+    /// Record progress and, optionally, a fresh resume token. A null token
+    /// LEAVES THE EXISTING ONE ALONE: a solver that reports progress every
+    /// step but refreshes its token occasionally would otherwise erase the
+    /// token on every intervening call, and the crash would recover a
+    /// progress count with nothing to resume from.
+    /// </summary>
     public void Checkpoint(string id, int progress, string? token = null)
     {
         var job = Find(id);
         job.Progress = progress;
-        job.Checkpoint = token;
+        if (token is not null)
+        {
+            job.Checkpoint = token;
+        }
     }
+
+    /// <summary>Explicitly drop a resume token (a job that can no longer resume).</summary>
+    public void ClearCheckpoint(string id) => Find(id).Checkpoint = null;
 
     public void Complete(string id)
     {
@@ -109,9 +121,15 @@ public sealed class JobTray
             return "Jobs: idle";
         }
 
-        var parts = active.Select(j => j.State == JobState.Running
-            ? $"{j.Kind} {j.Progress}/{j.Total}"
-            : $"{j.Kind} queued");
+        // A job recovered from a crash is Queued but already part-done —
+        // showing bare "queued" would hide the resume point the checkpoint
+        // exists to preserve.
+        var parts = active.Select(j => (j.State, j.Progress) switch
+        {
+            (JobState.Running, _) => $"{j.Kind} {j.Progress}/{j.Total}",
+            (JobState.Queued, > 0) => $"{j.Kind} resuming {j.Progress}/{j.Total}",
+            _ => $"{j.Kind} queued",
+        });
         return "Jobs: " + string.Join(" · ", parts);
     }
 
@@ -145,6 +163,11 @@ public sealed class JobTray
         File.Exists(path) ? Load(File.ReadAllText(path)) : new JobTray();
 }
 
-[JsonSourceGenerationOptions(WriteIndented = true, PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
+// String enums for the same reason as the provenance map: an integer
+// JobState would be reinterpreted by any reordering of the enum.
+[JsonSourceGenerationOptions(
+    WriteIndented = true,
+    PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
+    UseStringEnumConverter = true)]
 [JsonSerializable(typeof(List<JobRecord>))]
 public partial class JobJsonContext : JsonSerializerContext;

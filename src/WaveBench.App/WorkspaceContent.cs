@@ -74,8 +74,8 @@ public static class WorkspaceContent
         var body = new StackPanel();
         body.Children.Add(Styled(new TextBlock { Text = "Torque and power" }, "Text.Body", bold: true));
         var legend = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 2, 0, 10) };
-        legend.Children.Add(LegendSwatch("Brush.Accent", "Torque (N·m) — solid"));
-        legend.Children.Add(LegendSwatch("Brush.Info", "Power (kW) — dashed"));
+        legend.Children.Add(LegendSwatch("Brush.Accent", "Torque (N·m) — solid, left axis"));
+        legend.Children.Add(LegendSwatch("Brush.Info", "Power (kW) — dashed, right axis"));
         body.Children.Add(legend);
         body.Children.Add(canvas);
 
@@ -92,44 +92,57 @@ public static class WorkspaceContent
             return;
         }
 
-        const double padLeft = 44, padBottom = 26, padTop = 10, padRight = 10;
+        const double padLeft = 46, padBottom = 26, padTop = 10, padRight = 48;
         var plotW = w - padLeft - padRight;
         var plotH = h - padTop - padBottom;
         var axis = (Brush)Application.Current.Resources["Brush.BorderStrong"];
         var faint = (Brush)Application.Current.Resources["Brush.BorderSubtle"];
         var text = (Brush)Application.Current.Resources["Brush.TextSecondary"];
+        var torqueBrush = (Brush)Application.Current.Resources["Brush.Accent"];
+        var powerBrush = (Brush)Application.Current.Resources["Brush.Info"];
 
-        var maxY = 62.0;
-        for (var value = 0; value <= 60; value += 20)
+        // Two quantities, two scales. Sharing one axis would print the power
+        // curve against numbers a reader takes for N·m — the axis must be
+        // readable for every series on it, so power gets its own on the right.
+        const double maxTorque = 62.0;
+        const double maxPower = 35.0;
+
+        void AxisLabel(string content, double x, double y, Brush brush)
         {
-            var y = padTop + plotH * (1 - value / maxY);
-            canvas.Children.Add(Line(padLeft, y, padLeft + plotW, y, value == 0 ? axis : faint, 1));
-            var label = new TextBlock
-            {
-                Text = value.ToString(CultureInfo.InvariantCulture),
-                Foreground = text,
-                FontSize = 11,
-            };
-            Canvas.SetLeft(label, 12);
-            Canvas.SetTop(label, y - 8);
+            var label = new TextBlock { Text = content, Foreground = brush, FontSize = 11 };
+            Canvas.SetLeft(label, x);
+            Canvas.SetTop(label, y);
             canvas.Children.Add(label);
         }
 
+        for (var value = 0; value <= 60; value += 20)
+        {
+            var y = padTop + plotH * (1 - value / maxTorque);
+            canvas.Children.Add(Line(padLeft, y, padLeft + plotW, y, value == 0 ? axis : faint, 1));
+            AxisLabel(value.ToString(CultureInfo.InvariantCulture), 14, y - 8, torqueBrush);
+        }
+
+        for (var value = 0; value <= 30; value += 10)
+        {
+            var y = padTop + plotH * (1 - value / maxPower);
+            AxisLabel(value.ToString(CultureInfo.InvariantCulture), padLeft + plotW + 8, y - 8, powerBrush);
+        }
+
+        AxisLabel("N·m", 14, padTop + plotH + 6, torqueBrush);
+        AxisLabel("kW", padLeft + plotW + 8, padTop + plotH + 6, powerBrush);
+
         double X(double r) => padLeft + plotW * (r - rpm[0]) / (rpm[^1] - rpm[0]);
-        double Y(double v) => padTop + plotH * (1 - v / maxY);
+        double YTorque(double v) => padTop + plotH * (1 - v / maxTorque);
+        double YPower(double v) => padTop + plotH * (1 - v / maxPower);
 
         foreach (var r in new[] { 3000.0, 5000.0, 7000.0, 9000.0 })
         {
-            var label = new TextBlock { Text = $"{r / 1000:0}k", Foreground = text, FontSize = 11 };
-            Canvas.SetLeft(label, X(r) - 8);
-            Canvas.SetTop(label, padTop + plotH + 6);
-            canvas.Children.Add(label);
+            AxisLabel($"{r / 1000:0}k", X(r) - 8, padTop + plotH + 6, text);
         }
 
         // Series are distinguishable by line style as well as colour (§8.11).
-        canvas.Children.Add(Polyline(rpm, torque, X, Y, (Brush)Application.Current.Resources["Brush.Accent"], null));
-        canvas.Children.Add(Polyline(rpm, power, X, Y, (Brush)Application.Current.Resources["Brush.Info"],
-            new DoubleCollection { 4, 3 }));
+        canvas.Children.Add(Polyline(rpm, torque, X, YTorque, torqueBrush, null));
+        canvas.Children.Add(Polyline(rpm, power, X, YPower, powerBrush, new DoubleCollection { 4, 3 }));
     }
 
     private static System.Windows.Shapes.Polyline Polyline(

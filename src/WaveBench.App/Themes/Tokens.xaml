@@ -56,6 +56,12 @@
     <SolidColorBrush x:Key="Brush.Danger" Color="{StaticResource Accent.Danger}" />
     <SolidColorBrush x:Key="Brush.Info" Color="{StaticResource Accent.Info}" />
 
+    <!-- Foreground for content sitting ON the accent fill. A token, not a
+         literal "White", so changing the accent to a light colour does not
+         leave unreadable text behind. -->
+    <Color x:Key="Accent.OnAccent">#FFFFFF</Color>
+    <SolidColorBrush x:Key="Brush.OnAccent" Color="{StaticResource Accent.OnAccent}" />
+
     <!-- ============ Radius · spacing · motion · type (§8.1) ============ -->
     <CornerRadius x:Key="Radius.Card">8</CornerRadius>
     <CornerRadius x:Key="Radius.Input">6</CornerRadius>

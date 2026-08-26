@@ -10,61 +10,223 @@ namespace WaveBench.Model;
 /// </summary>
 public static class ModelPath
 {
+    /// <summary>
+    /// The canonical form of a path: the declared property names, exactly as
+    /// the CLR spells them.
+    ///
+    /// Path lookup is case-insensitive (a UI, a validation message and a
+    /// wizard all spell paths differently — <c>engine.boreMm</c> vs
+    /// <c>Engine.BoreMm</c>), so EVERY consumer must agree on one spelling
+    /// before using a path as a dictionary key. Keying provenance by the raw
+    /// string while resolving the document case-insensitively would let
+    /// <c>Engine.BoreMm</c> miss the protection recorded under
+    /// <c>engine.boreMm</c> and silently overwrite a user's value.
+    /// </summary>
+    public static string Canonicalise(object root, string path) => Canonicalise(root.GetType(), path);
+
+    /// <summary>
+    /// Canonicalises against the TYPE, never an instance: property names are
+    /// a property of the shape, not the data, so this must work on a document
+    /// whose optional blocks are still null — otherwise canonicalising
+    /// <c>Combustion.Lambda</c> throws on a model that has no combustion
+    /// block, which is exactly the model a wizard is about to fill in.
+    /// </summary>
+    public static string Canonicalise(Type rootType, string path)
+    {
+        var parts = path.Split('.');
+        var names = new string[parts.Length];
+        var current = rootType;
+
+        for (var i = 0; i < parts.Length; i++)
+        {
+            var property = PropertyOf(current, parts[i], path);
+            names[i] = property.Name;
+            current = Nullable.GetUnderlyingType(property.PropertyType) ?? property.PropertyType;
+        }
+
+        return string.Join('.', names);
+    }
+
     public static object? Get(object root, string path)
     {
-        var (owner, property) = Resolve(root, path);
+        var (owner, property) = Resolve(root, path, createMissing: false);
         return property.GetValue(owner);
     }
 
-    public static void Set(object root, string path, object? value)
+    /// <summary>
+    /// The value if the path resolves today, otherwise null. Reading the
+    /// "before" value of a field inside an optional block that does not exist
+    /// yet is a normal case, not an error.
+    /// </summary>
+    public static object? GetOrDefault(object root, string path) =>
+        TryResolve(root, path, out var owner, out var property) ? property!.GetValue(owner) : null;
+
+    /// <summary>
+    /// Set a value. <paramref name="createMissing"/> instantiates absent
+    /// intermediate objects — a wizard must be able to set
+    /// <c>Combustion.Lambda</c> on a model that has no combustion block yet,
+    /// and the alternative is throwing halfway through an apply.
+    /// </summary>
+    public static void Set(object root, string path, object? value, bool createMissing = false)
     {
-        var (owner, property) = Resolve(root, path);
-        var target = property.PropertyType;
-        var underlying = Nullable.GetUnderlyingType(target) ?? target;
-
-        object? converted = value is null
-            ? null
-            : underlying.IsInstanceOfType(value)
-                ? value
-                : Convert.ChangeType(value, underlying, CultureInfo.InvariantCulture);
-
-        property.SetValue(owner, converted);
+        var (owner, property) = Resolve(root, path, createMissing);
+        property.SetValue(owner, Coerce(value, property, path));
     }
 
-    public static bool Exists(object root, string path)
+    /// <summary>Convert a loosely-typed value to the property's type, or explain why it cannot.</summary>
+    public static object? Coerce(object? value, PropertyInfo property, string path)
     {
+        var target = property.PropertyType;
+        var underlying = Nullable.GetUnderlyingType(target);
+
+        if (value is null)
+        {
+            if (underlying is null && target.IsValueType)
+            {
+                throw new ModelPathException(
+                    $"'{path}' is a non-nullable {target.Name}; null is not a valid value.");
+            }
+
+            return null;
+        }
+
+        var concrete = underlying ?? target;
+        if (concrete.IsInstanceOfType(value))
+        {
+            return value;
+        }
+
         try
         {
-            Resolve(root, path);
+            return Convert.ChangeType(value, concrete, CultureInfo.InvariantCulture);
+        }
+        catch (Exception ex) when (ex is InvalidCastException or FormatException or OverflowException)
+        {
+            throw new ModelPathException($"'{path}' cannot accept {value.GetType().Name} '{value}'.", ex);
+        }
+    }
+
+    /// <summary>True when the path resolves against the document as it stands.</summary>
+    public static bool Exists(object root, string path) => TryResolve(root, path, out _, out _);
+
+    /// <summary>
+    /// True when the path COULD be written — resolvable, or resolvable once
+    /// missing intermediates are created. This is what an apply must check
+    /// before it writes anything.
+    /// </summary>
+    public static bool CanWrite(object root, string path, object? value, out string? reason)
+    {
+        reason = null;
+        try
+        {
+            var parts = path.Split('.');
+            var current = root;
+            for (var i = 0; i < parts.Length - 1; i++)
+            {
+                var step = Property(current!, parts[i], path);
+                var next = step.GetValue(current);
+                if (next is null)
+                {
+                    if (!CanInstantiate(step.PropertyType))
+                    {
+                        reason = $"'{step.Name}' is null and cannot be created automatically.";
+                        return false;
+                    }
+
+                    // Probe the rest of the path against a throwaway instance.
+                    next = Activator.CreateInstance(Nullable.GetUnderlyingType(step.PropertyType) ?? step.PropertyType);
+                }
+
+                current = next;
+            }
+
+            var property = Property(current!, parts[^1], path);
+            Coerce(value, property, path);
+            if (!property.CanWrite)
+            {
+                reason = $"'{path}' is read-only.";
+                return false;
+            }
+
             return true;
         }
-        catch (ArgumentException)
+        catch (ModelPathException ex)
+        {
+            reason = ex.Message;
+            return false;
+        }
+    }
+
+    private static bool TryResolve(object root, string path, out object? owner, out PropertyInfo? property)
+    {
+        owner = null;
+        property = null;
+        try
+        {
+            (owner, property) = Resolve(root, path, createMissing: false);
+            return true;
+        }
+        catch (ModelPathException)
         {
             return false;
         }
     }
 
-    private static (object Owner, PropertyInfo Property) Resolve(object root, string path)
+    private static (object Owner, PropertyInfo Property) Resolve(object root, string path, bool createMissing)
     {
         var parts = path.Split('.');
         var current = root;
         for (var i = 0; i < parts.Length - 1; i++)
         {
-            var step = Property(current!, parts[i]);
-            current = step.GetValue(current)
-                      ?? throw new ArgumentException($"'{parts[i]}' is null in path '{path}'.", nameof(path));
+            var step = Property(current!, parts[i], path);
+            var next = step.GetValue(current);
+            if (next is null)
+            {
+                if (!createMissing || !CanInstantiate(step.PropertyType))
+                {
+                    throw new ModelPathException($"'{step.Name}' is null in path '{path}'.");
+                }
+
+                next = Activator.CreateInstance(Nullable.GetUnderlyingType(step.PropertyType) ?? step.PropertyType);
+                step.SetValue(current, next);
+            }
+
+            current = next;
         }
 
-        return (current!, Property(current!, parts[^1]));
+        return (current!, Property(current!, parts[^1], path));
     }
 
-    private static PropertyInfo Property(object owner, string name) =>
-        owner.GetType().GetProperty(name, BindingFlags.Public | BindingFlags.Instance | BindingFlags.IgnoreCase)
-        ?? throw new ArgumentException($"'{owner.GetType().Name}' has no property '{name}'.", nameof(name));
+    private static bool CanInstantiate(Type type)
+    {
+        var concrete = Nullable.GetUnderlyingType(type) ?? type;
+        return !concrete.IsAbstract && concrete.GetConstructor(Type.EmptyTypes) is not null;
+    }
+
+    private static PropertyInfo Property(object owner, string name, string path) =>
+        PropertyOf(owner.GetType(), name, path);
+
+    private static PropertyInfo PropertyOf(Type type, string name, string path) =>
+        type.GetProperty(name, BindingFlags.Public | BindingFlags.Instance | BindingFlags.IgnoreCase)
+        ?? throw new ModelPathException($"'{type.Name}' has no property '{name}' (path '{path}').");
 }
 
-/// <summary>One undoable model edit.</summary>
-public sealed record ModelEdit(string Path, object? Before, object? After, Provenance BeforeOrigin, Provenance AfterOrigin);
+/// <summary>A path could not be resolved or written. Carries the offending path.</summary>
+public sealed class ModelPathException(string message, Exception? inner = null) : Exception(message, inner);
+
+/// <summary>
+/// One undoable model edit. Carries the whole <see cref="ProvenanceEntry"/>
+/// on each side, not just the origin enum: undoing over an imported value
+/// must restore its source file, and undoing over an Auto value must restore
+/// the derivation and citation the §8.5 badge hover shows.
+/// </summary>
+public sealed record ModelEdit(
+    string Path, object? Before, object? After, ProvenanceEntry BeforeEntry, ProvenanceEntry AfterEntry)
+{
+    public Provenance BeforeOrigin => BeforeEntry.Origin;
+
+    public Provenance AfterOrigin => AfterEntry.Origin;
+}
 
 /// <summary>
 /// The editing session around a document: THE only supported way to change
@@ -142,20 +304,43 @@ public sealed class ProjectSession(EngineModelDocument document, ProvenanceMap? 
     private ApplyResult Plan(IReadOnlyDictionary<string, object?> values, ISet<string>? optIn)
     {
         List<ProposedChange> applied = [], blocked = [], unchanged = [];
-        foreach (var (path, proposed) in values.OrderBy(v => v.Key, StringComparer.Ordinal))
-        {
-            var current = ModelPath.Exists(Document, path) ? ModelPath.Get(Document, path) : null;
-            var origin = Provenance.OriginOf(path);
-            var isProtected = Provenance.IsProtected(path) && !(optIn?.Contains(path) ?? false);
-            var change = new ProposedChange(path, current, proposed, origin, isProtected);
+        List<RejectedChange> rejected = [];
 
-            if (isProtected)
+        foreach (var (rawPath, proposed) in values.OrderBy(v => v.Key, StringComparer.Ordinal))
+        {
+            // Every path is canonicalised before it is used as a provenance
+            // key, so casing cannot split one field into two protection
+            // records (see ModelPath.Canonicalise).
+            string path;
+            try
             {
-                blocked.Add(change);
+                path = ModelPath.Canonicalise(Document, rawPath);
             }
-            else if (change.IsNoOp)
+            catch (ModelPathException)
+            {
+                path = rawPath; // unresolvable today; CanWrite reports why
+            }
+
+            if (!ModelPath.CanWrite(Document, path, proposed, out var reason))
+            {
+                rejected.Add(new RejectedChange(rawPath, proposed, reason ?? "unresolvable"));
+                continue;
+            }
+
+            var current = ModelPath.GetOrDefault(Document, path);
+            var origin = Provenance.OriginOf(path);
+            var change = new ProposedChange(path, current, proposed, origin, Blocked: false);
+
+            // A no-op is a no-op even on a protected field: reporting it as a
+            // conflict would make the §8.8 diff preview warn about a re-run
+            // that changes nothing.
+            if (change.IsNoOp)
             {
                 unchanged.Add(change);
+            }
+            else if (Provenance.IsProtected(path) && !(optIn?.Contains(path) ?? false))
+            {
+                blocked.Add(change with { Blocked = true });
             }
             else
             {
@@ -163,16 +348,25 @@ public sealed class ProjectSession(EngineModelDocument document, ProvenanceMap? 
             }
         }
 
-        return new ApplyResult(applied, blocked, unchanged);
+        return new ApplyResult(applied, blocked, unchanged, rejected);
     }
 
     private void Write(string path, object? value, Provenance origin, string? derivation, string? citation, string? sourceRef)
     {
-        var before = ModelPath.Get(Document, path);
-        var beforeOrigin = Provenance.OriginOf(path);
-        ModelPath.Set(Document, path, value);
-        Provenance.Set(path, origin, derivation, citation, sourceRef);
-        _undo.Add(new ModelEdit(path, before, ModelPath.Get(Document, path), beforeOrigin, origin));
+        var canonical = ModelPath.Canonicalise(Document, path);
+        var before = ModelPath.GetOrDefault(Document, canonical);
+        var beforeEntry = Provenance[canonical];
+        var afterEntry = new ProvenanceEntry
+        {
+            Origin = origin,
+            Derivation = derivation,
+            Citation = citation,
+            SourceRef = sourceRef,
+        };
+
+        ModelPath.Set(Document, canonical, value, createMissing: true);
+        Provenance.Set(canonical, afterEntry);
+        _undo.Add(new ModelEdit(canonical, before, ModelPath.Get(Document, canonical), beforeEntry, afterEntry));
         _redo.Clear();
     }
 
@@ -185,8 +379,8 @@ public sealed class ProjectSession(EngineModelDocument document, ProvenanceMap? 
 
         var edit = _undo[^1];
         _undo.RemoveAt(_undo.Count - 1);
-        ModelPath.Set(Document, edit.Path, edit.Before);
-        Provenance.Set(edit.Path, edit.BeforeOrigin);
+        ModelPath.Set(Document, edit.Path, edit.Before, createMissing: true);
+        Provenance.Set(edit.Path, edit.BeforeEntry);
         _redo.Add(edit);
         return true;
     }
@@ -200,8 +394,8 @@ public sealed class ProjectSession(EngineModelDocument document, ProvenanceMap? 
 
         var edit = _redo[^1];
         _redo.RemoveAt(_redo.Count - 1);
-        ModelPath.Set(Document, edit.Path, edit.After);
-        Provenance.Set(edit.Path, edit.AfterOrigin);
+        ModelPath.Set(Document, edit.Path, edit.After, createMissing: true);
+        Provenance.Set(edit.Path, edit.AfterEntry);
         _undo.Add(edit);
         return true;
     }

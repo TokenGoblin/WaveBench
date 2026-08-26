@@ -22,7 +22,14 @@ public partial class XamlTokenTests(ITestOutputHelper output)
     [GeneratedRegex(@"(?:Background|Foreground|BorderBrush|Fill|Stroke)\s*=\s*""(?!\{)([A-Za-z]+)""")]
     private static partial Regex NamedColour();
 
-    private static readonly string[] AllowedNamed = ["Transparent", "White", "Black"];
+    /// <summary>
+    /// Only Transparent — it is the ABSENCE of a colour, not a colour choice.
+    /// White and Black were allowlisted here originally, and the Run button
+    /// promptly used Foreground="White": the gate passed only because the
+    /// enforcing test exempted the case the code needed. Content on the
+    /// accent fill now uses the Brush.OnAccent token instead.
+    /// </summary>
+    private static readonly string[] AllowedNamed = ["Transparent"];
 
     private static DirectoryInfo AppDirectory()
     {

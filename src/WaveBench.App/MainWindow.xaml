@@ -94,7 +94,8 @@
                                 AutomationProperties.Name="Toggle light or dark theme" />
                         <Button x:Name="RunButton" Content="▶  Run" Padding="18,7" Cursor="Hand"
                                 BorderThickness="0" Click="RunButton_Click"
-                                Background="{DynamicResource Brush.Accent}" Foreground="White"
+                                Background="{DynamicResource Brush.Accent}"
+                                Foreground="{DynamicResource Brush.OnAccent}"
                                 AutomationProperties.Name="Run a sweep" />
                     </StackPanel>
 

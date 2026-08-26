@@ -151,26 +151,31 @@ public class ShellGateTests(ITestOutputHelper output)
             var recoveredDocument = EngineModelDocument.Load(File.ReadAllText(modelPath));
             var recoveredProvenance = ProvenanceMap.Load(File.ReadAllText(provenancePath));
             var recoveredSession = new ProjectSession(recoveredDocument, recoveredProvenance);
-            var recoveredShell = new ShellViewModel(recoveredSession)
-            {
-                // tray restored from disk
-            };
-            var recoveredJobs = JobTray.LoadFrom(jobsPath);
+
+            // The recovered tray must reach the SHELL, not just exist beside
+            // it: asserting on a standalone tray would pass while the app's
+            // status line still read "Jobs: idle" after a restart.
+            var recoveredShell = new ShellViewModel(recoveredSession, jobs: JobTray.LoadFrom(jobsPath));
 
             recoveredDocument.Save().Should().Be(session.Document.Save(),
                 "gate: the model comes back exactly as it was");
             recoveredProvenance.OriginOf("Engine.CompressionRatio").Should().Be(Provenance.You,
                 "gate: provenance survives too, or protection would silently lapse");
 
-            var sweep = recoveredJobs.Jobs.Single(j => j.Kind == "sweep");
+            var sweep = recoveredShell.Jobs.Jobs.Single(j => j.Kind == "sweep");
             sweep.Progress.Should().Be(14, "gate: the sweep resumes at its checkpoint, not from zero");
             sweep.Checkpoint.Should().Be("rpm=6500");
             sweep.State.Should().Be(JobState.Queued, "an interrupted job comes back runnable, not lost");
             sweep.IsResumable.Should().BeTrue();
-            recoveredJobs.Active.Should().HaveCount(2);
+            recoveredShell.Jobs.Active.Should().HaveCount(2);
 
-            output.WriteLine($"recovered: {recoveredJobs.Summary()}");
-            _ = recoveredShell;
+            recoveredShell.StatusLine(2840, 9.1e-6).Should().Contain("sweep resuming 14/20",
+                "gate: the restored state is what the user actually sees, resume point included");
+            output.WriteLine($"recovered: {recoveredShell.Jobs.Summary()}");
+
+            // A progress-only checkpoint must not erase the resume token.
+            recoveredShell.Jobs.Checkpoint(sweep.Id, 15);
+            sweep.Checkpoint.Should().Be("rpm=6500", "a null token leaves the existing one alone");
         }
         finally
         {
@@ -272,6 +277,144 @@ public class ShellGateTests(ITestOutputHelper output)
         session.Provenance["IntakeValves.MaxLiftMm"].SourceRef.Should().Be("cam-measured.csv");
         session.EditByOptimiser("IntakeRunner.LengthMm", 512.5, "opt-run-7");
         session.Provenance["IntakeRunner.LengthMm"].SourceRef.Should().Be("opt-run-7");
+    }
+
+    [Fact]
+    public void Protection_survives_a_path_spelled_with_different_casing()
+    {
+        // Model paths resolve case-insensitively, so a provenance map keyed
+        // case-sensitively would record protection under one spelling and
+        // miss it under another — silently overwriting the user's value.
+        var session = new ProjectSession(Model());
+        session.EditByUser("engine.boreMm", 87.0);
+
+        session.Provenance.OriginOf("Engine.BoreMm").Should().Be(Provenance.You);
+        session.Provenance.IsProtected("ENGINE.BOREMM").Should().BeTrue();
+
+        session.EditByDerivation("Engine.BoreMm", 84.0, "derived").Should().BeFalse(
+            "a differently-cased path is the SAME field and must stay protected");
+        session.Document.Engine.BoreMm.Should().Be(87.0);
+
+        var wizard = session.ApplyWizard(new Dictionary<string, object?> { ["ENGINE.BOREMM"] = 80.0 });
+        session.Document.Engine.BoreMm.Should().Be(87.0);
+        wizard.Blocked.Should().ContainSingle();
+
+        // And the map holds one entry, not one per spelling.
+        session.Provenance.Entries.Keys.Where(k => k.Contains("Bore", StringComparison.OrdinalIgnoreCase))
+            .Should().ContainSingle();
+    }
+
+    [Fact]
+    public void A_wizard_apply_never_leaves_the_document_half_written()
+    {
+        // Combustion is nullable and Combustion.Lambda is in the wizard's own
+        // vocabulary, so a model saved without a combustion block used to
+        // throw partway through — after earlier paths had already committed.
+        var bare = Model() with { Combustion = null };
+        var session = new ProjectSession(bare);
+
+        var result = session.ApplyWizard(new Dictionary<string, object?>
+        {
+            ["Ambient.PressureKPa"] = 95.0,   // sorts before Combustion
+            ["Combustion.Lambda"] = 0.88,
+            ["Engine.BoreMm"] = 88.0,
+        });
+
+        session.Document.Ambient.PressureKPa.Should().Be(95.0);
+        session.Document.Combustion.Should().NotBeNull("a missing block is created, not thrown over");
+        session.Document.Combustion!.Lambda.Should().Be(0.88);
+        session.Document.Engine.BoreMm.Should().Be(88.0);
+        result.Rejected.Should().BeEmpty();
+
+        // A genuinely impossible path is reported, not thrown, and nothing
+        // else in the batch is lost.
+        var second = session.ApplyWizard(new Dictionary<string, object?>
+        {
+            ["Engine.StrokeMm"] = 64.0,
+            ["Engine.NoSuchField"] = 1.0,
+            ["Engine.BoreMm"] = null,          // non-nullable double
+        });
+
+        session.Document.Engine.StrokeMm.Should().Be(64.0, "valid changes still apply");
+        session.Document.Engine.BoreMm.Should().Be(88.0, "the invalid one is untouched");
+        second.Rejected.Should().HaveCount(2);
+        second.Rejected.Should().Contain(r => r.Path == "Engine.NoSuchField");
+        output.WriteLine(second.DiffPreview());
+    }
+
+    [Fact]
+    public void Undo_restores_the_whole_provenance_entry_not_just_its_origin()
+    {
+        var session = new ProjectSession(Model());
+        session.EditByImport("IntakeValves.MaxLiftMm", 11.2, "cam-measured.csv");
+        session.EditByUser("IntakeValves.MaxLiftMm", 9.8);
+
+        session.Undo().Should().BeTrue();
+
+        var entry = session.Provenance["IntakeValves.MaxLiftMm"];
+        entry.Origin.Should().Be(Provenance.Imported);
+        entry.SourceRef.Should().Be("cam-measured.csv",
+            "otherwise the badge reads 'Imported from .' after an undo");
+
+        // Same for an Auto value's derivation and citation.
+        session.EditByDerivation("ExhaustValves.ThroatDiameterMm", 22.1, "0.85 × head diameter", "Blair");
+        session.EditByUser("ExhaustValves.ThroatDiameterMm", 23.0);
+        session.Undo();
+
+        var auto = session.Provenance["ExhaustValves.ThroatDiameterMm"];
+        auto.Derivation.Should().Be("0.85 × head diameter");
+        auto.Citation.Should().Be("Blair");
+    }
+
+    [Fact]
+    public void A_protected_field_the_wizard_would_not_change_is_not_reported_as_a_conflict()
+    {
+        var session = new ProjectSession(Model());
+        session.EditByUser("Engine.CompressionRatio", 11.0);
+
+        // The wizard proposes exactly what is already there.
+        var result = session.ApplyWizard(new Dictionary<string, object?>
+        {
+            ["Engine.CompressionRatio"] = 11.0,
+        });
+
+        result.Blocked.Should().BeEmpty("a no-op is not a conflict, even on a protected field");
+        result.Unchanged.Should().ContainSingle();
+        result.AnythingBlocked.Should().BeFalse();
+        result.DiffPreview().Should().Be("  (no changes)");
+    }
+
+    [Fact]
+    public void Persisted_state_uses_string_enums_so_reordering_cannot_reinterpret_it()
+    {
+        var session = new ProjectSession(Model());
+        session.EditByUser("Engine.BoreMm", 87.0);
+        session.EditByImport("IntakeValves.MaxLiftMm", 11.2, "cam.csv");
+
+        var json = session.Provenance.Save();
+        json.Should().Contain("\"You\"").And.Contain("\"Imported\"");
+        json.Should().NotContain("\"origin\": 2", "an integer origin is reinterpreted if the enum is reordered");
+
+        ProvenanceMap.Load(json).OriginOf("Engine.BoreMm").Should().Be(Provenance.You);
+
+        var tray = new JobTray();
+        var job = tray.Enqueue("sweep", "test", 10);
+        tray.Start(job.Id);
+        tray.Save().Should().Contain("\"Running\"");
+    }
+
+    [Fact]
+    public void Every_hidden_workspace_is_announced()
+    {
+        // §8.3: a hidden workspace must never be merely absent.
+        var shell = new ShellViewModel(new ProjectSession(Model()));
+        shell.HasForcedInduction = false;
+        shell.HasResults = false;
+
+        var hidden = shell.Workspaces.Where(w => !w.Visible).ToList();
+        hidden.Should().HaveCountGreaterThan(1, "Boost, Results and Compare are all hidden here");
+        hidden.Should().OnlyContain(w => !string.IsNullOrWhiteSpace(w.HiddenReason));
+        hidden.Should().OnlyContain(w => !string.IsNullOrWhiteSpace(w.DiscoveryPath));
     }
 
     [Fact]

@@ -20,7 +20,11 @@ public partial class MainWindow : Window
 
         _session = new ProjectSession(SampleProject.Create());
         SampleProject.Seed(_session);
-        _shell = new ShellViewModel(_session) { HasResults = true };
+        _shell = new ShellViewModel(_session, App.Preferences) { HasResults = true };
+
+        // Track whatever theme startup actually applied, or the first Theme
+        // click is a no-op on a machine set to dark.
+        _dark = App.Preferences.DarkTheme;
 
         // Ctrl+K command palette (§8.11).
         InputBindings.Add(new KeyBinding(
@@ -47,12 +51,18 @@ public partial class MainWindow : Window
             ? string.Empty
             : banner + "  " + string.Join(", ", _shell.AdvancedOnlyActivePaths());
 
+        // Every hidden workspace is announced, not just the first — §8.3 says
+        // a hidden workspace must never be merely absent.
         var hidden = _shell.Workspaces.Where(w => !w.Visible).ToList();
         HiddenHint.Visibility = hidden.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
         if (hidden.Count > 0)
         {
-            HiddenHintTitle.Text = $"{hidden[0].Title} is hidden";
-            HiddenHintBody.Text = $"{hidden[0].HiddenReason} Find it via {hidden[0].DiscoveryPath}";
+            HiddenHintTitle.Text = hidden.Count == 1
+                ? $"{hidden[0].Title} is hidden"
+                : $"{string.Join(", ", hidden.Select(h => h.Title))} are hidden";
+            HiddenHintBody.Text = string.Join(
+                Environment.NewLine + Environment.NewLine,
+                hidden.Select(h => $"{h.Title}: {h.HiddenReason} Find it via {h.DiscoveryPath}"));
         }
 
         StatusLine.Text = _shell.StatusLine(cells: 2840, timestepSeconds: 9.1e-6);
@@ -106,16 +116,12 @@ public partial class MainWindow : Window
     public void SetDark(bool dark)
     {
         _dark = dark;
+        App.Preferences.DarkTheme = dark;
         App.ApplyTheme(dark);
         Refresh();
     }
 
-    private void ThemeToggle_Click(object sender, RoutedEventArgs e)
-    {
-        _dark = !_dark;
-        App.ApplyTheme(_dark);
-        Refresh();
-    }
+    private void ThemeToggle_Click(object sender, RoutedEventArgs e) => SetDark(!_dark);
 
     private void RunButton_Click(object sender, RoutedEventArgs e)
     {

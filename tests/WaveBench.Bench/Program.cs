@@ -23,8 +23,58 @@ public static class Program
         BenchmarkSwitcher.FromAssembly(typeof(Program).Assembly).Run(args);
     }
 
+    /// <summary>
+    /// Plan Phase 8 gate: a 20-element TMM network across 1–10 kHz in under
+    /// 10 ms, so a geometry slider refreshes interactively. Measured here
+    /// rather than in the xUnit suite, which runs engine simulations in
+    /// parallel and therefore cannot time anything meaningfully.
+    /// </summary>
+    private static void RunTmmGate()
+    {
+        var air = WaveBench.Acoustics.AcousticMedium.Air20C;
+        var pipeArea = Math.PI / 4.0 * 0.040 * 0.040;
+        var chamberArea = Math.PI / 4.0 * 0.080 * 0.080;
+
+        var network = new WaveBench.Acoustics.AcousticNetwork(air, pipeArea, pipeArea);
+        for (var i = 0; i < 6; i++)
+        {
+            network.Elements.Add(new WaveBench.Acoustics.UniformDuctElement(0.1 + 0.01 * i, pipeArea));
+            network.Elements.Add(new WaveBench.Acoustics.AreaDiscontinuityElement(pipeArea, chamberArea));
+            network.Elements.Add(new WaveBench.Acoustics.QuarterWaveStubElement(0.2, pipeArea * 0.5));
+        }
+
+        network.Elements.Add(new WaveBench.Acoustics.UniformDuctElement(0.3, pipeArea));
+        network.Elements.Add(new WaveBench.Acoustics.HelmholtzResonatorElement(0.04, 2e-4, 8e-4));
+
+        var frequencies = new double[512];
+        for (var i = 0; i < frequencies.Length; i++)
+        {
+            frequencies[i] = 1000.0 + 9000.0 * i / (frequencies.Length - 1);
+        }
+
+        network.TransmissionLossSweep(frequencies);
+
+        var samples = new double[21];
+        for (var i = 0; i < samples.Length; i++)
+        {
+            var sw = Stopwatch.StartNew();
+            network.TransmissionLossSweep(frequencies);
+            sw.Stop();
+            samples[i] = sw.Elapsed.TotalMilliseconds;
+        }
+
+        Array.Sort(samples);
+        var median = samples[samples.Length / 2];
+        Console.WriteLine($"TMM gate: {network.Elements.Count} elements, 512 frequencies 1–10 kHz");
+        Console.WriteLine($"median {median:F2} ms, best {samples[0]:F2} ms (plan Phase 8 target: < 10 ms)");
+        Console.WriteLine(median < 10.0 ? "TMM GATE MET" : "TMM GATE MISSED");
+        Console.WriteLine();
+    }
+
     private static void RunBudget()
     {
+        RunTmmGate();
+
         var document = new EngineModelDocument
         {
             Name = "budget 4-cylinder",

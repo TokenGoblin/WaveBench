@@ -166,29 +166,30 @@ public class AcousticsTmmTests(ITestOutputHelper output)
             frequencies[i] = 1000.0 + 9000.0 * i / (frequencies.Length - 1);
         }
 
-        network.TransmissionLossSweep(frequencies); // warm-up
+        // The Phase 8 interactivity gate (< 10 ms) is measured in
+        // WaveBench.Bench, not here: this suite runs test collections in
+        // parallel with multi-second engine simulations, so a wall-clock
+        // sample taken in it measures contention rather than the algorithm.
+        // Chasing that with best-of-N was the wrong fix — a minimum over
+        // enough tries is the statistic LEAST able to fail, which would have
+        // made the gate decorative. Run `WaveBench.Bench -- budget` for the
+        // real number (3.5 ms at the time of writing).
+        //
+        // What stays here is a functional guard: the sweep completes and
+        // returns finite, sensible transmission loss across the band, with a
+        // bound loose enough to be contention-proof but tight enough to catch
+        // a catastrophic algorithmic regression.
+        var stopwatch = Stopwatch.StartNew();
+        var result = network.TransmissionLossSweep(frequencies);
+        stopwatch.Stop();
 
-        // The gate is the ACHIEVABLE solve time — whether a UI slider can
-        // refresh in under 10 ms. This test shares cores with the engine
-        // simulations xUnit runs in parallel, so a single wall-clock sample
-        // measures contention rather than the algorithm. Take the best of
-        // many: one uncontended timeslice is enough to establish the bound,
-        // and a genuine regression makes every attempt slow.
-        GC.Collect();
-        GC.WaitForPendingFinalizers();
+        output.WriteLine($"20-element, 512-frequency sweep: {stopwatch.Elapsed.TotalMilliseconds:F1} ms " +
+                         "under parallel test load (gate measured in WaveBench.Bench)");
 
-        const int attempts = 25;
-        var best = double.MaxValue;
-        for (var attempt = 0; attempt < attempts; attempt++)
-        {
-            var stopwatch = Stopwatch.StartNew();
-            network.TransmissionLossSweep(frequencies);
-            stopwatch.Stop();
-            best = Math.Min(best, stopwatch.Elapsed.TotalMilliseconds);
-        }
-
-        output.WriteLine($"20-element, 512-frequency sweep: {best:F2} ms (best of {attempts})");
-        best.Should().BeLessThan(10.0, "gate: interactive TMM (plan Phase 8)");
+        result.Should().HaveCount(frequencies.Length);
+        result.Should().OnlyContain(tl => double.IsFinite(tl));
+        stopwatch.Elapsed.TotalMilliseconds.Should().BeLessThan(500.0,
+            "smoke bound only — an order-of-magnitude regression fails even under heavy contention");
     }
 
     [Fact]
