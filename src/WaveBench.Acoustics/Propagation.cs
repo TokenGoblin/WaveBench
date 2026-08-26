@@ -150,6 +150,29 @@ public sealed record PropagationPath(
 
         return Path(DirectDistance, 1.0) + Path(ReflectedDistance, GroundReflectionCoefficient);
     }
+
+    /// <summary>
+    /// <see cref="Response"/> with the direct path's propagation delay
+    /// referenced out, so the direct sound arrives at t = 0 and only the
+    /// ground reflection's excess delay (r_reflected − r_direct)/c remains.
+    ///
+    /// This is the form to filter a render with. The bulk delay is a constant
+    /// offset — 22 ms at the 7.5 m drive-by distance — that no stationary
+    /// listener can hear, but in an FFT convolution it wraps the tail of the
+    /// signal around to the front. It matters only for a moving source, where
+    /// its rate of change IS the Doppler shift; that arrives with the moving
+    /// listener paths in Phase 20, which must use <see cref="Response"/>.
+    /// </summary>
+    public Complex ResponseRelativeToDirect(double frequency, double? soundSpeedOverride = null)
+    {
+        var c = soundSpeedOverride ?? SoundSpeed;
+        var k = 2.0 * Math.PI * frequency / c;
+        return Response(frequency, soundSpeedOverride)
+               * Complex.Exp(Complex.ImaginaryOne * k * DirectDistance);
+    }
+
+    /// <summary>Excess delay of the ground reflection, s — the comb's period is its reciprocal.</summary>
+    public double GroundReflectionDelay => (ReflectedDistance - DirectDistance) / SoundSpeed;
 }
 
 /// <summary>

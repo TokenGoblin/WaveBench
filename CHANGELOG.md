@@ -37,6 +37,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - DIN 45692:2009 sharpness in acum, on the ISO 532-1 specific-loudness
   pattern. The standard's reference signal measures 1.028 acum against the
   defined 1.0.
+- `ListenerChain` applies a `PropagationPath` to a rendered stem, closing the
+  Phase 10 deferral that left renders exporting the raw source signal.
+  `wavebench render --listener drive-by|fsae|j1287|chase-cam` (default
+  `source`, so existing renders are unchanged) with `--outlet-height` setting
+  the ground-reflection geometry. Verified against the Phase 9 propagation
+  physics: 1/r exact to 0.01 dB, 5.9 dB excess absorption at 10 kHz over
+  50 m, and the ground-reflection notch at the geometric frequency. Render
+  metadata records the full chain, including that source directivity is not
+  modelled.
 
 ### Fixed
 

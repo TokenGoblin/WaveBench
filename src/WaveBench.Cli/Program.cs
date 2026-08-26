@@ -150,11 +150,21 @@ public static class Program
         var lufsOption = new Option<double>("--lufs") { Description = "Target integrated loudness" };
         lufsOption.DefaultValueFactory = _ => -20.0;
         var burbleOption = new Option<bool>("--burble") { Description = "Add overrun burble on decel (phenomenological)" };
+        var listenerOption = new Option<string>("--listener")
+        {
+            Description = "Listener position: source | fsae | j1287 | drive-by | chase-cam",
+        };
+        listenerOption.DefaultValueFactory = _ => "source";
+        var outletHeightOption = new Option<double>("--outlet-height")
+        {
+            Description = "Outlet height above ground, m — sets the ground-reflection geometry",
+        };
+        outletHeightOption.DefaultValueFactory = _ => 0.35;
 
         var renderCommand = new Command("render", "Auralise a model: solve an rpm grid and synthesise audio")
         {
             modelArg, renderFromOption, renderToOption, secondsOption, gridOption,
-            audioOutOption, seedOption, lufsOption, burbleOption,
+            audioOutOption, seedOption, lufsOption, burbleOption, listenerOption, outletHeightOption,
         };
         renderCommand.SetAction(parse =>
         {
@@ -187,6 +197,36 @@ public static class Program
                 parts.Add((burble, 0.5));
             }
 
+            // The listener chain is linear, so filtering each stem and mixing
+            // is identical to filtering the mix — but this way the exported
+            // stems are the same signal as their contribution to the mix,
+            // instead of quietly being the pre-propagation source.
+            var listener = ResolveListener(parse.GetValue(listenerOption));
+            var listenerDescription = "source (no listener chain applied)";
+            if (listener is not null)
+            {
+                var path = listener.ToPath(parse.GetValue(outletHeightOption));
+                listenerDescription = ListenerChain.Describe(listener, path);
+
+                var dry = StemMixer.Mix("dry", parts.ToArray());
+                for (var i = 0; i < stems.Count; i++)
+                {
+                    stems[i] = ListenerChain.Apply(stems[i], path);
+                    parts[i] = (stems[i], parts[i].Item2);
+                }
+
+                var wet = StemMixer.Mix("wet", parts.ToArray());
+                Console.WriteLine(
+                    $"listener: {listener.Name} at {listener.SlantDistanceM:F2} m " +
+                    $"({ListenerChain.InsertionGainDb(dry, wet):+0.0;-0.0} dB before normalisation)");
+            }
+            else
+            {
+                Console.WriteLine(
+                    "listener: source — you are hearing the outlet, not a listener. " +
+                    "Use --listener drive-by for what a bystander hears.");
+            }
+
             var mix = StemMixer.Mix("mix", parts.ToArray());
             var (normalised, gainDb) = Loudness.NormaliseTo(mix, parse.GetValue(lufsOption));
 
@@ -195,7 +235,7 @@ public static class Program
                 ModelName = document.Name,
                 ModelHash = RenderMetadata.HashOf(document.Save()),
                 RpmProfile = $"{from:F0}→{to:F0} rpm over {seconds:F1} s",
-                ListenerPreset = "source (no listener chain applied)",
+                ListenerPreset = listenerDescription,
                 Seed = seed,
                 // docs/numerics.md §5: measured −3 dB bandwidth at this mesh.
                 ResolvedBandwidthHz = 2800.0 * 6.0 / Math.Max(document.Solver.CellSizeMm, 1e-6),
@@ -223,6 +263,23 @@ public static class Program
         };
         return root.Parse(args).Invoke();
     }
+
+    /// <summary>
+    /// Resolves --listener. Null means "render the source", which is the
+    /// default: it is what earlier versions produced, and silently moving the
+    /// microphone would change every existing render's output.
+    /// </summary>
+    private static WaveBench.Acoustics.ListenerPreset? ResolveListener(string? name) =>
+        (name ?? "source").Trim().ToLowerInvariant() switch
+        {
+            "" or "source" or "none" => null,
+            "fsae" or "fsae-static" => WaveBench.Acoustics.ListenerPreset.FsaeStatic,
+            "j1287" or "sae-j1287" => WaveBench.Acoustics.ListenerPreset.SaeJ1287,
+            "drive-by" or "driveby" => WaveBench.Acoustics.ListenerPreset.DriveBy,
+            "chase-cam" or "chasecam" => WaveBench.Acoustics.ListenerPreset.ChaseCam,
+            var other => throw new ArgumentException(
+                $"Unknown listener '{other}'. Use source, fsae, j1287, drive-by or chase-cam."),
+        };
 
     private static EngineModelDocument LoadModel(FileInfo file, bool printIssues = false)
     {

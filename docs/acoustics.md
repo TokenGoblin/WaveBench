@@ -187,9 +187,36 @@ band-kill test.
   both axes) is not implemented — the pipeline builds one load line. Cruise
   drone and overrun auditioning need this and it belongs with the Sound
   workspace work.
-- **The listener chain is not applied to renders** — the CLI exports the
-  source signal. `PropagationPath`/`ListenerPreset` exist and are tested
-  (Phase 9); wiring them into the render path is Phase 20.
+- ~~The listener chain is not applied to renders.~~ **Done.**
+  `ListenerChain` filters a stem through a `PropagationPath` by whole-signal
+  FFT convolution, and `wavebench render --listener drive-by` (or `fsae`,
+  `j1287`, `chase-cam`) applies it. Verified: spherical spreading exact to
+  0.01 dB at 0.5/2/8 m, 5.9 dB of excess high-frequency loss at 10 kHz over
+  50 m, and the ground-reflection notch where the geometry puts it
+  (1553 Hz for the drive-by preset, 36 dB below the adjacent peak). A
+  free-field preset adds 0.02 dB of spectral ripple where drive-by adds
+  16.9 dB — which is the whole point, and the reason auditioning a header on
+  the source signal answers a question nobody asked.
+
+  Two details worth stating. The response is referenced to the direct
+  arrival, because the bulk propagation delay (22 ms at 7.5 m) is inaudible
+  to a stationary listener but wraps the tail of an FFT convolution onto its
+  head; a test pins that the first tenth of a render stays 120 dB below a
+  burst confined to its last tenth. And the chain is applied per stem rather
+  than to the mix — identical result, since it is linear, but it keeps an
+  exported stem the same signal as its contribution to the mix instead of
+  quietly remaining the pre-propagation source.
+
+  The default is still `--listener source`: moving the microphone by default
+  would change the output of every existing render. The console says which
+  was used, and the metadata records the full chain including what was *not*
+  applied.
+
+- **Source directivity is not modelled.** A preset's azimuth positions the
+  microphone but does not attenuate off-axis, so a render is on-axis in
+  character regardless. That needs the outlet's radiation pattern and
+  belongs with the cabin work in Phase 20. `ListenerChain.Describe` states
+  this in the render metadata rather than letting a preset name imply it.
 - **The mechanical layer** (parametric, cosmetic) is not implemented.
 
 ## 4. Sound metrics and compliance (Phase 11 — PARTIAL)
