@@ -225,6 +225,24 @@ public sealed class DuctSolver
         return new PrimitiveState(_rho[i + Ghost], state.U, state.P);
     }
 
+    /// <summary>
+    /// Static pressure of one cell, Pa — the probe fast path. Avoids the full
+    /// EOS state recovery when only pressure is wanted (capture runs every
+    /// step, so this is a hot path).
+    /// </summary>
+    public double GetPressure(int i)
+    {
+        var c = i + Ghost;
+        if (_isPerfect)
+        {
+            return (_pgGamma - 1.0) * (_ener[c] - 0.5 * _mom[c] * _mom[c] / _rho[c]);
+        }
+
+        Span<double> y = _gas.SpeciesCount > 0 ? stackalloc double[_gas.SpeciesCount] : default;
+        FillMassFractions(c, y);
+        return _gas.FromConserved(_rho[c], _mom[c], _ener[c], y, _t[c]).P;
+    }
+
     public GasState GetState(int i)
     {
         var c = i + Ghost;

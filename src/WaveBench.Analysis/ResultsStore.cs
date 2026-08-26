@@ -100,6 +100,27 @@ public sealed class ResultsStore : IDisposable
             BitConverter.TryWriteBytes(blob.AsSpan(i * sizeof(float)), (float)samples[i]);
         }
 
+        WriteCapture(pointId, probe, sampleRateHz, blob);
+    }
+
+    /// <summary>
+    /// Store an already-float32 trace — the direct path from
+    /// <c>ProbeCapture.ResampleToCrankAngle</c>, whose uniform crank-angle
+    /// grid is exactly what this schema's fixed sample rate represents.
+    /// </summary>
+    public void AddCapture(long pointId, string probe, double sampleRateHz, ReadOnlySpan<float> samples)
+    {
+        var blob = new byte[samples.Length * sizeof(float)];
+        for (var i = 0; i < samples.Length; i++)
+        {
+            BitConverter.TryWriteBytes(blob.AsSpan(i * sizeof(float)), samples[i]);
+        }
+
+        WriteCapture(pointId, probe, sampleRateHz, blob);
+    }
+
+    private void WriteCapture(long pointId, string probe, double sampleRateHz, byte[] blob)
+    {
         using var command = _connection.CreateCommand();
         command.CommandText =
             "INSERT INTO captures (point_id, probe, sample_rate_hz, samples) VALUES ($point, $probe, $rate, $blob);";

@@ -42,6 +42,16 @@ public sealed record CollectorTimingResult(
 /// </summary>
 public static class CollectorTiming
 {
+    /// <summary>
+    /// Unit-safe overload for the model/UI boundary (CLAUDE.md units
+    /// convention): engine speed is commonly quoted in rpm, rev/s and rad/s,
+    /// and a caller passing the wrong one would silently mistime every
+    /// arrival.
+    /// </summary>
+    public static CollectorTimingResult Analyze(
+        IReadOnlyList<CollectorBranch> branches, Model.Units.RotationalSpeed speed) =>
+        Analyze(branches, speed.Rpm);
+
     public static CollectorTimingResult Analyze(IReadOnlyList<CollectorBranch> branches, double rpm)
     {
         var m = branches.Count;

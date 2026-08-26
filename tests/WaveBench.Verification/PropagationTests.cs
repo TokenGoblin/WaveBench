@@ -39,7 +39,7 @@ public class PropagationTests(ITestOutputHelper output)
         // comb). Rigid ground (R = 1) for the clean textbook case.
         var path = new PropagationPath(0.3, 1.2, 7.5, GroundReflectionCoefficient: 1.0);
         var delta = path.ReflectedDistance - path.DirectDistance;
-        var dipExpected = 343.2 / (2.0 * delta);
+        var dipExpected = path.SoundSpeed / (2.0 * delta);
 
         double best = 0, bestMag = double.MaxValue;
         for (var f = dipExpected * 0.7; f <= dipExpected * 1.3; f += 2.0)
@@ -105,11 +105,60 @@ public class PropagationTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public void Listener_presets_carry_the_rules_geometry()
+    public void Listener_presets_carry_the_rules_geometry_and_map_to_a_path()
     {
-        ListenerPreset.FsaeStatic.Distance.Should().Be(0.5);
-        ListenerPreset.FsaeStatic.AngleDeg.Should().Be(45.0);
-        ListenerPreset.FsaeStatic.GroundReflection.Should().BeFalse("free-field per the rules");
+        var fsae = ListenerPreset.FsaeStatic;
+        fsae.SlantDistanceM.Should().Be(0.5);
+        fsae.AzimuthDeg.Should().Be(45.0);
+        fsae.GroundReflection.Should().BeFalse("free-field per the rules");
+        fsae.SlantDistance.Millimetres.Should().Be(500.0, "typed accessor at the UI boundary");
         ListenerPreset.All.Should().HaveCountGreaterThanOrEqualTo(4);
+
+        // ToPath is the single defined preset → geometry mapping.
+        var path = fsae.ToPath(sourceHeightM: 0.4);
+        path.ReceiverHeight.Should().Be(0.0);
+        // Slant 0.5 m with a 0.4 m height drop ⇒ 0.3 m horizontal (3-4-5).
+        path.HorizontalDistance.Should().BeApproximately(0.3, 1e-9);
+        path.DirectDistance.Should().BeApproximately(0.5, 1e-9, "slant distance is preserved");
+        path.GroundReflectionCoefficient.Should().Be(0.0, "free-field presets suppress the ground path");
+
+        var driveBy = ListenerPreset.DriveBy.ToPath(sourceHeightM: 0.4);
+        driveBy.GroundReflectionCoefficient.Should().BeGreaterThan(0.5, "ISO 362 is measured over a hard pad");
+    }
+
+    [Fact]
+    public void Propagation_derives_sound_speed_from_its_own_air_temperature()
+    {
+        // The repo's central rule (plan §2.2): never a hardcoded 343. A hot-day
+        // path must move its interference comb, not just its absorption.
+        var cool = new PropagationPath(0.3, 1.2, 7.5, GroundSurface.Asphalt, TemperatureK: 273.15);
+        var hot = new PropagationPath(0.3, 1.2, 7.5, GroundSurface.Asphalt, TemperatureK: 313.15);
+
+        cool.SoundSpeed.Should().BeApproximately(331.3, 0.5);
+        hot.SoundSpeed.Should().BeApproximately(354.7, 0.5);
+
+        double Dip(PropagationPath path)
+        {
+            var delta = path.ReflectedDistance - path.DirectDistance;
+            var expected = path.SoundSpeed / (2.0 * delta);
+            double best = 0, bestMag = double.MaxValue;
+            for (var f = expected * 0.85; f <= expected * 1.15; f += 1.0)
+            {
+                var magnitude = path.Response(f).Magnitude;
+                if (magnitude < bestMag)
+                {
+                    bestMag = magnitude;
+                    best = f;
+                }
+            }
+
+            return best;
+        }
+
+        var dipCool = Dip(cool);
+        var dipHot = Dip(hot);
+        output.WriteLine($"ground dip: 0 °C → {dipCool:F0} Hz, 40 °C → {dipHot:F0} Hz");
+        (dipHot / dipCool).Should().BeApproximately(hot.SoundSpeed / cool.SoundSpeed, 0.01,
+            "the comb scales with the local sound speed");
     }
 }

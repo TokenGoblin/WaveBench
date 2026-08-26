@@ -218,54 +218,176 @@ public sealed class EngineSimulator
         + Cylinders.Sum(c => c.Mass);
 
     /// <summary>
-    /// High-resolution probes (plan §3.4): pressure at chosen duct cells,
-    /// recorded every step with time and crank angle while capture is on
-    /// (typically the last k converged cycles). Feed to the results store as
-    /// float32 with the crank-angle basis, and to the order/auralisation
-    /// chain.
+    /// High-resolution capture (plan §3.4). The timeline (time, crank angle)
+    /// is recorded ONCE here; probes hold only their own float32 pressure
+    /// samples, which is the storage format the results store wants.
     /// </summary>
-    public List<ProbeCapture> Probes { get; } = [];
+    public CaptureTimeline Capture { get; } = new();
 
-    public bool CaptureEnabled { get; set; }
+    /// <summary>Probes attached to duct cells; add via <see cref="AddProbe"/>.</summary>
+    public IReadOnlyList<ProbeCapture> Probes => _probes;
+
+    private readonly List<ProbeCapture> _probes = [];
+
+    public ProbeCapture AddProbe(Solver.DuctSolver duct, int cell, string name)
+    {
+        if (!Ducts.Contains(duct))
+        {
+            throw new ArgumentException("Probe duct must belong to this engine.", nameof(duct));
+        }
+
+        var probe = new ProbeCapture(duct, cell, name);
+        _probes.Add(probe);
+        return probe;
+    }
+
+    /// <summary>Drop all probes (call when the mesh is rebuilt — probes hold duct references).</summary>
+    public void ClearProbes()
+    {
+        _probes.Clear();
+        Capture.Clear();
+    }
+
+    /// <summary>
+    /// Run <paramref name="cycles"/> cycles with capture on, discarding any
+    /// earlier capture — the plan §3.4 "last k converged cycles" workflow:
+    /// converge first with <see cref="RunToConvergence"/>, then call this.
+    /// </summary>
+    public CycleResult CaptureCycles(int cycles)
+    {
+        Capture.Clear();
+        foreach (var probe in _probes)
+        {
+            probe.Clear();
+        }
+
+        Capture.Enabled = true;
+        try
+        {
+            // Record the state at t₀ BEFORE the first step: samples are taken
+            // after each step, so without this the captured span falls one
+            // step short of k whole cycles and the crank-angle resampler
+            // would silently return k−1 cycles.
+            RecordProbes();
+
+            CycleResult last = null!;
+            for (var i = 0; i < cycles; i++)
+            {
+                last = RunCycle();
+            }
+
+            return last;
+        }
+        finally
+        {
+            Capture.Enabled = false;
+        }
+    }
 
     private void RecordProbes()
     {
-        if (!CaptureEnabled)
+        if (!Capture.Enabled)
         {
             return;
         }
 
-        foreach (var probe in Probes)
+        Capture.Record(Time, Angle);
+        foreach (var probe in _probes)
         {
-            probe.Record(Time, Angle);
+            probe.Record();
         }
     }
 }
 
-/// <summary>One capture probe: a duct cell recorded over time.</summary>
-public sealed class ProbeCapture(Solver.DuctSolver duct, int cell, string name)
+/// <summary>
+/// The shared capture timeline: time and crank angle per recorded step,
+/// stored once for all probes (they sample the same solver clock).
+/// </summary>
+public sealed class CaptureTimeline
 {
-    public string Name { get; } = name;
+    public bool Enabled { get; set; }
 
     public List<double> Times { get; } = [];
 
     public List<double> AnglesDeg { get; } = [];
 
-    public List<double> Pressure { get; } = [];
+    public int SampleCount => Times.Count;
 
     internal void Record(double time, double angleDeg)
     {
         Times.Add(time);
         AnglesDeg.Add(angleDeg);
-        Pressure.Add(duct.GetPrimitive(cell).P);
     }
 
     public void Clear()
     {
         Times.Clear();
         AnglesDeg.Clear();
-        Pressure.Clear();
     }
+}
+
+/// <summary>
+/// One capture probe: static pressure at a duct cell, float32 (plan §3.4
+/// storage format), sampled on the shared <see cref="CaptureTimeline"/>.
+/// </summary>
+public sealed class ProbeCapture(Solver.DuctSolver duct, int cell, string name)
+{
+    private readonly Solver.DuctSolver _duct = duct;
+    private readonly int _cell = cell;
+
+    public string Name { get; } = name;
+
+    /// <summary>Raw samples at solver steps (non-uniform Δt), Pa.</summary>
+    public List<float> Pressure { get; } = [];
+
+    internal void Record() => Pressure.Add((float)_duct.GetPressure(_cell));
+
+    public void Clear() => Pressure.Clear();
+
+    /// <summary>
+    /// Resample onto a uniform crank-angle grid over whole 720° cycles —
+    /// the documented crank-angle basis (plan §3.4). Solver steps are
+    /// CFL-limited and therefore non-uniform in time but monotone in angle,
+    /// so linear interpolation on angle is the correct resampler; the result
+    /// is what both the results store and the order/auralisation chain want.
+    /// </summary>
+    public float[] ResampleToCrankAngle(CaptureTimeline timeline, int samplesPerCycle = 1440)
+    {
+        if (timeline.SampleCount < 2 || Pressure.Count != timeline.SampleCount)
+        {
+            throw new InvalidOperationException("Probe and timeline sample counts must match and be non-trivial.");
+        }
+
+        var start = timeline.AnglesDeg[0];
+        var cycles = (int)((timeline.AnglesDeg[^1] - start) / 720.0);
+        if (cycles < 1)
+        {
+            throw new InvalidOperationException("Capture is shorter than one 720° cycle.");
+        }
+
+        var total = cycles * samplesPerCycle;
+        var output = new float[total];
+        var index = 0;
+        for (var i = 0; i < total; i++)
+        {
+            var target = start + i * 720.0 / samplesPerCycle;
+            while (index < timeline.SampleCount - 2 && timeline.AnglesDeg[index + 1] < target)
+            {
+                index++;
+            }
+
+            var a0 = timeline.AnglesDeg[index];
+            var a1 = timeline.AnglesDeg[index + 1];
+            var w = a1 > a0 ? Math.Clamp((target - a0) / (a1 - a0), 0.0, 1.0) : 0.0;
+            output[i] = (float)(Pressure[index] + w * (Pressure[index + 1] - Pressure[index]));
+        }
+
+        return output;
+    }
+
+    /// <summary>Effective sample rate of the resampled grid at this engine speed, Hz.</summary>
+    public static double ResampledSampleRate(double rpm, int samplesPerCycle = 1440) =>
+        samplesPerCycle / (120.0 / rpm);
 }
 
 public sealed class CycleResult

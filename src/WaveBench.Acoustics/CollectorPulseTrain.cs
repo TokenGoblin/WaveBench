@@ -24,16 +24,28 @@ public static class CollectorPulseTrain
         IReadOnlyList<double>? amplitudes = null)
     {
         var signal = new double[samplesPerCycle];
+        var degreesPerSample = 720.0 / samplesPerCycle;
+
+        // Beyond 8σ the Gaussian is below 1e-13 — far under the 1e-6 order
+        // thresholds these spectra are judged against — so only the window
+        // around each arrival is evaluated.
+        var window = 8.0 * pulseWidthDeg;
+        var twoSigmaSquared = 2.0 * pulseWidthDeg * pulseWidthDeg;
+
         for (var b = 0; b < timing.ArrivalDeg.Count; b++)
         {
             var centre = timing.ArrivalDeg[b];
             var amplitude = amplitudes?[b] ?? 1.0;
             for (var i = 0; i < samplesPerCycle; i++)
             {
-                var theta = i * 720.0 / samplesPerCycle;
-                var d = theta - centre;
+                var d = i * degreesPerSample - centre;
                 d -= 720.0 * Math.Round(d / 720.0); // nearest cyclic image
-                signal[i] += amplitude * Math.Exp(-d * d / (2.0 * pulseWidthDeg * pulseWidthDeg));
+                if (Math.Abs(d) > window)
+                {
+                    continue;
+                }
+
+                signal[i] += amplitude * Math.Exp(-d * d / twoSigmaSquared);
             }
         }
 

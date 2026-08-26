@@ -1,31 +1,95 @@
 namespace WaveBench.Analysis;
 
-/// <summary>Order-domain spectrum: amplitude per (half-)engine order.</summary>
-public sealed record OrderSpectrum(double[] Orders, double[] Amplitude)
+/// <summary>
+/// Order-domain spectrum on a uniform order grid: amplitude at
+/// <c>OrderStep, 2·OrderStep, …</c>. The spectrum knows its own grid, so
+/// metrics interrogate it instead of re-deriving the layout with per-call
+/// epsilons.
+/// </summary>
+public sealed class OrderSpectrum
 {
+    public OrderSpectrum(double orderStep, double[] amplitude)
+    {
+        if (orderStep <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(orderStep));
+        }
+
+        OrderStep = orderStep;
+        Amplitude = amplitude;
+        Orders = new double[amplitude.Length];
+        for (var i = 0; i < amplitude.Length; i++)
+        {
+            Orders[i] = (i + 1) * orderStep;
+        }
+    }
+
+    public double OrderStep { get; }
+
+    public double[] Orders { get; }
+
+    public double[] Amplitude { get; }
+
+    public double MaxOrder => Orders.Length > 0 ? Orders[^1] : 0.0;
+
+    /// <summary>True when the order lies on this spectrum's grid and within range.</summary>
+    public bool Contains(double order)
+    {
+        var index = order / OrderStep - 1.0;
+        return order > 0
+               && order <= MaxOrder + 1e-9
+               && Math.Abs(index - Math.Round(index)) < 1e-6;
+    }
+
+    /// <summary>
+    /// Amplitude at an order. O(1) grid lookup. Throws for orders the
+    /// spectrum does not represent — silently returning zero would let
+    /// metrics quietly become different metrics (a half-order requested from
+    /// an integer-step spectrum, or a harmonic beyond maxOrder).
+    /// </summary>
     public double AmplitudeAt(double order)
     {
-        var index = Array.FindIndex(Orders, o => Math.Abs(o - order) < 1e-9);
-        return index >= 0 ? Amplitude[index] : 0.0;
+        if (!Contains(order))
+        {
+            throw new ArgumentOutOfRangeException(nameof(order),
+                $"Order {order} is not on this spectrum's grid (step {OrderStep}, max {MaxOrder}).");
+        }
+
+        return Amplitude[(int)Math.Round(order / OrderStep) - 1];
     }
+
+    /// <summary>Amplitude if present, otherwise null — for callers that legitimately probe.</summary>
+    public double? TryAmplitudeAt(double order) =>
+        Contains(order) ? Amplitude[(int)Math.Round(order / OrderStep) - 1] : null;
 
     public double Level(double order, double reference = 1.0) =>
         20.0 * Math.Log10(Math.Max(AmplitudeAt(order), 1e-300) / reference);
+
+    /// <summary>True when the grid index of this order is a whole engine order.</summary>
+    public bool IsIntegerOrder(int index) =>
+        Math.Abs(Orders[index] - Math.Round(Orders[index])) < 1e-9;
+
+    /// <summary>True when the order is a half-integer (0.5, 1.5, …) — the rumble carriers.</summary>
+    public bool IsHalfOrder(int index)
+    {
+        var twice = 2.0 * Orders[index];
+        return !IsIntegerOrder(index) && Math.Abs(twice - Math.Round(twice)) < 1e-9;
+    }
 }
 
 /// <summary>
 /// Crank-synchronous order tracking (plan Phase 9). Engine order
 /// o = f/(N/60) (§3.2). Signals are windowed to an integer number of 720°
 /// cycles — with a whole number of cycles every half-order is exactly
-/// periodic in the window, so single-bin projection (Goertzel-style) recovers
-/// amplitudes without leakage. Varying speed is handled by resampling into
-/// the crank-angle domain first.
+/// periodic in the window, so single-bin projection recovers amplitudes
+/// without leakage. Varying speed is handled by resampling into the
+/// crank-angle domain first.
 /// </summary>
 public static class OrderAnalysis
 {
     /// <summary>
     /// Order spectrum of a constant-speed signal. Uses the largest whole
-    /// number of cycles that fits; half-order resolution up to maxOrder.
+    /// number of cycles that fits.
     /// </summary>
     public static OrderSpectrum AtConstantSpeed(
         ReadOnlySpan<double> signal, double sampleRate, double rpm,
@@ -40,7 +104,9 @@ public static class OrderAnalysis
         }
 
         var n = (int)Math.Round(cycles * samplesPerCycle);
-        return Project(signal[..n], i => i / samplesPerCycle * 720.0, maxOrder, orderStep);
+
+        // Angle per sample is uniform: 720°/samplesPerCycle.
+        return Project(signal[..n], 720.0 / samplesPerCycle, maxOrder, orderStep);
     }
 
     /// <summary>
@@ -51,9 +117,24 @@ public static class OrderAnalysis
         IReadOnlyList<double> times, IReadOnlyList<double> values, Func<double, double> angleDegAt,
         double maxOrder = 24.0, double orderStep = 0.5, int samplesPerCycle = 1440)
     {
-        var startAngle = angleDegAt(times[0]);
-        var endAngle = angleDegAt(times[^1]);
-        var cycles = (int)((endAngle - startAngle) / 720.0);
+        // Evaluate the angle history ONCE (the delegate may be an expensive
+        // interpolation of solver output).
+        var angles = new double[times.Count];
+        for (var i = 0; i < times.Count; i++)
+        {
+            angles[i] = angleDegAt(times[i]);
+        }
+
+        return WithAngleSamples(angles, values, maxOrder, orderStep, samplesPerCycle);
+    }
+
+    /// <summary>Order spectrum from paired (crank angle, value) samples — the capture path.</summary>
+    public static OrderSpectrum WithAngleSamples(
+        IReadOnlyList<double> anglesDeg, IReadOnlyList<double> values,
+        double maxOrder = 24.0, double orderStep = 0.5, int samplesPerCycle = 1440)
+    {
+        var startAngle = anglesDeg[0];
+        var cycles = (int)((anglesDeg[^1] - startAngle) / 720.0);
         if (cycles < 1)
         {
             throw new ArgumentException("History shorter than one engine cycle.");
@@ -61,55 +142,77 @@ public static class OrderAnalysis
 
         var total = cycles * samplesPerCycle;
         var resampled = new double[total];
-        var timeIndex = 0;
+        var index = 0;
         for (var i = 0; i < total; i++)
         {
-            var targetAngle = startAngle + i * 720.0 / samplesPerCycle;
-            while (timeIndex < times.Count - 2 && angleDegAt(times[timeIndex + 1]) < targetAngle)
+            var target = startAngle + i * 720.0 / samplesPerCycle;
+            while (index < anglesDeg.Count - 2 && anglesDeg[index + 1] < target)
             {
-                timeIndex++;
+                index++;
             }
 
-            var a0 = angleDegAt(times[timeIndex]);
-            var a1 = angleDegAt(times[timeIndex + 1]);
-            var w = a1 > a0 ? Math.Clamp((targetAngle - a0) / (a1 - a0), 0.0, 1.0) : 0.0;
-            resampled[i] = values[timeIndex] + w * (values[timeIndex + 1] - values[timeIndex]);
+            var a0 = anglesDeg[index];
+            var a1 = anglesDeg[index + 1];
+            var w = a1 > a0 ? Math.Clamp((target - a0) / (a1 - a0), 0.0, 1.0) : 0.0;
+            resampled[i] = values[index] + w * (values[index + 1] - values[index]);
         }
 
-        return Project(resampled, i => i * 720.0 / samplesPerCycle, maxOrder, orderStep);
+        return Project(resampled, 720.0 / samplesPerCycle, maxOrder, orderStep);
     }
 
+    /// <summary>
+    /// Single-bin projection on a uniform angle grid. The phase advance per
+    /// sample is constant for each order, so the complex exponential is
+    /// carried by a rotation recurrence (two multiply-adds per sample, no
+    /// transcendentals in the loop) instead of a cos/sin pair per sample.
+    /// The recurrence is re-synchronised exactly every
+    /// <see cref="ResyncInterval"/> samples so phase cannot drift over the
+    /// 10⁵-sample captures this is built for.
+    /// </summary>
+    private const int ResyncInterval = 1024;
+
     private static OrderSpectrum Project(
-        ReadOnlySpan<double> signal, Func<double, double> angleOfSample, double maxOrder, double orderStep)
+        ReadOnlySpan<double> signal, double angleStepDeg, double maxOrder, double orderStep)
     {
         var count = (int)Math.Round(maxOrder / orderStep);
-        var orders = new double[count];
         var amplitude = new double[count];
         var n = signal.Length;
-
-        // Precompute angles once.
-        var angleRad = new double[n];
-        for (var i = 0; i < n; i++)
-        {
-            angleRad[i] = angleOfSample(i) * Math.PI / 180.0 / 2.0; // ÷2: order 1 = once per rev = twice per 720° cycle
-        }
 
         for (var k = 0; k < count; k++)
         {
             var order = (k + 1) * orderStep;
-            orders[k] = order;
+
+            // Order 1 = one cycle per crank revolution = 360°, so the phase
+            // per sample is order·angleStep in degrees of that revolution.
+            var deltaPhase = order * angleStepDeg * Math.PI / 180.0;
+            var cosDelta = Math.Cos(deltaPhase);
+            var sinDelta = Math.Sin(deltaPhase);
+
             double re = 0, im = 0;
+            double cos = 1.0, sin = 0.0;
             for (var i = 0; i < n; i++)
             {
-                var phase = 2.0 * order * angleRad[i];
-                re += signal[i] * Math.Cos(phase);
-                im += signal[i] * Math.Sin(phase);
+                re += signal[i] * cos;
+                im += signal[i] * sin;
+
+                if ((i & (ResyncInterval - 1)) == ResyncInterval - 1)
+                {
+                    var exact = (i + 1) * deltaPhase;
+                    cos = Math.Cos(exact);
+                    sin = Math.Sin(exact);
+                }
+                else
+                {
+                    var nextCos = cos * cosDelta - sin * sinDelta;
+                    sin = cos * sinDelta + sin * cosDelta;
+                    cos = nextCos;
+                }
             }
 
             amplitude[k] = 2.0 * Math.Sqrt(re * re + im * im) / n;
         }
 
-        return new OrderSpectrum(orders, amplitude);
+        return new OrderSpectrum(orderStep, amplitude);
     }
 }
 
@@ -145,19 +248,23 @@ public static class CharacterMetrics
         return total > 0 ? atHarmonics / total : 1.0;
     }
 
-    /// <summary>Half-order ratio (§3.7): energy at half-integer orders ÷ integer orders — rumble/lope.</summary>
+    /// <summary>
+    /// Half-order ratio (§3.7): energy at HALF-integer orders ÷ integer
+    /// orders — rumble / lope. Uses the spectrum's own grid classification,
+    /// so a finer analysis grid (quarter orders) does not silently inflate
+    /// the metric: sub-half content is excluded from both sums.
+    /// </summary>
     public static double HalfOrderRatio(OrderSpectrum spectrum)
     {
         double half = 0, integer = 0;
         for (var i = 0; i < spectrum.Orders.Length; i++)
         {
-            var order = spectrum.Orders[i];
             var energy = spectrum.Amplitude[i] * spectrum.Amplitude[i];
-            if (Math.Abs(order - Math.Round(order)) < 1e-6)
+            if (spectrum.IsIntegerOrder(i))
             {
                 integer += energy;
             }
-            else
+            else if (spectrum.IsHalfOrder(i))
             {
                 half += energy;
             }
@@ -168,55 +275,69 @@ public static class CharacterMetrics
 
     /// <summary>
     /// Harmonic decay slope (§3.7), dB per order across the firing-order
-    /// harmonics (least squares over the first `harmonics` multiples).
-    /// Mellow ≈ steep negative; bright ≈ shallow.
+    /// harmonics. Mellow ≈ steep negative; bright ≈ shallow.
     /// </summary>
-    public static double HarmonicDecaySlope(OrderSpectrum spectrum, double firingOrder, int harmonics = 6)
-    {
-        var points = new List<(double X, double Db)>();
-        for (var h = 1; h <= harmonics; h++)
-        {
-            var amplitude = spectrum.AmplitudeAt(h * firingOrder);
-            if (amplitude > 0)
-            {
-                points.Add((h, 20.0 * Math.Log10(amplitude)));
-            }
-        }
-
-        if (points.Count < 2)
-        {
-            return 0.0;
-        }
-
-        var mx = points.Average(p => p.X);
-        var my = points.Average(p => p.Db);
-        var slope = points.Sum(p => (p.X - mx) * (p.Db - my)) / points.Sum(p => (p.X - mx) * (p.X - mx));
-        return slope;
-    }
+    public static double HarmonicDecaySlope(OrderSpectrum spectrum, double firingOrder, int harmonics = 6) =>
+        Fit(spectrum, firingOrder, harmonics).Slope;
 
     /// <summary>Order-to-order variance (§3.7): σ of harmonic levels around the decay fit, dB.</summary>
-    public static double OrderToOrderVariance(OrderSpectrum spectrum, double firingOrder, int harmonics = 6)
+    public static double OrderToOrderVariance(OrderSpectrum spectrum, double firingOrder, int harmonics = 6) =>
+        Fit(spectrum, firingOrder, harmonics).Residual;
+
+    /// <summary>
+    /// Least-squares fit of harmonic level (dB) versus harmonic number, done
+    /// once for both metrics. Harmonics the spectrum cannot represent are
+    /// reported rather than silently dropped.
+    /// </summary>
+    private static (double Slope, double Residual, int Used) Fit(
+        OrderSpectrum spectrum, double firingOrder, int harmonics)
     {
-        var slope = HarmonicDecaySlope(spectrum, firingOrder, harmonics);
-        var points = new List<(double X, double Db)>();
+        Span<double> x = stackalloc double[harmonics];
+        Span<double> db = stackalloc double[harmonics];
+        var used = 0;
         for (var h = 1; h <= harmonics; h++)
         {
-            var amplitude = spectrum.AmplitudeAt(h * firingOrder);
-            if (amplitude > 0)
+            var amplitude = spectrum.TryAmplitudeAt(h * firingOrder);
+            if (amplitude is > 0)
             {
-                points.Add((h, 20.0 * Math.Log10(amplitude)));
+                x[used] = h;
+                db[used] = 20.0 * Math.Log10(amplitude.Value);
+                used++;
             }
         }
 
-        if (points.Count < 2)
+        if (used < 2)
         {
-            return 0.0;
+            return (0.0, 0.0, used);
         }
 
-        var my = points.Average(p => p.Db);
-        var mx = points.Average(p => p.X);
+        double mx = 0, my = 0;
+        for (var i = 0; i < used; i++)
+        {
+            mx += x[i];
+            my += db[i];
+        }
+
+        mx /= used;
+        my /= used;
+
+        double num = 0, den = 0;
+        for (var i = 0; i < used; i++)
+        {
+            num += (x[i] - mx) * (db[i] - my);
+            den += (x[i] - mx) * (x[i] - mx);
+        }
+
+        var slope = den > 0 ? num / den : 0.0;
         var intercept = my - slope * mx;
-        var residual = points.Sum(p => Math.Pow(p.Db - (slope * p.X + intercept), 2)) / points.Count;
-        return Math.Sqrt(residual);
+
+        var residual = 0.0;
+        for (var i = 0; i < used; i++)
+        {
+            var e = db[i] - (slope * x[i] + intercept);
+            residual += e * e;
+        }
+
+        return (slope, Math.Sqrt(residual / used), used);
     }
 }
