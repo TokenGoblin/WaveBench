@@ -252,9 +252,18 @@ against ∮p·dV to 0.1%; repeated runs bit-identical.
 > is kept as a historical record, not as a current claim. Motored results
 > (§1.8, Phase 5) are unaffected — there is no combustion in them.
 
-**Phase 6 fixture** (86×62 single, CR 11, 4-valve, 5000 rpm, Woschni,
-T_wall 420 K, −15° spark / 55° burn, λ = 1 RON95): IMEP 20.99 bar, peak
-98.8 bar, BMEP 19.12 bar, torque 54.8 N·m, power 28.7 kW, BSFC 173 g/kWh.
+**Phase 6 fixture** — 86×62 single, rod 107, CR 11, 4-valve (2×31 mm intake,
+2×26 mm exhaust, 10 mm lift), 0.60 m × 38 mm intake runner and 0.20 m ×
+35 mm exhaust, ambient 1.0 bar / 300 K, 5000 rpm, Woschni with T_wall 420 K,
+−15° spark over 55°, stoichiometric premixed charge at AFR 14.6, perfect gas
+(γ = 1.4), knock tracking off:
+
+IMEP 20.99 bar, peak 98.8 bar, BMEP 19.12 bar, torque 54.8 N·m, power
+28.7 kW, BSFC 173 g/kWh, converged in 5 cycles.
+
+The knock integrals below use the same geometry and speed with an octane
+number supplied; nothing else differs, since the octane number feeds only
+the Livengood–Wu integral and not the thermodynamics.
 - **Burn bookkeeping cycles at gas-exchange TDC, not at the local-angle
   wrap.** This was a real and serious defect, found by review of the two-zone
   work and pre-dating it. Local angle runs 0–720 with 0 at firing TDC, so a
