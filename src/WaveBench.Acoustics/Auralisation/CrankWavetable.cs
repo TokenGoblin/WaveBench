@@ -10,7 +10,7 @@ public sealed class CrankWavetable
 {
     private readonly float[] _samples;
 
-    public CrankWavetable(double rpm, float[] samplesOverCycle)
+    public CrankWavetable(double rpm, float[] samplesOverCycle, double load = 1.0)
     {
         if (samplesOverCycle.Length < 16)
         {
@@ -18,10 +18,18 @@ public sealed class CrankWavetable
         }
 
         Rpm = rpm;
+        Load = load;
         _samples = samplesOverCycle;
     }
 
     public double Rpm { get; }
+
+    /// <summary>
+    /// Load this table was captured at — intake manifold pressure as a
+    /// fraction of ambient, 1.0 being wide-open throttle. Defaults to 1.0 so
+    /// a single-load bank behaves exactly as before.
+    /// </summary>
+    public double Load { get; }
 
     public int Length => _samples.Length;
 
@@ -63,7 +71,7 @@ public sealed class CrankWavetable
             output[i] = (float)(_samples[i] - mean);
         }
 
-        return new CrankWavetable(Rpm, output);
+        return new CrankWavetable(Rpm, output, Load);
     }
 
     /// <summary>
@@ -72,7 +80,8 @@ public sealed class CrankWavetable
     /// into a wavetable: cycle-to-cycle scatter is re-injected at synthesis
     /// time from a seeded distribution (§3.4), not baked into the table.
     /// </summary>
-    public static CrankWavetable FromCapture(double rpm, ReadOnlySpan<float> resampled, int samplesPerCycle)
+    public static CrankWavetable FromCapture(
+        double rpm, ReadOnlySpan<float> resampled, int samplesPerCycle, double load = 1.0)
     {
         var cycles = resampled.Length / samplesPerCycle;
         if (cycles < 1)
@@ -94,69 +103,140 @@ public sealed class CrankWavetable
             table[i] /= cycles;
         }
 
-        return new CrankWavetable(rpm, table);
+        return new CrankWavetable(rpm, table, load);
     }
 }
 
 /// <summary>
-/// Wavetables for one source across an rpm grid (plan §3.6 default 250 rpm
-/// spacing). Interpolation between adjacent speeds happens in the
-/// CRANK-ANGLE domain — the same angle is read from both tables and the two
-/// values are blended — so the result stays phase-coherent. Blending in the
-/// time domain (i.e. cross-fading audio) is what the plan forbids: it
-/// destroys phase and sounds like a pitch shift.
+/// Wavetables for one source across an rpm × load grid (plan §3.6: the rpm
+/// grid at a 250 rpm default spacing, and at least two load lines,
+/// interpolated on both axes).
+///
+/// Every interpolation happens in the CRANK-ANGLE domain — the same angle is
+/// read from all four bracketing tables and the values are blended — so the
+/// result stays phase-coherent. Blending in the time domain (cross-fading
+/// audio) is what the plan forbids: it destroys phase and sounds like a pitch
+/// shift rather than an engine.
+///
+/// A bank built at one load behaves exactly as a 1-D bank did, so the load
+/// axis costs nothing where it is not used.
 /// </summary>
 public sealed class WavetableBank
 {
-    private readonly List<CrankWavetable> _tables = [];
+    // Load line → tables at that load, each sorted by rpm. Sorted by load.
+    private readonly SortedList<double, List<CrankWavetable>> _byLoad = [];
 
     public string SourceName { get; }
 
     public WavetableBank(string sourceName) => SourceName = sourceName;
 
-    public IReadOnlyList<CrankWavetable> Tables => _tables;
+    /// <summary>Every table, ordered by load then rpm.</summary>
+    public IReadOnlyList<CrankWavetable> Tables => _byLoad.Values.SelectMany(t => t).ToList();
 
-    public double MinRpm => _tables.Count > 0 ? _tables[0].Rpm : 0.0;
+    /// <summary>The load lines present, ascending.</summary>
+    public IReadOnlyList<double> Loads => _byLoad.Keys.ToList();
 
-    public double MaxRpm => _tables.Count > 0 ? _tables[^1].Rpm : 0.0;
+    public double MinRpm => _byLoad.Count > 0 ? _byLoad.Values.Min(t => t[0].Rpm) : 0.0;
+
+    public double MaxRpm => _byLoad.Count > 0 ? _byLoad.Values.Max(t => t[^1].Rpm) : 0.0;
+
+    public double MinLoad => _byLoad.Count > 0 ? _byLoad.Keys[0] : 0.0;
+
+    public double MaxLoad => _byLoad.Count > 0 ? _byLoad.Keys[^1] : 0.0;
 
     public void Add(CrankWavetable table)
     {
-        _tables.Add(table);
-        _tables.Sort((a, b) => a.Rpm.CompareTo(b.Rpm));
+        if (!_byLoad.TryGetValue(table.Load, out var line))
+        {
+            line = [];
+            _byLoad.Add(table.Load, line);
+        }
+
+        line.Add(table);
+        line.Sort((a, b) => a.Rpm.CompareTo(b.Rpm));
     }
 
     /// <summary>
-    /// Sample at (rpm, crank angle) with linear blending between the two
-    /// bracketing rpm tables, evaluated at the SAME crank angle in both.
-    /// Outside the grid the nearest table is held (and the caller should warn).
+    /// Sample at (rpm, crank angle) on the highest load line — the wide-open
+    /// pull, and the behaviour of a single-load bank.
     /// </summary>
-    public double SampleAt(double rpm, double crankAngleDeg)
+    public double SampleAt(double rpm, double crankAngleDeg) =>
+        SampleAt(rpm, crankAngleDeg, MaxLoad);
+
+    /// <summary>
+    /// Sample at (rpm, load, crank angle), bilinear across the two axes.
+    /// Outside the grid the nearest line is held rather than extrapolated:
+    /// a wavetable extrapolated past its captured range is not a prediction,
+    /// and <see cref="Covers"/> lets a caller check before trusting one.
+    /// </summary>
+    public double SampleAt(double rpm, double crankAngleDeg, double load)
     {
-        if (_tables.Count == 0)
+        if (_byLoad.Count == 0)
         {
             throw new InvalidOperationException($"Wavetable bank '{SourceName}' is empty.");
         }
 
-        if (_tables.Count == 1 || rpm <= _tables[0].Rpm)
+        if (_byLoad.Count == 1)
         {
-            return _tables[0].SampleAt(crankAngleDeg);
+            return SampleLine(_byLoad.Values[0], rpm, crankAngleDeg);
         }
 
-        if (rpm >= _tables[^1].Rpm)
+        var loads = _byLoad.Keys;
+        if (load <= loads[0])
         {
-            return _tables[^1].SampleAt(crankAngleDeg);
+            return SampleLine(_byLoad.Values[0], rpm, crankAngleDeg);
+        }
+
+        if (load >= loads[^1])
+        {
+            return SampleLine(_byLoad.Values[^1], rpm, crankAngleDeg);
         }
 
         var upper = 1;
-        while (upper < _tables.Count - 1 && _tables[upper].Rpm < rpm)
+        while (upper < loads.Count - 1 && loads[upper] < load)
         {
             upper++;
         }
 
-        var lower = upper - 1;
-        var lo = _tables[lower];
-        var hi = _tables[upper];
+        var loLoad = loads[upper - 1];
+        var hiLoad = loads[upper];
+        var w = (load - loLoad) / (hiLoad - loLoad);
+
+        return (1.0 - w) * SampleLine(_byLoad.Values[upper - 1], rpm, crankAngleDeg)
+               + w * SampleLine(_byLoad.Values[upper], rpm, crankAngleDeg);
+    }
+
+    /// <summary>
+    /// Whether (rpm, load) is inside the captured grid rather than being held
+    /// at an edge. The synthesiser reports this so a render cannot silently
+    /// present held-edge audio as a solved result.
+    /// </summary>
+    public bool Covers(double rpm, double load) =>
+        _byLoad.Count > 0
+        && rpm >= MinRpm - 1e-9 && rpm <= MaxRpm + 1e-9
+        && load >= MinLoad - 1e-9 && load <= MaxLoad + 1e-9;
+
+    /// <summary>Linear blend between the two bracketing rpm tables of one load line.</summary>
+    private static double SampleLine(List<CrankWavetable> line, double rpm, double crankAngleDeg)
+    {
+        if (line.Count == 1 || rpm <= line[0].Rpm)
+        {
+            return line[0].SampleAt(crankAngleDeg);
+        }
+
+        if (rpm >= line[^1].Rpm)
+        {
+            return line[^1].SampleAt(crankAngleDeg);
+        }
+
+        var upper = 1;
+        while (upper < line.Count - 1 && line[upper].Rpm < rpm)
+        {
+            upper++;
+        }
+
+        var lo = line[upper - 1];
+        var hi = line[upper];
         var w = (rpm - lo.Rpm) / (hi.Rpm - lo.Rpm);
         return (1.0 - w) * lo.SampleAt(crankAngleDeg) + w * hi.SampleAt(crankAngleDeg);
     }

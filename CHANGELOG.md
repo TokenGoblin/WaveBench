@@ -37,6 +37,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - DIN 45692:2009 sharpness in acum, on the ISO 532-1 specific-loudness
   pattern. The standard's reference signal measures 1.028 acum against the
   defined 1.0.
+- Load as the second wavetable axis, closing the Phase 10 deferral that left
+  the pipeline building a single load line. `WavetableBank` is now an
+  rpm × load grid with bilinear interpolation, both axes blended in the
+  crank-angle domain; `EngineBuilder.Build` takes an `intakeLoadFraction`;
+  `LoadProfile` carries the throttle track; `render --loads 1.0,0.35`
+  (default) with `--lift-at` / `--cruise-load`. A single-load bank behaves
+  exactly as before. Outside the grid the nearest line is held rather than
+  extrapolated, and the synthesiser reports the held fraction so the CLI
+  warns instead of passing edge-held audio off as solved.
 - `ListenerChain` applies a `PropagationPath` to a rendered stem, closing the
   Phase 10 deferral that left renders exporting the raw source signal.
   `wavebench render --listener drive-by|fsae|j1287|chase-cam` (default

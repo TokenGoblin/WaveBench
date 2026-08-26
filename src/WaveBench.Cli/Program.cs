@@ -160,11 +160,28 @@ public static class Program
             Description = "Outlet height above ground, m — sets the ground-reflection geometry",
         };
         outletHeightOption.DefaultValueFactory = _ => 0.35;
+        var loadsOption = new Option<string>("--loads")
+        {
+            Description = "Load lines to solve, comma-separated manifold pressure fractions "
+                          + "(plan §3.6 wants at least two; pass 1.0 alone to halve the solve)",
+        };
+        loadsOption.DefaultValueFactory = _ => "1.0,0.35";
+        var liftAtOption = new Option<double>("--lift-at")
+        {
+            Description = "Lift off the throttle at this time, s — 0 holds wide-open throttle",
+        };
+        liftAtOption.DefaultValueFactory = _ => 0.0;
+        var cruiseLoadOption = new Option<double>("--cruise-load")
+        {
+            Description = "Manifold pressure fraction after the lift",
+        };
+        cruiseLoadOption.DefaultValueFactory = _ => 0.35;
 
-        var renderCommand = new Command("render", "Auralise a model: solve an rpm grid and synthesise audio")
+        var renderCommand = new Command("render", "Auralise a model: solve an rpm × load grid and synthesise audio")
         {
             modelArg, renderFromOption, renderToOption, secondsOption, gridOption,
             audioOutOption, seedOption, lufsOption, burbleOption, listenerOption, outletHeightOption,
+            loadsOption, liftAtOption, cruiseLoadOption,
         };
         renderCommand.SetAction(parse =>
         {
@@ -176,16 +193,44 @@ public static class Program
             var outDir = parse.GetValue(audioOutOption)!;
 
             var grid = AuralisationPipeline.Grid(from, to, parse.GetValue(gridOption));
-            Console.WriteLine($"solving {grid.Count} operating points for wavetables...");
+            var loads = ParseLoads(parse.GetValue(loadsOption));
+            Console.WriteLine(
+                $"solving {grid.Count} speeds × {loads.Count} load line{(loads.Count == 1 ? "" : "s")} " +
+                $"= {grid.Count * loads.Count} operating points for wavetables...");
             var banks = AuralisationPipeline.BuildBanks(
-                document, grid, progress: line => Console.WriteLine("  " + line));
+                document, grid, progress: line => Console.WriteLine("  " + line), loadLines: loads);
 
-            Console.WriteLine($"synthesising {from:F0} → {to:F0} rpm over {seconds:F1} s...");
+            var liftAt = parse.GetValue(liftAtOption);
+            var loadProfile = liftAt > 0.0
+                ? LoadProfile.LiftOff(seconds, liftAt, parse.GetValue(cruiseLoadOption))
+                : LoadProfile.Constant(loads.Max(), seconds);
+
+            Console.WriteLine(
+                $"synthesising {from:F0} → {to:F0} rpm over {seconds:F1} s" +
+                (liftAt > 0.0
+                    ? $", lifting to {parse.GetValue(cruiseLoadOption) * 100:F0}% load at {liftAt:F1} s..."
+                    : $" at {loads.Max() * 100:F0}% load..."));
+
             var profile = RpmProfile.Sweep(from, to, seconds);
             var synth = new WavetableSynthesizer(seed);
-            var stems = banks.Values
-                .Select(bank => synth.Render(bank, profile, Loudness.SupportedSampleRate))
-                .ToList();
+            var stems = new List<AudioStem>();
+            var heldFraction = 0.0;
+            foreach (var bank in banks.Values)
+            {
+                stems.Add(synth.Render(
+                    bank, profile, Loudness.SupportedSampleRate, variation: null, startAngleDeg: 0.0,
+                    load: loadProfile));
+                heldFraction = Math.Max(heldFraction, synth.LastRenderHeldAtGridEdge);
+            }
+
+            if (heldFraction > 0.0)
+            {
+                // Held-edge audio is not a solved result, so it does not get to
+                // pass as one just because it sounds plausible.
+                Console.WriteLine(
+                    $"WARNING: {heldFraction * 100:F0}% of the render fell outside the solved " +
+                    "rpm × load grid and was held at the nearest edge. Widen --from/--to or --loads.");
+            }
 
             // Intake radiates less than the tailpipe on an NA engine; the
             // relative gain is a documented default, adjustable per model.
@@ -262,6 +307,33 @@ public static class Program
             runCommand, sweepCommand, meshCommand, validateCommand, infoCommand, renderCommand,
         };
         return root.Parse(args).Invoke();
+    }
+
+    /// <summary>Parses --loads: comma-separated manifold pressure fractions.</summary>
+    private static IReadOnlyList<double> ParseLoads(string? value)
+    {
+        var loads = (value ?? "1.0")
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(part => double.TryParse(part, System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out var load)
+                ? load
+                : throw new ArgumentException($"--loads: '{part}' is not a number."))
+            .Distinct()
+            .OrderByDescending(load => load)
+            .ToList();
+
+        if (loads.Count == 0)
+        {
+            throw new ArgumentException("--loads needs at least one value.");
+        }
+
+        foreach (var load in loads.Where(load => load is <= 0.0 or > 1.0))
+        {
+            throw new ArgumentException(
+                $"--loads: {load} is outside (0, 1]. Load is manifold pressure as a fraction of ambient.");
+        }
+
+        return loads;
     }
 
     /// <summary>

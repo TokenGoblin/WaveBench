@@ -29,13 +29,18 @@ public sealed class WavetableSynthesizer(ulong seed = 20260825)
 {
     public ulong Seed { get; } = seed;
 
-    /// <summary>Render one source layer over the profile.</summary>
+    /// <summary>
+    /// Render one source layer over the profile. <paramref name="load"/> is
+    /// the throttle track; omit it to hold the bank's highest load line, which
+    /// is the wide-open pull and what a single-load bank has always produced.
+    /// </summary>
     public AudioStem Render(
         WavetableBank bank,
         RpmProfile profile,
         double sampleRate = 48_000.0,
         SynthesisVariation? variation = null,
-        double startAngleDeg = 0.0)
+        double startAngleDeg = 0.0,
+        LoadProfile? load = null)
     {
         var v = variation ?? new SynthesisVariation();
         var count = (int)Math.Round(profile.Duration * sampleRate);
@@ -44,11 +49,13 @@ public sealed class WavetableSynthesizer(ulong seed = 20260825)
         var angle = startAngleDeg;
         var cycleIndex = 0L;
         var (amplitude, phaseOffset) = DrawCycle(cycleIndex, v);
+        var offGrid = 0;
 
         for (var i = 0; i < count; i++)
         {
             var time = i / sampleRate;
             var rpm = profile.RpmAt(time);
+            var loadNow = load?.LoadAt(time) ?? bank.MaxLoad;
 
             // Crank advance: 6·N degrees per second.
             angle += 6.0 * rpm / sampleRate;
@@ -59,11 +66,25 @@ public sealed class WavetableSynthesizer(ulong seed = 20260825)
                 (amplitude, phaseOffset) = DrawCycle(cycleIndex, v);
             }
 
-            output[i] = (float)(amplitude * bank.SampleAt(rpm, angle + phaseOffset));
+            if (!bank.Covers(rpm, loadNow))
+            {
+                offGrid++;
+            }
+
+            output[i] = (float)(amplitude * bank.SampleAt(rpm, angle + phaseOffset, loadNow));
         }
 
+        LastRenderHeldAtGridEdge = count > 0 ? (double)offGrid / count : 0.0;
         return new AudioStem(bank.SourceName, output, sampleRate);
     }
+
+    /// <summary>
+    /// Fraction of the last render that fell outside the captured rpm × load
+    /// grid and was therefore held at an edge rather than interpolated.
+    /// Non-zero means part of the render is not a solved result, and the
+    /// caller is expected to say so rather than let it pass as one.
+    /// </summary>
+    public double LastRenderHeldAtGridEdge { get; private set; }
 
     /// <summary>Deterministic per-cycle draw: amplitude scale and crank offset.</summary>
     private (double Amplitude, double PhaseOffsetDeg) DrawCycle(long cycle, SynthesisVariation v)

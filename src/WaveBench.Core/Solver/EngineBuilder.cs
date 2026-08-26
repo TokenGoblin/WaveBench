@@ -14,8 +14,38 @@ namespace WaveBench.Core.Solver;
 /// </summary>
 public static class EngineBuilder
 {
-    public static EngineSimulator Build(EngineModelDocument document, double rpm, double? cellSizeScale = null)
+    /// <summary>
+    /// Builds the engine at a given speed and load.
+    ///
+    /// <paramref name="intakeLoadFraction"/> is the intake manifold absolute
+    /// pressure as a fraction of ambient: 1.0 is wide-open throttle, ~0.35 a
+    /// light cruise. It is applied to the intake reservoir's stagnation
+    /// pressure, which is the standard way part load is set at this modelling
+    /// level — the throttle sits upstream of the runner and its effect on the
+    /// runner's boundary is the reduced plenum pressure.
+    ///
+    /// <b>Simplification, stated because it has consequences.</b> This is a
+    /// steady pressure drop, not a throttle. It does not model the plate's
+    /// unsteady loss, the plenum volume's own wave dynamics, or the reflection
+    /// the plate presents to a runner pulse — a real part-throttle intake is
+    /// acoustically closer to a closed end than an open one, so predicted
+    /// intake noise at low load is optimistic. Modelling it properly needs the
+    /// orifice-plus-plenum topology that arrives with the manifold canvas
+    /// (Phase 18); <see cref="Components.ThrottleValve"/> is already there for
+    /// it. Fuelling needs no adjustment: the charge fuel fraction is a mass
+    /// fraction at fixed lambda, so less air is already less fuel.
+    /// </summary>
+    public static EngineSimulator Build(
+        EngineModelDocument document, double rpm, double? cellSizeScale = null, double intakeLoadFraction = 1.0)
     {
+        if (intakeLoadFraction is <= 0.0 or > 1.0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(intakeLoadFraction),
+                intakeLoadFraction,
+                "Load is the intake manifold pressure as a fraction of ambient, in (0, 1].");
+        }
+
         var issues = document.Validate();
         if (issues.Any(i => i.Severity == ModelIssueSeverity.Error))
         {
@@ -46,11 +76,20 @@ public static class EngineBuilder
 
         for (var c = 0; c < document.Engine.CylinderCount; c++)
         {
-            var intake = MakeDuct(document.IntakeRunner, cellSize, limiter, gas, rho0, p0, document.Solver.Cfl);
+            // Start the intake runner at the plenum's pressure, not ambient:
+            // at 0.35 load that is a 65 kPa initial error to converge away.
+            // Density follows pressure at fixed temperature.
+            var intake = MakeDuct(
+                document.IntakeRunner, cellSize, limiter, gas,
+                rho0 * intakeLoadFraction, p0 * intakeLoadFraction, document.Solver.Cfl);
             var exhaust = MakeDuct(document.ExhaustRunner, cellSize, limiter, gas, rho0, p0, document.Solver.Cfl);
 
             intake.LeftBoundary = BoundaryKind.External;
-            intake.LeftEnd = new ReservoirBoundary { StagnationPressure = p0, StagnationTemperature = t0 };
+            intake.LeftEnd = new ReservoirBoundary
+            {
+                StagnationPressure = p0 * intakeLoadFraction,
+                StagnationTemperature = t0,
+            };
             exhaust.RightBoundary = BoundaryKind.External;
             exhaust.RightEnd = new ReservoirBoundary { StagnationPressure = p0, StagnationTemperature = t0 };
 

@@ -183,10 +183,34 @@ band-kill test.
 
 - **FLAC export** is not implemented; WAV is. A wrong FLAC file is worse
   than none, and verifying an encoder needs a reference decoder in CI.
-- **Load interpolation** (§3.6: at least two load lines, interpolated on
-  both axes) is not implemented — the pipeline builds one load line. Cruise
-  drone and overrun auditioning need this and it belongs with the Sound
-  workspace work.
+- ~~Load interpolation is not implemented.~~ **Done.** The wavetable bank is
+  now a two-dimensional rpm × load grid with bilinear interpolation, and
+  every blend — both axes — happens in the crank-angle domain, so the result
+  stays phase-coherent. `render --loads 1.0,0.35` (the plan's minimum, and
+  the default) with `--lift-at` and `--cruise-load` driving a `LoadProfile`.
+  A bank built at one load behaves exactly as the old one-dimensional bank
+  did, so the axis costs nothing where it is not used.
+
+  Load is the intake manifold absolute pressure as a fraction of ambient:
+  1.0 wide open, 0.35 a light cruise. Verified end to end — throttling to
+  35 % manifold pressure moves 0.315× the air per cycle at 4000 rpm, and a
+  lift-off profile drops the rendered amplitude to exactly the low-load
+  line's.
+
+  **The load model is a steady pressure drop, not a throttle.** It does not
+  model the plate's unsteady loss, the plenum volume's own wave dynamics, or
+  the reflection the plate presents to a runner pulse. A real part-throttle
+  intake is acoustically closer to a closed end than an open one, so
+  **predicted intake noise at low load is optimistic**. Doing it properly
+  needs the orifice-plus-plenum topology arriving with the manifold canvas
+  (Phase 18); `ThrottleValve` already exists for it. Fuelling needs no
+  adjustment — the charge fuel fraction is a mass fraction at fixed lambda,
+  so less air is already less fuel.
+
+  Outside the captured grid the nearest line is **held, never extrapolated**,
+  and the synthesiser reports what fraction of a render was held that way so
+  the CLI can warn. Extrapolated wavetable audio sounds entirely plausible,
+  which is exactly why it must not pass silently as a solved result.
 - ~~The listener chain is not applied to renders.~~ **Done.**
   `ListenerChain` filters a stem through a `PropagationPath` by whole-signal
   FFT convolution, and `wavebench render --listener drive-by` (or `fsae`,
