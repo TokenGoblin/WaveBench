@@ -192,6 +192,100 @@ band-kill test.
   (Phase 9); wiring them into the render path is Phase 20.
 - **The mechanical layer** (parametric, cosmetic) is not implemented.
 
+## 4. Sound metrics and compliance (Phase 11 — PARTIAL)
+
+> **Phase 11 is not complete and the v0.4 milestone is not claimed.** The
+> compliance half is done and verified; the standardised psychoacoustic
+> metrics are not implemented. See "What is missing" below. This section
+> exists so the gap is visible rather than implied.
+
+### Level metering — IEC 61672-1 (done, verified)
+
+A-, C- and Z-weighting from the standard's exact pole frequencies
+(20.598997, 107.65265, 737.86223, 12194.217 Hz), normalised by division at
+1 kHz so the published +2.00 dB (A) and +0.06 dB (C) offsets are reproduced
+rather than carried as rounded literals.
+
+**Verified against IEC 61672-1 Table 3 at all 34 nominal bands, 10 Hz–20 kHz,
+within the table's own 0.1 dB precision** — tested at the EXACT base-ten
+third-octave frequencies (f = 10^(n/10)), because the table is tabulated
+there, not at the rounded labels. On the steep part of the A-curve the
+nominal "16 Hz" band (really 15.849 Hz) differs by several tenths of a dB;
+testing against labels manufactures a bug that is not there.
+
+Time weighting: Fast 125 ms, Slow 1 s, Impulse 35 ms, as exponential
+detectors on the squared signal. A 200 ms burst of a 91.0 dB tone reads
+90.0 dB Fast and 83.6 dB Slow — the expected behaviour, and the settle
+window is capped at a quarter of the signal so a Slow reading on a short
+clip cannot silently return −∞.
+
+### Compliance — versioned rules data (done, verified)
+
+`NoiseRuleSet` is **data, not code** (plan §3.8: limits change annually).
+Round-trips as JSON; a rules change is an edit, never a recompile. Every
+set carries its year and source, and the shipped FSAE set says VERIFY
+against the live rulebook, because it is a starting point rather than an
+authority.
+
+FSAE static test: 0.5 m at 45°, 103 dB(C) Fast at idle, 110 dB(C) Fast at
+the derived test speed **N = 15.25 × 30000 / stroke_mm rounded to the
+nearest 500 rpm** — verified for six known strokes (60 mm → 7500, 54.5 →
+8500, 76.4 → 6000, 96 → 5000, 45.8 → 10000, 88.4 → 5000).
+
+**The honesty requirement is implemented, not just described.** Every
+`ComplianceResult` carries an uncertainty band (±3 dB tonal, ±5 dB
+broadband) and returns a THREE-way verdict: Pass, Fail, or
+**TooCloseToCall** when the margin is inside the band. A design 1 dB under
+the limit is not reported as passing. Plan §3.8: "never let a student fail
+scrutineering because the software sounded confident."
+
+### Engine character metrics (done)
+
+The §3.7 set that actually discriminates header designs, computed by
+`CharacterAnalysis`: Order Purity Index, half-order ratio, harmonic decay
+slope, order-to-order variance, spectral centroid, rasp index, rumble index
+(low-frequency energy weighted by 20–100 Hz envelope modulation),
+tonal-to-noise ratio, and drone risk. These are **WaveBench definitions,
+not standards** — each is specified precisely enough to reproduce and argue
+with, and none borrows a standard's authority.
+
+Six named target profiles ship as vectors in metric space, each with its
+written mechanism (straight-six howl, flat-plane scream, crossplane rumble,
+NA F1 scream, refined GT, FSAE compliant + charismatic), plus ranking by
+distance. Verified: adding half-order content to a clean harmonic stack
+drops OPI 1.000 → 0.599, raises the half-order ratio by 27 orders of
+magnitude, and moves the design toward the crossplane target.
+
+**Reference Match** extracts a fingerprint from the user's own recording and
+tracks rpm from the firing order alone (3730 rpm recovered exactly from a
+tacho-less signal). The API takes samples and returns metrics; it offers no
+way to persist the audio, because the plan requires the recording never to
+leave the machine.
+
+### What is missing (the gate is not met)
+
+`PsychoacousticStatus` is a machine-readable list of exactly this, so the
+UI can surface it instead of implying coverage:
+
+| Metric | Standard | Status |
+|---|---|---|
+| Loudness (stationary) | ISO 532-1 Zwicker | **not implemented** |
+| Loudness | ISO 532-3 Moore–Glasberg | **not implemented** |
+| Sharpness | DIN 45692 | **not implemented** (built on 532-1) |
+| Loudness/tonality/roughness | ECMA-418-2 | **not implemented** |
+| Fluctuation strength | Zwicker & Fastl | **not implemented** |
+| Tonality | DIN 45681 | **not implemented** |
+| Speech interference | ANSI S3.5 | **not implemented** (needs cabin TF) |
+
+**Why deferred rather than approximated:** the gate requires each metric to
+match published reference verification signals within its standard's
+tolerance. ISO 532-1's critical-band slope algorithm could not be
+reproduced faithfully from available secondary sources, and a
+plausible-but-unverified loudness or sharpness figure is worse than none —
+it is a number users would trust and design against. Finishing this needs
+the standard's algorithm and its verification signals (or MOSQITO/SQAT
+outputs as a cross-check, licence permitting).
+
 **Abrupt-step finding (documented limitation):** meshing a sudden area
 discontinuity as resolved A(x) geometry converges only first order at the
 slope discontinuity (single-step transmission 18.5 → 18.8 Pa toward the

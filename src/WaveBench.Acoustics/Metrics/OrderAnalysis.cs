@@ -1,4 +1,6 @@
-namespace WaveBench.Analysis;
+using WaveBench.Core.Numerics;
+
+namespace WaveBench.Acoustics.Metrics;
 
 /// <summary>
 /// Order-domain spectrum on a uniform order grid: amplitude at

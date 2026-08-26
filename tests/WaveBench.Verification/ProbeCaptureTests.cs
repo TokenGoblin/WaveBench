@@ -1,3 +1,4 @@
+using WaveBench.Acoustics.Metrics;
 using FluentAssertions;
 using WaveBench.Analysis;
 using WaveBench.Core.EngineModel;

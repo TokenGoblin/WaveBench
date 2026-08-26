@@ -9,6 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Phase 11 (PARTIAL — v0.4 milestone NOT claimed): sound metrics and
+  compliance. IEC 61672-1 A/C/Z weighting verified against all 34 bands of
+  the standard's published table, Fast/Slow/Impulse time weighting, FSAE
+  noise rules as versioned JSON data with the derived test-speed formula
+  verified for six strokes, and compliance results carrying an explicit
+  uncertainty band with a three-way Pass/TooCloseToCall/Fail verdict. The
+  full §3.7 engine character metric set, six named target profiles with
+  mechanisms, and Reference Match with rpm tracking from firing order.
+  **Not implemented:** ISO 532-1/-3 loudness, DIN 45692 sharpness,
+  ECMA-418-2, fluctuation strength, DIN 45681 — deferred rather than
+  approximated because the gate demands verification against published
+  reference signals. Tracked in code via `PsychoacousticStatus`.
+
+### Changed
+
+- `OrderAnalysis`/`CharacterMetrics` moved from `WaveBench.Analysis` to
+  `WaveBench.Acoustics.Metrics`, where the plan's Part 7 layout puts order
+  analysis and psychoacoustics.
+
 - Phase 10: auralisation — WaveBench makes sound. Crank-angle wavetable
   synthesis (phase-coherent, never time-stretched), seeded per-cycle
   variation, BS.1770 gated loudness with level-matched A/B, own 24-bit WAV

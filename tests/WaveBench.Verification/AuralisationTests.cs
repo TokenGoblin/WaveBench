@@ -1,5 +1,6 @@
 using FluentAssertions;
 using WaveBench.Acoustics;
+using WaveBench.Acoustics.Metrics;
 using WaveBench.Acoustics.Auralisation;
 using WaveBench.Analysis;
 using WaveBench.Core.Numerics;

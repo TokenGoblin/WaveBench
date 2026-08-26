@@ -1,5 +1,6 @@
 using FluentAssertions;
 using WaveBench.Acoustics;
+using WaveBench.Acoustics.Metrics;
 using WaveBench.Analysis;
 using Xunit;
 using Xunit.Abstractions;

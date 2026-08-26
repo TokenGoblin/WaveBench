@@ -6,13 +6,17 @@
 relevant parts before writing code. 26 phases, strictly in order, each with a
 hard acceptance gate (Part 12). Never let a session span two phases.
 
-**Phase status:** Phases 0–10 complete. Next: Phase 11 (sound metrics and
-compliance · **v0.4 milestone**: ISO 532-1/-3 loudness, DIN 45692 sharpness,
-ECMA-418-2, fluctuation strength, weighted SPL; the engine-specific metric
-set; target profiles; Reference Match; FSAE / ISO 5130 / ISO 362 as
-versioned rules data with pass/fail and margin. Gate: metrics match
-published reference verification signals; FSAE test-speed calculation
-correct for known strokes; compliance carries an uncertainty band).
+**Phase status:** Phases 0–10 complete. **Phase 11 PARTIAL — do not claim
+v0.4.** Done and verified: IEC 61672 weighting (all 34 published bands),
+time weighting, FSAE versioned rules + derived test speed + uncertainty
+band with three-way verdict, the §3.7 character metric set, target
+profiles, Reference Match. **Outstanding (blocks the Phase 11 gate):**
+ISO 532-1/-3 loudness, DIN 45692 sharpness, ECMA-418-2, fluctuation
+strength, DIN 45681 — each needs the standard's algorithm AND its published
+verification signals; deferred deliberately because an unverified
+psychoacoustic number is worse than none. See `PsychoacousticStatus` and
+docs/acoustics.md §4. Finish these before starting Phase 12, or record an
+explicit decision to carry them.
 
 **The user has seen and heard output** (torque plots, rendered WAVs) and
 chose "make it audible" over pulling the GUI forward. The plan permits
