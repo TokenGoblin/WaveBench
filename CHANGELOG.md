@@ -44,7 +44,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   resolved by zone rather than from the bulk mean — at x_b = 0.63 the zones
   sit at 632 K and 3666 K either side of a 2543 K mean, and heat loss is
   linear in (T − T_wall), so a single mean under-predicts it. **On by
-  default**; costs 0.6–0.9% torque and 1–2 g/kWh BSFC with VE unchanged, and
+  default**; costs 0.7–0.9% torque and 1–2 g/kWh BSFC with VE unchanged, and
   `combustion.twoZoneHeatTransfer: false` recovers the old behaviour. New
   outputs: `BurnedTemperature`, `BurnedVolume`, `BurnedFraction`,
   `CumulativeHeatLoss`.
@@ -107,6 +107,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Combustion released no fuel before TDC and then dumped it in one step.**
+  The per-cycle burn reset fired at the local-angle wrap, which sits at
+  firing TDC and therefore inside the burn window for any spark advance: the
+  previous cycle's burned fraction suppressed the whole pre-TDC portion, then
+  the accumulated fraction was released in the single step after the wrap.
+  9.7% of the cycle's fuel in one timestep at −15° spark, 56.0% at −30°, peak
+  pressure 152.6 bar against 99.4 bar. Spark-timing sensitivity was not being
+  modelled at all, and the SOC reference for the knock integral was frozen at
+  TDC rather than at spark. The reset now cycles on the burn-window
+  coordinate, at gas-exchange TDC; largest single-step release is 0.37% at
+  every advance from −5° to −45°. Found by code review.
+- Two-zone follow-ups from the same review: the zones stayed open through
+  expansion and exhaust because the Wiebe asymptote (0.9933) never reaches
+  the `>= 1.0` completion test, carrying a fictitious unburned pocket that
+  cooled below wall temperature and fed heat back in; the zone split was
+  reported before any fuel had burned; and the temperature backstop clamped
+  rather than rejecting, which breaks p·V = m·R·T while still feeding the
+  heat-transfer model. Completion is now decided by the burn window, the
+  split is gated on the SOC reference, and an implausible split sets
+  `ZonesResolved = false` instead of being clamped into range.
 - One-third-octave band power over a zero-padded FFT was normalised by the
   padded length rather than the signal length, understating every band by
   10·log₁₀(N_pad/N_sig) — 1.35 dB for one second at 48 kHz.

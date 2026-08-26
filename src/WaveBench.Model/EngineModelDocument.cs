@@ -194,7 +194,7 @@ public sealed record CombustionSpec
     /// the bulk mean temperature (plan §2.4 Level 2).
     ///
     /// On by default: the plan requires it, and a single mean temperature
-    /// under-predicts heat loss while the flame is passing. Costs 0.6–0.9%
+    /// under-predicts heat loss while the flame is passing. Costs 0.7–0.9%
     /// torque and 1–2 g/kWh BSFC against the single-zone model, with
     /// volumetric efficiency unchanged. Set false to recover the old
     /// behaviour. See docs/physics.md.

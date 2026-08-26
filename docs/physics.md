@@ -244,6 +244,26 @@ against ∮p·dV to 0.1%; repeated runs bit-identical.
   ~1.27 real) indicated efficiency comes out high (~49% → BSFC ~170 g/kWh);
   this is precisely the §2.2 argument for species-resolved burned-gas
   properties, and the multi-species model closes it.
+- **Burn bookkeeping cycles at gas-exchange TDC, not at the local-angle
+  wrap.** This was a real and serious defect, found by review of the two-zone
+  work and pre-dating it. Local angle runs 0–720 with 0 at firing TDC, so a
+  spark at −15° puts the burn window at 705°→720°→40° — straddling the wrap.
+  Resetting the per-cycle burn state there meant the previous cycle's burned
+  fraction (0.9933) was still in force for the whole pre-TDC portion, so the
+  incremental burn was clamped to zero and **no fuel burned before TDC**; the
+  entire accumulated fraction was then released in the single step after the
+  wrap. Measured before the fix: 9.7% of the cycle's fuel in one timestep at
+  −15° spark, 56.0% at −30°, with peak pressure 152.6 bar against 99.4 bar.
+
+  Spark-timing sensitivity was therefore not being modelled at all, the
+  pressure trace and `PeakPressure` were corrupted, and the start-of-
+  combustion reference that both the knock integral and the zone split key
+  off was frozen at TDC rather than at spark. The reset now cycles on the
+  burn-window coordinate, putting it at gas-exchange TDC — the point furthest
+  from combustion. After the fix the largest single-step release is 0.37% at
+  every spark advance tested (−5° to −45°), which is simply the Wiebe's peak
+  rate over a 0.1° step, and the burn tracks the spark as it should.
+
 - **Two-zone burned/unburned split** (plan §2.4 Level 2). Both zones share
   the cylinder pressure and their volumes sum to the cylinder volume — that
   constraint is what makes it a two-zone model rather than two unrelated
@@ -264,12 +284,29 @@ against ∮p·dV to 0.1%; repeated runs bit-identical.
   zone-resolved heat-transfer model rather than anything more.
 
   **On by default**, with measured cost against the single-zone model on a
-  600 cc single: 0.6–0.9% torque and 1–2 g/kWh BSFC across 3000–7000 rpm,
+  600 cc single: 0.7–0.9% torque and 1–2 g/kWh BSFC across 3000–7000 rpm,
   with volumetric efficiency unchanged — heat lost during the burn does not
   change how the engine breathes. It moves in the direction of the known
   efficiency optimism noted above. `combustion.twoZoneHeatTransfer: false`
   recovers the old behaviour. The whole suite, including the Yin validation
   case, passes either way.
+
+  **The split closes when the burn window does.** The Wiebe asymptote is
+  1 − e^(−a) = 0.9933 at a = 5, never 1, so a "burned fraction reached 1"
+  condition never fires — the first version kept the zones open through
+  expansion, blowdown and the entire exhaust stroke, carrying a fictitious
+  0.67% unburned pocket that cooled isentropically to 324 K, below the 420 K
+  wall, and therefore fed heat *back into* the charge. Over half the cycle's
+  wall heat was being accumulated on that path. Completion is now decided by
+  the burn window, not by the fraction.
+
+  **The zone temperature is validated, not clamped.** A clamp leaves
+  p·V_b = m_b·R·T_b silently violated: the two "zones" stop being a partition
+  of the charge while still feeding the heat-transfer model, and a ceiling
+  value against a realistic mean would drive an order-of-magnitude heat flux
+  — wrecking the energy balance the ceiling exists to protect. If the split
+  is not physical, `ZonesResolved` goes false and the step uses the bulk
+  state.
 
   **The flame kernel is the hard part, and it bit.** At initiation the burned
   mass goes to zero and T_b = p·V_b/(m_b·R) is a 0/0 whose two limits do not

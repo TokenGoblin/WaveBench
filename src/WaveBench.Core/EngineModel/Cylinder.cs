@@ -137,8 +137,9 @@ public sealed class Cylinder
 
     // ---- Per-cycle fired-state tracking ------------------------------------
 
-    private double _previousLocalAngle = double.NaN;
+    private double _previousBurnAngle = double.NaN;
     private double _previousBurnFraction;
+    private bool _burnComplete;
     private double _cycleHeatRelease;
     private double _socPressure;
     private double _socTemperature;
@@ -179,6 +180,14 @@ public sealed class Cylinder
     /// <summary>Volume occupied by the burned zone, m³.</summary>
     public double BurnedVolume { get; private set; }
 
+    /// <summary>
+    /// Volume occupied by the unburned zone, m³. Exposed alongside
+    /// <see cref="BurnedVolume"/> so the defining constraint of a two-zone
+    /// model — that the two sum to the cylinder volume — can actually be
+    /// checked by a caller, rather than merely asserted in a doc comment.
+    /// </summary>
+    public double UnburnedVolume { get; private set; }
+
     /// <summary>Burned mass fraction, 0–1.</summary>
     public double BurnedFraction { get; private set; }
 
@@ -190,7 +199,7 @@ public sealed class Cylinder
     /// faithful model: a single mean temperature under-predicts heat loss
     /// while the flame is passing, since loss is linear in (T − T_wall) and
     /// the burned gas runs hundreds of K above the mean. Measured cost on a
-    /// 600 cc single: 0.6–0.9% torque and 1–2 g/kWh BSFC, with volumetric
+    /// 600 cc single: 0.7–0.9% torque and 1–2 g/kWh BSFC, with volumetric
     /// efficiency unchanged — heat lost during the burn does not change how
     /// the engine breathes. Set false for the single-zone model.
     /// </summary>
@@ -266,24 +275,43 @@ public sealed class Cylinder
     /// <summary>Combustion heat release, wall heat and knock bookkeeping, J for this step.</summary>
     private double FiredSources(double theta, double dt, double omega)
     {
-        // Cycle wrap: local angle decreased → new cycle. Reset per-cycle state
-        // and draw this cycle's variability perturbation.
-        if (!double.IsNaN(_previousLocalAngle) && theta < _previousLocalAngle - 360.0)
+        // Per-cycle reset, at GAS-EXCHANGE TDC rather than at the local-angle
+        // wrap.
+        //
+        // The wrap sits at firing TDC, which is in the middle of the burn: a
+        // spark at −15° puts the window at local 705°→720°→40°. Resetting
+        // there meant _previousBurnFraction still held the previous cycle's
+        // 0.9933 for the whole pre-TDC portion, so dxb was clamped to zero and
+        // NO fuel burned before TDC — and then the entire accumulated fraction
+        // was released in the single step after the wrap. Measured before this
+        // fix: 9.7% of the cycle's fuel in one step at −15° spark, 56.0% at
+        // −30°, with peak pressure 152.6 bar against 99.4 bar. Spark-timing
+        // sensitivity was not being modelled at all, and the SOC reference the
+        // zone split and knock integral key off was frozen at TDC rather than
+        // at spark.
+        //
+        // Cycling on the burn-window coordinate instead puts the boundary at
+        // local 360° — gas-exchange TDC, the point furthest from combustion,
+        // and after the previous burn has fully finished.
+        var burnAngle = BurnWindowAngle(theta);
+        if (!double.IsNaN(_previousBurnAngle) && burnAngle < _previousBurnAngle - 360.0)
         {
             _cycleNumber++;
             _previousBurnFraction = 0.0;
             _cycleHeatRelease = 0.0;
             _socPressure = 0.0;
+            _burnComplete = false;
             BurnedFraction = 0.0;
             BurnedTemperature = 0.0;
             BurnedVolume = 0.0;
+            UnburnedVolume = 0.0;
             if (Variability is { } variability)
             {
                 (_phaseShift, _durationScale, _energyScale) = variability.Draw(CylinderIndex, _cycleNumber);
             }
         }
 
-        _previousLocalAngle = theta;
+        _previousBurnAngle = burnAngle;
 
         if (Combustion is null)
         {
@@ -301,6 +329,15 @@ public sealed class Cylinder
         var xb = effective.BurnFraction(theta);
         var dxb = Math.Max(0.0, xb - _previousBurnFraction);
         _previousBurnFraction = Math.Max(xb, _previousBurnFraction);
+
+        // The Wiebe asymptote is 1 − e^(−a) = 0.9933 at a = 5, never 1, so
+        // "burned fraction reached 1" is a condition that never fires. The
+        // burn is over when its WINDOW is over; the missing 0.67% is the
+        // exponential tail, not unburned charge sitting in the chamber.
+        if (_socPressure > 0.0 && burnAngle >= effective.StartAngleDeg + effective.DurationDeg)
+        {
+            _burnComplete = true;
+        }
 
         var heat = 0.0;
         if (dxb > 0)
@@ -321,10 +358,12 @@ public sealed class Cylinder
             heat = _cycleHeatRelease * dxb;
         }
 
-        // Zone split whenever combustion has started, so the burned and
-        // unburned temperatures are available to the knock integral, to the
-        // wall-heat model, and as outputs — not only when knock is tracked.
-        if (_cycleHeatRelease > 0.0)
+        // Zone split from start of combustion onward — keyed on the SOC
+        // reference actually having been recorded, which is what "combustion
+        // has started" means. The zones are then available to the knock
+        // integral, to the wall-heat model, and as outputs, not only when
+        // knock happens to be tracked.
+        if (_socPressure > 0.0)
         {
             UpdateZones(xb);
 
@@ -384,10 +423,7 @@ public sealed class Cylinder
         // Exposed area: head + piston crown + instantaneous liner band.
         var area = 2.0 * Geometry.PistonArea + Math.PI * Geometry.Bore * Geometry.PistonPosition(theta);
 
-        if (!TwoZoneHeatTransfer
-            || BurnedFraction < MinimumResolvedBurnedFraction
-            || BurnedFraction >= 1.0
-            || BurnedTemperature <= 0.0)
+        if (!TwoZoneHeatTransfer || !ZonesResolved)
         {
             var singleZone = -h * area * (State.T - WallTemperature) * dt;
             CumulativeHeatLoss -= singleZone;
@@ -415,20 +451,6 @@ public sealed class Cylinder
         return loss;
     }
 
-    /// <summary>
-    /// Updates the burned/unburned zone split for the current state. Both
-    /// zones share the cylinder pressure and their volumes sum to the
-    /// cylinder volume, which is what makes this a two-zone model rather than
-    /// two independent gases.
-    ///
-    /// The unburned zone is compressed isentropically from the start of
-    /// combustion (plan §2.4), which is the same construction the knock
-    /// integral already used; the burned zone then takes whatever volume is
-    /// left, and its temperature follows from the ideal-gas law at the shared
-    /// pressure. Nothing here alters the pressure solve — the total energy
-    /// balance is unchanged — so the zones are diagnostic plus, when
-    /// <see cref="TwoZoneHeatTransfer"/> is set, an input to wall heat loss.
-    /// </summary>
     /// <summary>
     /// Burned mass fraction below which the zones are NOT resolved.
     ///
@@ -459,25 +481,57 @@ public sealed class Cylinder
     /// </summary>
     private const double MaximumZoneTemperature = 10_000.0;
 
+    /// <summary>
+    /// Whether the burned/unburned split is currently meaningful. False
+    /// before the kernel is established, after the burn window has closed
+    /// (when there is only burned gas), and whenever the split failed its own
+    /// validity check.
+    /// </summary>
+    public bool ZonesResolved { get; private set; }
+
+    /// <summary>
+    /// Updates the burned/unburned zone split for the current state. Both
+    /// zones share the cylinder pressure and their volumes sum to the
+    /// cylinder volume, which is what makes this a two-zone model rather than
+    /// two independent gases.
+    ///
+    /// The unburned zone is compressed isentropically from the start of
+    /// combustion (plan §2.4), which is the same construction the knock
+    /// integral already used; the burned zone then takes whatever volume is
+    /// left, and its temperature follows from the ideal-gas law at the shared
+    /// pressure. Nothing here alters the pressure solve — the total energy
+    /// balance is unchanged — so the zones are diagnostic plus, when
+    /// <see cref="TwoZoneHeatTransfer"/> is set, an input to wall heat loss.
+    /// </summary>
     private void UpdateZones(double burnedFraction)
     {
         BurnedFraction = Math.Clamp(burnedFraction, 0.0, 1.0);
+        ZonesResolved = false;
 
         if (BurnedFraction < MinimumResolvedBurnedFraction || _socPressure <= 0.0)
         {
             UnburnedTemperature = State.T;
             BurnedTemperature = 0.0;
             BurnedVolume = 0.0;
+            UnburnedVolume = Volume;
             return;
         }
 
         UnburnedTemperature = _socTemperature
                               * Math.Pow(State.P / _socPressure, (_socGamma - 1.0) / _socGamma);
 
-        if (BurnedFraction >= 1.0)
+        if (_burnComplete)
         {
+            // The window has closed: everything that is going to burn has.
+            // Carrying the Wiebe's 0.67% shortfall onward as a real unburned
+            // zone invents a pocket of gas that cools isentropically to below
+            // wall temperature and then feeds heat back INTO the charge
+            // through the exhaust stroke.
+            BurnedFraction = 1.0;
+            UnburnedTemperature = State.T;
             BurnedTemperature = State.T;
             BurnedVolume = Volume;
+            UnburnedVolume = 0.0;
             return;
         }
 
@@ -492,26 +546,68 @@ public sealed class Cylinder
         // the whole energy balance for the rest of the run.
         if (!(r > 0) || !(State.P > 0) || !double.IsFinite(UnburnedTemperature) || burnedMass <= 0)
         {
-            UnburnedTemperature = State.T;
-            BurnedTemperature = State.T;
-            BurnedVolume = BurnedFraction * Volume;
+            FallBackToSingleZone();
             return;
         }
 
         var unburnedVolume = unburnedMass * r * UnburnedTemperature / State.P;
-        BurnedVolume = Math.Clamp(Volume - unburnedVolume, 0.0, Volume);
+        var burnedVolume = Volume - unburnedVolume;
+        var burnedTemperature = burnedVolume > 0
+            ? State.P * burnedVolume / (burnedMass * r)
+            : double.NaN;
 
-        BurnedTemperature = BurnedVolume > 0
-            ? State.P * BurnedVolume / (burnedMass * r)
-            : State.T;
+        // Validity check, NOT a clamp. Clamping a bad temperature into range
+        // leaves p·V_b = m_b·R·T_b silently violated — the two "zones" stop
+        // being a partition of the charge while still being fed to the heat
+        // transfer model, and a ceiling value of 10,000 K against a realistic
+        // mean would drive an order-of-magnitude heat flux and wreck the
+        // energy balance it exists to protect. If the split is not physical,
+        // there is no split.
+        var plausible = double.IsFinite(burnedTemperature)
+                        && burnedVolume > 0.0
+                        && burnedVolume <= Volume
+                        && burnedTemperature > State.T
+                        && burnedTemperature < MaximumZoneTemperature
+                        && UnburnedTemperature < State.T;
 
-        // The burned zone is never below the mean, and the ceiling must yield
-        // to the mean rather than the other way round — Math.Clamp throws
-        // outright if min exceeds max, which is exactly what happened when a
-        // hot case pushed the mean above a too-tight ceiling.
-        var ceiling = Math.Max(MaximumZoneTemperature, State.T);
-        BurnedTemperature = !double.IsFinite(BurnedTemperature)
-            ? State.T
-            : Math.Clamp(BurnedTemperature, State.T, ceiling);
+        if (!plausible)
+        {
+            FallBackToSingleZone();
+            return;
+        }
+
+        BurnedVolume = burnedVolume;
+        UnburnedVolume = unburnedVolume;
+        BurnedTemperature = burnedTemperature;
+        ZonesResolved = true;
+    }
+
+    /// <summary>Abandon the split for this step and report the bulk state.</summary>
+    private void FallBackToSingleZone()
+    {
+        ZonesResolved = false;
+        UnburnedTemperature = State.T;
+        BurnedTemperature = State.T;
+        BurnedVolume = BurnedFraction * Volume;
+        UnburnedVolume = Volume - BurnedVolume;
+    }
+
+    /// <summary>
+    /// Local angle mapped onto the combustion window's coordinate: 0 is
+    /// firing TDC and angles past 360° become negative, so a burn starting
+    /// before TDC is a continuous interval rather than one straddling a wrap.
+    /// This is the same mapping <see cref="WiebeCombustion"/> uses, and
+    /// cycling the per-cycle burn state on it puts the reset at gas-exchange
+    /// TDC — as far from combustion as the cycle allows.
+    /// </summary>
+    private static double BurnWindowAngle(double localAngleDeg)
+    {
+        var a = localAngleDeg % 720.0;
+        if (a < 0)
+        {
+            a += 720.0;
+        }
+
+        return a > 360.0 ? a - 720.0 : a;
     }
 }
