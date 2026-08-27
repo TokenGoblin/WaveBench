@@ -9,6 +9,13 @@
     <ProjectReference Include="..\..\src\WaveBench.Boost\WaveBench.Boost.csproj" />
     <ProjectReference Include="..\..\src\WaveBench.Model\WaveBench.Model.csproj" />
     <ProjectReference Include="..\..\src\WaveBench.Analysis\WaveBench.Analysis.csproj" />
+    <!--
+      For PngWriter only: the map-digitiser gate needs a synthetic map IMAGE, and
+      writing a second PNG encoder here just to make one would leave two codecs to
+      keep honest. WaveBench.ViewModels is plain net10.0 with no UI types, so this
+      pulls in no desktop dependency.
+    -->
+    <ProjectReference Include="..\..\src\WaveBench.ViewModels\WaveBench.ViewModels.csproj" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="FluentAssertions" Version="7.*" />

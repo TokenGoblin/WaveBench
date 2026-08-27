@@ -9,6 +9,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Phase 12 — turbomachinery data and steady matching.** `WaveBench.Boost`:
+  compressor and turbine map schema in SAE J1826 corrected quantities with
+  per-map reference conditions that are **required and never defaulted**
+  (plan §4.2 calls assuming them "a classic silent 5% error" — the same
+  130 000 rpm at 320 K corrects 1.69% apart between the two common gas-stand
+  references); piecewise-linear interpolation with affinity-law extrapolation
+  and a `MapRegion` on every reading so extrapolated points can be shaded;
+  a turbine swallowing model closed to exactly zero flow at ER = 1 and to a
+  choked plateau above the measured range; steady shaft balance
+  `P_turbine·η_mech = P_compressor + P_friction` with the expansion ratio set
+  by what the turbine actually swallows; surge and choke margins; the turbo
+  library with mandatory source and licence per entry; and auto-match ranking
+  that disqualifies with reasons rather than silently deducting.
+- **The map digitiser** (plan §4.7): axis calibration from two labelled
+  gridlines per axis, colour tracing by intensity-weighted centroid, efficiency
+  reconstructed radially from nested islands, and a PNG decoder in
+  `WaveBench.Boost` so tracing runs headless. JPEG and interlaced PNG are
+  refused by name rather than scrambled. **Gate: 2%. Measured worst error
+  0.63% on efficiency, 0.08% on pressure ratio, 0.15% on the traced flow
+  range**, against an analytic map surface rendered to a 900 × 700 image.
+  Test maps are synthetic — §4.7 forbids shipping manufacturer maps without
+  written permission, and that applies to the test suite too.
 - Phase 11 (PARTIAL — v0.4 milestone NOT claimed): sound metrics and
   compliance. IEC 61672-1 A/C/Z weighting verified against all 34 bands of
   the standard's published table, Fast/Slow/Impulse time weighting, FSAE

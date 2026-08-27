@@ -38,13 +38,37 @@ bit-identical to Advanced mode from the same document, first preview 0.0 ms
 against a one-second budget. The usability half - a novice reaching a brief in
 15 minutes - is not something a test settles.
 
+**Phase 12 complete** (turbomachinery data and steady matching: map schema in
+SAE J1826 corrected quantities, compressor and turbine models with physical
+extrapolation, shaft balance, surge/choke margins, turbo library with
+auto-match ranking, and the map digitiser). All three gate clauses met: map
+round-trip is bit-identical and refuses a map with no reference conditions;
+shaft balance closes to 1e-3 (the bisection's own tolerance) and the adiabatic
+relations are checked against hand calculations, not against the model; a
+2.0-litre four on the synthetic 60 mm unit gives a plausible operating line
+(PR 1.11 -> 3.00, shaft 35k -> 141k of 165k rated, back-pressure ratio 0.99 ->
+0.65); the digitiser reads back an analytic map from a 900x700 PNG to within
+0.63% on efficiency and 0.08% on pressure ratio, against a 2% gate.
+
+**Turbo maps are SYNTHETIC in this repo and must stay that way.** Plan §4.7:
+ship no manufacturer maps without written permission, and that applies to the
+test suite. `SyntheticTurbo` is an analytic surface, which is also the better
+verification anchor - a test can ask what the answer SHOULD be instead of
+comparing two readings of the same picture.
+
+**A map's reference conditions are required and never defaulted.**
+`MapReference` has no default and `CompressorMap.Load` refuses a file without
+one. Do not "helpfully" fall back to a standard day: the two common gas-stand
+references are 1.69% apart in corrected speed before that propagates into
+pressure ratio, and the error is invisible in the answer.
+
 **Simple mode's Overview IS the wizard**; Advanced mode's Overview is the
 summary. Same document under both, so the toggle is navigation and never a
 conversion.
 
-**PHASE ORDER IS USER-REORDERED: 19 -> 20 -> 23, then the forced-induction
-block (12-15), then 21/22/24/25.** The user chose this to get a complete
-naturally-aspirated tool sooner. Phase 20's acoustics engine (8-11) is already
+**PHASE ORDER IS USER-REORDERED: 19 -> 20 -> 23 (all done), then the
+forced-induction block (12 done, 13-15 next), then 21/22/24/25.** The user
+chose this to get a complete naturally-aspirated tool sooner. Phase 20's acoustics engine (8-11) is already
 built and Phase 23's wizard works NA-only, so nothing in that path blocks on
 turbo work. Do NOT silently revert to plan order.
 

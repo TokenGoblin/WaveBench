@@ -624,3 +624,173 @@ Validity: gasoline-family fuels, roughly ON 80–110. Not applicable to
 hydrogen. The unburned-zone T/p trace comes from the cylinder model
 (Phase 6); Phase 1 ships the correlation, the integrator and fuel-ranking
 tests (RON95 < E85 < M100 in knock resistance on identical traces).
+
+## 3. Turbomachinery: maps, matching and the digitiser (Phase 12)
+
+### 3.1 Corrected quantities, and the reference conditions they need
+
+Everything in `WaveBench.Boost` is expressed in SAE J1826 corrected form:
+
+```
+ṁ_corr = ṁ·√(T₀₁/T_ref)/(p₀₁/p_ref)
+N_corr = N/√(T₀₁/T_ref)
+```
+
+`MapReference` carries `T_ref` and `p_ref` and is a **required** property of
+every map — there is no default and the loader refuses a map file without one.
+Plan §4.2 calls assuming reference conditions "a classic silent 5% error", and
+it is right: manufacturers publish against 25 °C/100 kPa (J1826's own),
+15 °C/101.325 kPa, and others. `Reading_a_map_against_the_wrong_reference_day_shifts_it_measurably`
+puts a number on it — the same 130 000 rpm at 320 K corrects to 125 483 rpm
+against J1826 and 123 361 against a standard day, 1.69% apart before it
+propagates into pressure ratio.
+
+### 3.2 Compressor: interpolation piecewise linear, extrapolation by affinity
+
+Speed lines are read by piecewise-linear interpolation in flow and then between
+adjacent speed lines. **Deliberately not bicubic:** a spline through the last
+few points before surge overshoots, and the overshoot lands exactly where the
+surge margin is being read.
+
+Outside the measured speeds the affinity laws take over — `PR − 1 ∝ N²`,
+`ṁ ∝ N` — which is the physics of a centrifugal stage and degrades gracefully
+to zero speed. Left of surge the characteristic is closed parabolically to a
+finite shut-off head; right of choke it falls steeply. Every reading carries a
+`MapRegion`, and `CompressorPointResult.IsExtrapolated` is what lets §4.2's
+shaded regions be honest.
+
+Outlet state and power, with γ = 1.4 and c_p = 1005 J/kg·K for air:
+
+```
+T₀₂ = T₀₁·[1 + (PR^((γ−1)/γ) − 1)/η_is]
+P   = ṁ·c_p·(T₀₂ − T₀₁)
+```
+
+### 3.3 Turbine: a swallowing characteristic, not a pressure source
+
+A turbine map states the corrected flow it will pass at a given expansion ratio.
+That makes the turbine the component that **sets exhaust manifold pressure** for
+a given engine flow — the reverse of the usual mental picture, in which an
+engine pushes a chosen boost through it.
+
+Turbine maps are published sparsely, so the closures matter more than the
+interpolation:
+
+- **Below the measured range**, flow follows an orifice shape `ṁ ∝ √(1 − ER⁻²)`
+  anchored on the first measured point, reaching exactly zero at ER = 1. A
+  linear extension of the first two points crosses zero at an arbitrary ER > 1
+  and then goes negative — a turbine pumping backwards.
+- **Above it**, corrected flow holds at the last measured value: the nozzle is
+  choked. A linear extension would keep adding flow a choked throat cannot
+  pass, overstating turbine power exactly where a wastegate decision is made.
+
+With γ = 1.33 and c_p = 1150 J/kg·K for products:
+
+```
+T₄ = T₀₃·[1 − η·(1 − ER^(−(γ−1)/γ))]
+P  = ṁ·c_p·(T₀₃ − T₄)
+```
+
+Turbine **inlet** pressure is `ER × p₄`, derived rather than supplied. Treating
+it as an independent input produces corrected flows that correspond to no real
+operating point.
+
+### 3.4 Steady shaft matching
+
+`ShaftBalance.Match` solves
+
+```
+P_turbine·η_mech = P_compressor + P_friction
+```
+
+for the shaft speed at which it holds, by bisection on the imbalance. The
+coupling that makes it a real calculation is that the expansion ratio is not
+free: the engine's exhaust flow has to pass the turbine, so ER is whatever
+swallows it at the trial speed. `The_turbine_swallows_exactly_the_flow_the_engine_gives_it`
+pins that to one part in ten thousand.
+
+Bearing friction is a lumped power law, `P = C·μ_ratio·N^(n+1)` with n = 2, the
+default C putting ~0.9 kW into the bearings at 150 000 rpm. It is a **fitted**
+number, not a measurement, and Phase 13's spool prediction will be sensitive to
+it — hence the oil-viscosity ratio, so a cold-oil case can be run against the
+same calibration.
+
+The reported quantity to watch is not boost but `MatchPoint.BackPressureRatio`
+= ER/PR (the ambient cancels): exhaust manifold pressure over intake manifold
+pressure. Above 1 the engine is pumping uphill and the scavenging window of
+§4.6.3 is shut.
+
+### 3.5 The map digitiser
+
+`MapDigitiser` turns a map image into map data. Axes are calibrated from **two
+labelled gridlines each**, not from the plot rectangle — map images are cropped
+and skewed, and a user can identify a gridline with certainty where they cannot
+identify the true axis limit.
+
+Curves are traced by colour. For each image column the tracer takes the
+**intensity-weighted centroid** of the matching pixels rather than the first
+match: taking the topmost matching pixel biases every reading by half the line
+width, which on a typical map is a whole percent of pressure ratio.
+
+Efficiency is reconstructed from the traced islands radially about the peak —
+each contour is reduced to a radius-versus-angle profile and a point's
+efficiency comes from where its radius falls between the two contours
+bracketing it on the same ray. Radial rather than nearest-contour because a
+nearest-boundary rule creases along the medial axis between two contours, and
+that crease lands on the operating line often enough to matter. Points outside
+every contour are reported as such rather than extrapolated.
+
+`WaveBench.Boost` reads PNG itself (`PngReader`: non-interlaced, bit depths
+1–16, colour types 0/2/3/4/6, all five row filters) so that tracing runs
+identically headless and behind the desktop UI. JPEG and interlaced PNG are
+refused **by name** rather than producing a scrambled raster — a scrambled
+raster digitises into a plausible-looking wrong map.
+
+### 3.6 What the gate measured
+
+Against `SyntheticTurbo`, an analytic map surface rendered to a 900 × 700 PNG
+with antialiased curves and grey gridlines (`SyntheticMapImage`):
+
+| Quantity | Worst error over 4 speed lines × 12 points |
+|---|---|
+| Traced flow range (surge and choke ends) | 0.15% |
+| Pressure ratio | 0.08% |
+| Efficiency | 0.63% |
+
+against a 2% gate. Solving the digitised map at 0.18 kg/s and 130 000 rpm gives
+PR 2.690 and 22.32 kW against the true 2.689 and 22.17 kW.
+
+The maps are synthetic on purpose. Plan §4.7 forbids shipping manufacturer maps
+without written permission and that applies to the test suite too — and an
+analytic surface is the better anchor anyway, because the test can ask what the
+answer *should* be instead of comparing two readings of the same picture.
+
+The operating line for a 2.0-litre four on the synthetic 60 mm unit:
+
+```
+  rpm   air kg/s   shaft rpm     PR      ER   back    η_c   surge%  choke%
+ 2,000    0.0620     34,623   1.11    1.10   0.99    77%    85.0    30.8
+ 3,000    0.1050     71,744   1.52    1.31   0.86    77%    51.2    43.5
+ 4,000    0.1420    100,184   2.03    1.53   0.75    78%    47.4    42.5
+ 5,000    0.1720    124,638   2.57    1.74   0.68    79%    42.2    38.5
+ 6,500    0.1980    141,400   3.00    1.96   0.65    77%    40.3    34.5
+```
+
+The air-flow column is an input here, not a solved quantity: this is one
+iteration of the engine/turbo loop, which is what §4.1 steady matching is.
+Phase 13 closes it against the cycle simulation.
+
+### 3.7 Auto-match ranking
+
+`TurboDatabase.Rank` scores candidates on flow-weighted mean compressor
+efficiency, penalises back-pressure above unity and map extrapolation, and caps
+the reward for surge margin — otherwise the ranking prefers an oversized turbo
+that never spools. Surge margin below the requirement, choke, overspeed, TIT
+over the rating and a shaft that will not balance are **disqualifications with
+reasons**, not score deductions, and a disqualified candidate still carries its
+full operating line. Plan §4.7: "Always show the top five with their
+trade-offs, never a single best."
+
+Every entry must record its source and licence or the library refuses it. The
+database is user-populated, and one anonymous contribution would make the whole
+library un-shippable.
