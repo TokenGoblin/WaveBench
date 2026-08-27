@@ -95,6 +95,22 @@ public sealed record ManifoldSpec
     /// <summary>What this topology is, for the UI and reports (e.g. "4-2-1").</summary>
     public string Configuration { get; set; } = string.Empty;
 
+    /// <summary>
+    /// A deep copy. The canvas edits the graph as a VALUE: every operation
+    /// clones, mutates the clone and writes it back, so the session sees a
+    /// distinct before and after and undo works on canvas edits (plan §8.11).
+    /// Mutating the live graph in place would leave undo with two references
+    /// to the same object and nothing to restore.
+    /// </summary>
+    public ManifoldSpec DeepCopy() => new()
+    {
+        Configuration = Configuration,
+        Nodes = Nodes.Select(n => n with { }).ToList(),
+
+        // Connections are immutable records, so the list is all that needs copying.
+        Connections = [.. Connections],
+    };
+
     public ManifoldNode? Node(string id) =>
         Nodes.FirstOrDefault(n => string.Equals(n.Id, id, StringComparison.Ordinal));
 

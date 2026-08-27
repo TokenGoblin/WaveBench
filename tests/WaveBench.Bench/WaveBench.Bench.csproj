@@ -8,6 +8,7 @@
     <ProjectReference Include="..\..\src\WaveBench.Core\WaveBench.Core.csproj" />
     <ProjectReference Include="..\..\src\WaveBench.Model\WaveBench.Model.csproj" />
     <ProjectReference Include="..\..\src\WaveBench.Acoustics\WaveBench.Acoustics.csproj" />
+    <ProjectReference Include="..\..\src\WaveBench.ViewModels\WaveBench.ViewModels.csproj" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="BenchmarkDotNet" Version="0.15.8" />
