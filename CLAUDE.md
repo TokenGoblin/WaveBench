@@ -30,6 +30,18 @@ click; M50 table reproduced.) NOT built: the Compliance tab, which needs a
 radiated level from a solved run - the instant model has order structure but no
 absolute level, and a verdict from it would be a number with nothing behind it.
 
+**Phase 23 complete** (Simple mode and the wizard: nine steps with explainers
+and a live preview, the derivation layer filling the full model, the bounded
+search, the Design Brief with why/confidence/uncertainty and a build list, PDF
+export, "Open in Advanced"). Checkable gate half met: the brief's numbers are
+bit-identical to Advanced mode from the same document, first preview 0.0 ms
+against a one-second budget. The usability half - a novice reaching a brief in
+15 minutes - is not something a test settles.
+
+**Simple mode's Overview IS the wizard**; Advanced mode's Overview is the
+summary. Same document under both, so the toggle is navigation and never a
+conversion.
+
 **PHASE ORDER IS USER-REORDERED: 19 -> 20 -> 23, then the forced-induction
 block (12-15), then 21/22/24/25.** The user chose this to get a complete
 naturally-aspirated tool sooner. Phase 20's acoustics engine (8-11) is already

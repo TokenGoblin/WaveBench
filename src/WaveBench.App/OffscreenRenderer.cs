@@ -145,6 +145,15 @@ public static class OffscreenRenderer
         Settle(window);
         Capture(window, Path.Combine(outputDirectory, "15-sound-silencing.png"));
 
+        // The wizard mid-flow: Simple mode's Overview is the wizard (§8.6).
+        window.GoToWizardStep(WizardStep.Goal);
+        Settle(window);
+        Capture(window, Path.Combine(outputDirectory, "16-wizard-goal.png"));
+
+        window.GoToWizardStep(WizardStep.Review);
+        Settle(window);
+        Capture(window, Path.Combine(outputDirectory, "17-wizard-review.png"));
+
         window.Close();
         WorkspaceContent.LatestResults = null;
     }

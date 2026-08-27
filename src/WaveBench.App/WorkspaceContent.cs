@@ -21,6 +21,25 @@ public static class WorkspaceContent
     /// </summary>
     public static ResultsWorkspace? LatestResults { get; set; }
 
+    /// <summary>The most recent computed Design Brief, if the wizard has run.</summary>
+    public static DesignBrief? LatestBrief { get; set; }
+
+    /// <summary>
+    /// One wizard per session, so answers survive the re-render every control
+    /// triggers — and so switching to Advanced and back does not restart it.
+    /// </summary>
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ProjectSession, Wizard>
+        Wizards = [];
+
+    public static Wizard WizardFor(ProjectSession session) =>
+        Wizards.GetValue(session, s => new Wizard(s)
+        {
+            BoreMm = s.Document.Engine.BoreMm,
+            StrokeMm = s.Document.Engine.StrokeMm,
+            Cylinders = s.Document.Engine.CylinderCount,
+            CompressionRatio = s.Document.Engine.CompressionRatio,
+        });
+
     /// <summary>
     /// One Sound workspace per session, so the selected design, tab and speed
     /// survive the re-render every control triggers.
@@ -50,7 +69,18 @@ public static class WorkspaceContent
         switch (shell.Current)
         {
             case Workspace.Overview:
-                RenderOverview(host, shell, session);
+                // Simple mode IS the wizard (plan §8.6). Advanced keeps the
+                // summary. The same document underlies both, so the toggle is
+                // navigation and never a conversion.
+                if (shell.Mode == UiMode.Simple)
+                {
+                    WizardContent.Render(host, shell, session, WizardFor(session));
+                }
+                else
+                {
+                    RenderOverview(host, shell, session);
+                }
+
                 break;
             case Workspace.Design:
                 RenderDesign(host, shell, session);

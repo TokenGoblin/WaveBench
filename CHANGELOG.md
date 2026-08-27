@@ -55,6 +55,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a byte of the model. Theme switching stays complete: every colour still
   resolves through `Tokens.xaml`, enforced by the existing token tests, which
   caught two undefined resource keys in this very change.
+- **Phase 23 — Simple mode and the wizard.** Nine steps, each with the "why
+  this matters" explainer §8.6 asks for and a live preview that updates as the
+  answers change. Every answer writes into the **full model** — there is no
+  parallel simple model — and derived fields go through `ApplyWizard`, so a
+  re-run touches only `Auto` and `Wizard` fields and anything the user typed,
+  imported or optimised survives untouched.
+
+  The Design Brief is recommendation → number → why → confidence, with the
+  plan's four-dot indicator, an uncertainty band on every prediction, and a
+  build list that snaps primaries to tube sizes that exist on a shelf. It
+  reports its *weakest* confidence rather than an average, because a brief is
+  only as good as its shakiest input. PDF export is a self-contained writer in
+  `WaveBench.ViewModels` — base-14 fonts, no embedding — so the CLI can produce
+  a brief without a desktop stack, checked the way a reader checks it: header,
+  object table, every cross-reference offset landing on its object, every
+  declared stream length matching its real one.
+
+  **Gate (checkable half) met.** The brief's numbers are bit-identical to what
+  Advanced mode produces from the same document — 233.831233 N·m on both paths
+  at every sweep point — and the first preview lands in 0.0 ms against the
+  one-second budget, declining to predict anything since no solve has run. The
+  usability half (a novice reaching a brief in 15 minutes) is not something a
+  test settles.
+
+  Two seeding errors caught by the numbers being obviously wrong. The organ-pipe
+  relation is the *fundamental*, so taking it at face value gave a 2.29 m intake
+  runner; the third return is checkable against this project's own §6.2 Yin case
+  (measured 800 mm at 3000 rpm, seed 762 — 4.8% short). And runner diameter came
+  out at 17 mm for an 82 mm bore because it was sized from cycle-mean volume
+  flow, which is wrong by a factor of four when the valve is open a quarter of
+  the cycle; mean port velocity is piston area × mean piston speed over port
+  area.
 - **Phase 20 — the Sound workspace.** The §8.4 layout: two named designs with a
   one-click swap, collector timing, the A-vs-B order spectrum with the firing
   harmonics marked, the order waterfall against rpm, the character radar, TMM

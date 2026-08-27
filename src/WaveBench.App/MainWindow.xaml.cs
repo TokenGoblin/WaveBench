@@ -164,6 +164,15 @@ public partial class MainWindow : Window
         Refresh();
     }
 
+    /// <summary>Drive the wizard to a step without a mouse.</summary>
+    public void GoToWizardStep(WizardStep step)
+    {
+        _shell.Mode = UiMode.Simple;
+        _shell.Navigate(Workspace.Overview);
+        WorkspaceContent.WizardFor(_session).GoTo(step);
+        Refresh();
+    }
+
     /// <summary>Navigate to one Sound sub-tab without a mouse.</summary>
     public void GoToSoundTab(SoundTab tab)
     {
