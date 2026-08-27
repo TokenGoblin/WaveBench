@@ -98,13 +98,25 @@ exactly where the valve can outflow the pipe.
 
 It used to surface as a SILENT NaN propagating all the way to a reported
 torque; `UpdateConserved` now throws with the geometry named. That is the
-improvement so far; the root cause is NOT fixed. Two hypotheses tried and
-falsified: (a) bounding dt by the imposed end flux - fails because the network
-sets the override AFTER asking for dt, and at valve opening the previous
-step's flux is zero; (b) clamping the face state to sonic when the
-face-pressure bracket degenerates - no effect, so that branch is not the path
-taken. Reproduce by setting ExhaustRunner.DiameterMm below the valve-throat
-equivalent and running any operating point.
+improvement so far; the root cause is NOT fixed.
+
+**THREE hypotheses tried and falsified — do not repeat them.** (a) Bounding dt
+by the imposed end flux: no effect, because the network sets the override AFTER
+asking the duct for dt, so at valve opening the value in hand is the previous
+step's, which is zero. (b) Clamping the face state to sonic when the
+face-pressure bracket degenerates: no effect, so that branch is not the path
+taken. (c) Clamping the face state to sonic AFTER the bisection whenever the
+solved face is supersonic into the duct: made it WORSE - engaged on Ø34, which
+had been solving correctly, and broke it. So either the sonic pressure derived
+from R- is wrong, or a supersonic solved face is not the mechanism.
+
+Mesh independence is the strongest remaining clue and rules out the timestep:
+dt scales with dx, so the fraction of a cell removed per step is the same at
+any mesh. Suspect the imposed flux itself. `NarrowPrimaryTests` holds the
+reproduction as SKIPPED tests - remove the Skip to work on it - plus two that
+are NOT skipped and must stay green: an ordinary Ø38 primary still returns
+VE 1.060378 / 219.969680 N·m, and the narrow case still fails LOUDLY rather
+than returning a number.
 
 `Wizard.SeedGeometry` floors the primary at the throat-equivalent diameter,
 which is correct design guidance in its own right (a primary that cannot pass
