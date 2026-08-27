@@ -14,6 +14,13 @@ namespace WaveBench.App;
 /// </summary>
 public static class WorkspaceContent
 {
+    /// <summary>
+    /// The most recent completed run. Held here rather than on the window so a
+    /// re-render — which happens on every edit — does not lose it, and so the
+    /// Results workspace can be shown before the user has run anything.
+    /// </summary>
+    public static ResultsWorkspace? LatestResults { get; set; }
+
     public static void Render(Panel host, ShellViewModel shell, ProjectSession session)
     {
         host.Children.Clear();
@@ -24,6 +31,9 @@ public static class WorkspaceContent
                 break;
             case Workspace.Design:
                 RenderDesign(host, shell, session);
+                break;
+            case Workspace.Results:
+                ResultsContent.Render(host, shell, session, LatestResults);
                 break;
             default:
                 RenderPlaceholder(host, shell);

@@ -43,6 +43,8 @@ public sealed class DuctFieldCapture
     private float[] _frames;
     private int _frameCount;
     private double _nextAngle = double.NaN;
+    private float _min = float.MaxValue;
+    private float _max = float.MinValue;
 
     /// <param name="duct">Pipe to record.</param>
     /// <param name="name">Shown on the diagram; usually the graph node id.</param>
@@ -115,36 +117,21 @@ public sealed class DuctFieldCapture
     }
 
     /// <summary>
-    /// Min and max across every frame recorded — the colour scale. Computed
-    /// once over the whole capture rather than per frame, because a scale that
-    /// re-normalises every frame makes a decaying wave look constant and hides
-    /// exactly what the diagram is for.
+    /// Min and max across every frame recorded — the colour scale, and the
+    /// axis the animated slice is drawn against.
+    ///
+    /// Spanning the WHOLE capture is the point: a scale that re-normalises
+    /// per frame makes a decaying wave look constant and hides exactly what
+    /// the diagram is for.
+    ///
+    /// Maintained as frames arrive rather than scanned on demand. Scanning is
+    /// O(frames × cells), and this is called once per animation frame: on a
+    /// 30-cycle capture that is 2.2 million floats re-read to draw a hundred
+    /// points, which measured at 1.2 ms per frame — most of a 60 fps budget
+    /// spent on an answer that had not changed.
     /// </summary>
-    public (float Min, float Max) Range()
-    {
-        if (_frameCount == 0)
-        {
-            return (0f, 0f);
-        }
-
-        var min = float.MaxValue;
-        var max = float.MinValue;
-        var span = _frames.AsSpan(0, _frameCount * CellCount);
-        foreach (var v in span)
-        {
-            if (v < min)
-            {
-                min = v;
-            }
-
-            if (v > max)
-            {
-                max = v;
-            }
-        }
-
-        return (min, max);
-    }
+    public (float Min, float Max) Range() =>
+        _frameCount == 0 ? (0f, 0f) : (_min, _max);
 
     /// <summary>
     /// The frame nearest a cycle angle, for scrubbing.
@@ -191,6 +178,8 @@ public sealed class DuctFieldCapture
         _frameCount = 0;
         _angles.Clear();
         _nextAngle = double.NaN;
+        _min = float.MaxValue;
+        _max = float.MinValue;
     }
 
     /// <summary>
@@ -278,6 +267,19 @@ public sealed class DuctFieldCapture
 
             default:
                 throw new InvalidOperationException($"Unhandled field quantity {Quantity}.");
+        }
+
+        foreach (var v in span)
+        {
+            if (v < _min)
+            {
+                _min = v;
+            }
+
+            if (v > _max)
+            {
+                _max = v;
+            }
         }
 
         _angles.Add(angleDeg);

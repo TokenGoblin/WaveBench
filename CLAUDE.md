@@ -16,7 +16,23 @@ bit-identically to the same model from the CLI). **Phase 18 complete**
 (manifold node graph, all nine §2.8 configurations, canvas view model +
 WPF canvas, per-node inspector, cited design warnings, pulse-interference
 diagram on the solved sound speed; 60 fps gate met at p99 0.68 ms against
-16.67 ms with 40 components). Next: Phase 19 (Results workspace).
+16.67 ms with 40 components). **Phase 19 complete** (Results workspace: wave
+decomposition verified against the textbook reflection, x-t wave diagram with
+scrub and animation, per-cylinder charts with EGT and knock, PNG+SVG export of
+every plot, Run wired to the solver; animation gate met at p99 0.0023 ms).
+
+**PHASE ORDER IS USER-REORDERED: 19 -> 20 -> 23, then the forced-induction
+block (12-15), then 21/22/24/25.** The user chose this to get a complete
+naturally-aspirated tool sooner. Phase 20's acoustics engine (8-11) is already
+built and Phase 23's wizard works NA-only, so nothing in that path blocks on
+turbo work. Do NOT silently revert to plan order.
+
+**Plots are DATA.** `PlotModel` in WaveBench.ViewModels.Plotting describes a
+figure; `PlotView` (WPF) and `SvgPlotWriter` both render it. Never draw a chart
+directly in the app - an export that does not match the screen is the bug this
+design exists to prevent. Series name COLOUR TOKENS, never colours.
+`ResultsWorkspace.AllPlots()` is what export-all and the report generator walk,
+so a new figure must be added there too.
 
 **Manifold canvas:** all behaviour is in `ManifoldWorkspace` (zero UI types);
 `ManifoldCanvas.cs` in the app only draws and forwards gestures. The canvas

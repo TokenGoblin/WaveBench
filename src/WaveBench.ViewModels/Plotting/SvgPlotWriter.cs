@@ -66,7 +66,7 @@ public static class SvgPlotWriter
     private const double PadLeft = 64;
     private const double PadRight = 68;
     private const double PadTop = 54;
-    private const double PadBottom = 88;
+    private const double PadBottomBase = 88;
 
     public static string Write(PlotModel plot, int width = 900, int height = 520, PlotPalette? palette = null)
     {
@@ -75,8 +75,12 @@ public static class SvgPlotWriter
         ArgumentOutOfRangeException.ThrowIfLessThan(height, 120);
 
         var p = palette ?? PlotPalette.Default;
+
+        // Notes sit under the legend, so the plot area gives way for them. A
+        // fixed bottom padding ran a three-line note through the axis title.
+        var padBottom = PadBottomBase + (plot.Notes.Count * 14);
         var plotW = width - PadLeft - (plot.RightAxis is null ? 24 : PadRight);
-        var plotH = height - PadTop - PadBottom;
+        var plotH = height - PadTop - padBottom;
 
         var svg = new StringBuilder();
         svg.Append(CultureInfo.InvariantCulture,
@@ -118,6 +122,7 @@ public static class SvgPlotWriter
         }
 
         AppendMarkers(svg, plot, p, plotH, X);
+        AppendYMarkers(svg, plot, p, plotW, Y);
         AppendAxisLabels(svg, plot, p, plotW, plotH, X, Y, YRight);
         AppendLegend(svg, plot, p, plotH, height);
         AppendNotes(svg, plot, p, height);
@@ -248,6 +253,27 @@ public static class SvgPlotWriter
             svg.Append('\n');
             svg.Append(CultureInfo.InvariantCulture,
                 $"""<text x="{F(px + 4)}" y="{F(PadTop + 13)}" font-size="10.5" fill="{colour}">{Escape(marker.Label)}</text>""");
+            svg.Append('\n');
+        }
+    }
+
+    private static void AppendYMarkers(
+        StringBuilder svg, PlotModel plot, PlotPalette p, double plotW, Func<double, double> y)
+    {
+        foreach (var marker in plot.YMarkers)
+        {
+            if (marker.X < plot.YAxis.Min || marker.X > plot.YAxis.Max)
+            {
+                continue;
+            }
+
+            var py = y(marker.X);
+            var colour = p.Resolve(marker.ColourToken);
+            svg.Append(CultureInfo.InvariantCulture,
+                $"""<line x1="{F(PadLeft)}" y1="{F(py)}" x2="{F(PadLeft + plotW)}" y2="{F(py)}" stroke="{colour}" stroke-width="1.2" stroke-dasharray="4 3"/>""");
+            svg.Append('\n');
+            svg.Append(CultureInfo.InvariantCulture,
+                $"""<text x="{F(PadLeft + plotW - 4)}" y="{F(py - 4)}" font-size="10.5" text-anchor="end" fill="{colour}">{Escape(marker.Label)}</text>""");
             svg.Append('\n');
         }
     }

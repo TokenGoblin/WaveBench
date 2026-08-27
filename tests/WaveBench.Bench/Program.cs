@@ -27,6 +27,12 @@ public static class Program
             return;
         }
 
+        if (args.Length > 0 && args[0].Equals("waves", StringComparison.OrdinalIgnoreCase))
+        {
+            RunWaveDiagramGate();
+            return;
+        }
+
         BenchmarkSwitcher.FromAssembly(typeof(Program).Assembly).Run(args);
     }
 
@@ -153,6 +159,98 @@ public static class Program
         Console.WriteLine($"median {median:F3} ms, p99 {p99:F3} ms, worst {worst:F3} ms (60 fps budget: 16.67 ms)");
         Console.WriteLine($"headroom at p99: {16.67 / Math.Max(p99, 1e-6):F0}×");
         Console.WriteLine(p99 < 16.67 ? "CANVAS GATE MET" : "CANVAS GATE MISSED");
+        Console.WriteLine();
+    }
+
+    /// <summary>
+    /// Plan Phase 19 gate: the wave diagram renders and animates a 30-cycle
+    /// result without stutter.
+    ///
+    /// Two costs, measured separately because they are paid at different
+    /// times. Building the heat map is a one-off when the tab opens; the slice
+    /// is rebuilt on every frame of the animation and is the one that has to
+    /// fit inside a frame budget.
+    ///
+    /// Measured here rather than in the xUnit suite for the same reason as the
+    /// canvas and TMM gates: that suite runs engine solves in parallel, so a
+    /// wall-clock sample taken inside it measures contention.
+    /// </summary>
+    private static void RunWaveDiagramGate()
+    {
+        var document = new EngineModelDocument
+        {
+            Name = "wave diagram gate",
+            Engine = new EngineSpec
+            {
+                BoreMm = 82, StrokeMm = 56.5, RodLengthMm = 100, CompressionRatio = 12, CylinderCount = 4,
+            },
+            IntakeValves = new ValveTrainSpec
+            {
+                HeadDiameterMm = 29, Count = 2, MaxLiftMm = 9.5, OpenDeg = 340, CloseDeg = 590,
+            },
+            ExhaustValves = new ValveTrainSpec
+            {
+                HeadDiameterMm = 24, Count = 2, MaxLiftMm = 9.0, OpenDeg = 130, CloseDeg = 380,
+            },
+            IntakeRunner = new DuctSpec { LengthMm = 300, DiameterMm = 36, RoughnessMm = 0.045 },
+            ExhaustRunner = new DuctSpec { LengthMm = 600, DiameterMm = 34, RoughnessMm = 0.045 },
+            Combustion = new CombustionSpec { Fuel = "RON95" },
+            Solver = new SolverSpec { CellSizeMm = 6.0, MinCycles = 5, MaxCycles = 12 },
+        };
+
+        Console.WriteLine("solving and capturing 30 cycles at half a degree...");
+        var sw = Stopwatch.StartNew();
+        var run = ResultsRunner.Run(
+            document,
+            [6000.0],
+            6000.0,
+            new CaptureOptions { Cycles = 30, FramesPerCycle = 720, ProbeSamplesPerCycle = 1440 });
+        sw.Stop();
+
+        var field = run.Fields[0];
+        Console.WriteLine(
+            $"captured {field.FrameCount} frames × {field.CellCount} cells "
+            + $"({field.Bytes / 1024.0 / 1024.0:F1} MiB) in {sw.Elapsed.TotalSeconds:F1} s");
+
+        var workspace = new ResultsWorkspace(run);
+
+        // One-off: the heat map raster the tab builds when it opens.
+        workspace.WaveDiagram();
+        var build = Stopwatch.StartNew();
+        var diagram = workspace.WaveDiagram();
+        build.Stop();
+        Console.WriteLine(
+            $"heat map build: {build.Elapsed.TotalMilliseconds:F1} ms for "
+            + $"{diagram.HeatMap!.Columns}×{diagram.HeatMap.Rows} "
+            + $"(downsampled from {field.FrameCount} frames)");
+
+        // Per frame: what the animation actually repeats.
+        for (var i = 0; i < 200; i++)
+        {
+            workspace.SliceAt(i % field.FrameCount);
+        }
+
+        const int frames = 1800; // 30 seconds of playback at 60 fps
+        var samples = new double[frames];
+        for (var f = 0; f < frames; f++)
+        {
+            var frame = Stopwatch.StartNew();
+            workspace.SliceAt(f % field.FrameCount);
+            frame.Stop();
+            samples[f] = frame.Elapsed.TotalMilliseconds;
+        }
+
+        Array.Sort(samples);
+        var median = samples[frames / 2];
+        var p99 = samples[(int)(frames * 0.99)];
+        var worst = samples[^1];
+
+        Console.WriteLine($"per-frame slice: median {median:F4} ms, p99 {p99:F4} ms, worst {worst:F4} ms "
+                          + "(60 fps budget: 16.67 ms)");
+        Console.WriteLine($"headroom at p99: {16.67 / Math.Max(p99, 1e-6):F0}×");
+        Console.WriteLine(p99 < 16.67 && build.Elapsed.TotalMilliseconds < 1000
+            ? "WAVE DIAGRAM GATE MET"
+            : "WAVE DIAGRAM GATE MISSED");
         Console.WriteLine();
     }
 

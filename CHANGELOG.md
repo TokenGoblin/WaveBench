@@ -55,6 +55,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a byte of the model. Theme switching stays complete: every colour still
   resolves through `Tokens.xaml`, enforced by the existing token tests, which
   caught two undefined resource keys in this very change.
+- **Phase 19 — the Results workspace.** Performance curves, the x–t wave
+  diagram with scrub and animation, per-cylinder charts, probe traces, and the
+  wave-decomposition plot. Run now solves: the button sweeps 3000–9000 rpm off
+  the UI thread against a deep copy of the document, reports into the job tray,
+  can be cancelled mid-sweep, and lands on the Results workspace.
+
+  **Wave decomposition** (Blair superposition, SAE 1999 §2.2–2.5) splits a
+  probe's pressure history into its rightward- and leftward-running components
+  from a single (p, u) pair. **Gate met** against the textbook reflection: an
+  open end returns an expansion at 8.767 ms against a predicted 2(L−x)/a of
+  8.726 (+0.5%), a closed end a compression at 8.448 ms (−3.2%), and the
+  outgoing pulse and its reflection are separated by 8.700 ms against an 8.726
+  ms round trip. The annotation reads as §8.4 writes it — *"reflected expansion
+  arrives 12° before EVC"* — phrased against the valve event and taking the
+  short way round the cycle.
+
+  **The x–t field** is sampled on crank angle rather than on solver steps: CFL
+  steps bunch where the gas is hot, and frames recorded per step would animate
+  at a rate that varies for no physical reason. A gate test measures the
+  diagonal's gradient out of the recorded frames and gets 387.3 m/s against
+  Blair's finite-amplitude a+u of 384.8 (+0.6%) — not the 343 m/s small-signal
+  speed, which is the distinction a nonlinear solver exists to make.
+
+  **Animation gate met.** A 30-cycle capture is 21 601 frames × 100 cells
+  (16.5 MiB). The heat map is windowed to the last cycle and downsampled to the
+  rows a display can show — 0.6 ms to build — and the per-frame slice is
+  0.0011 ms median, 0.0023 ms p99 against the 16.67 ms budget. Finding that
+  cost 1.2 ms per frame first: `Range()` was rescanning all 2.2 million samples
+  to draw a hundred points, and is now maintained as frames arrive.
+
+  **Every plot exports to PNG and SVG.** One `PlotModel` feeds the screen, the
+  WPF renderer and the SVG writer, so an exported figure is the figure that was
+  on screen; series name colour *tokens*, so a dark-theme export comes out
+  dark. SVG is true vector except a heat map, which embeds a PNG data URI
+  because 576 000 rectangles is not a file any reader will open — which needed
+  a PNG encoder, written in `WaveBench.ViewModels` rather than pulled from a UI
+  stack so the CLI can export report figures without WPF.
+
+  Per-cylinder VE, IMEP, peak pressure, knock integral and EGT are now on
+  `OperatingPointResult`, with the VE spread as the single number a mean hides.
+  EGT is mass-weighted at the port — a valve spends most of the cycle shut, so
+  a time mean would average the blowdown that carries the energy against a long
+  tail of almost no flow.
 - **Phase 18 — the Manifold canvas.** A manifold is now a node graph
   (`ManifoldSpec`: ports, pipes, junctions, plenums, open ends) that the
   solver builds from, with all nine §2.8 collector configurations in

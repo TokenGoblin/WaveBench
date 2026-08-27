@@ -97,6 +97,68 @@ public sealed class ResultsWorkspace(RunResult run, UserPreferences? preferences
     /// <summary>Scrub position on the wave diagram, cycle degrees.</summary>
     public double ScrubAngleDeg { get; set; }
 
+    /// <summary>
+    /// Rows the wave-diagram raster is built at. Above a couple of thousand
+    /// there is nothing to see that a display can show, and the cost is real:
+    /// a 30-cycle capture is 21 600 frames.
+    /// </summary>
+    public int MaxHeatMapRows { get; set; } = 2000;
+
+    /// <summary>
+    /// The pipe profile at one frame — the slice under the wave diagram, and
+    /// the thing that is rebuilt on every frame of an animation.
+    /// </summary>
+    public PlotModel SliceAt(int frameIndex)
+    {
+        if (_run.Fields.Count == 0)
+        {
+            return Empty("Along the pipe", "No pipe was captured for this run.");
+        }
+
+        var field = _run.Fields[Math.Clamp(SelectedField, 0, _run.Fields.Count - 1)];
+        if (field.FrameCount == 0)
+        {
+            return Empty("Along the pipe", "Nothing was recorded.");
+        }
+
+        var frame = Math.Clamp(frameIndex, 0, field.FrameCount - 1);
+        var (min, max) = field.Range();
+        var slice = field.Frame(frame);
+
+        var values = new double[slice.Length];
+        var scale = field.Quantity == FieldQuantity.Pressure ? 1.0 / 1000.0 : 1.0;
+        for (var i = 0; i < slice.Length; i++)
+        {
+            values[i] = slice[i] * scale;
+        }
+
+        // Cycle angle, not accumulated crank. A run's tenth cycle ends near
+        // 7200°, and a slice labelled "at 5760.7°" cannot be compared against
+        // either the diagram above it or a cam timing quoted in 0–720.
+        var angle = field.FrameAngles[frame] % 720.0;
+        ScrubAngleDeg = angle;
+
+        var unit = field.Quantity switch
+        {
+            FieldQuantity.Pressure => "kPa",
+            FieldQuantity.Velocity => "m/s",
+            FieldQuantity.Temperature => "K",
+            _ => "",
+        };
+
+        return new PlotModel
+        {
+            Title = $"Along {field.Name} at {angle:F1}°",
+            XAxis = new PlotAxis("Distance from the port", 0, field.Length, "m"),
+
+            // Fixed to the whole capture, not to this frame: an axis that
+            // rescales per frame makes every frame look the same and hides the
+            // wave the animation exists to show.
+            YAxis = new PlotAxis(Quantity(field.Quantity), min * scale, max * scale, unit),
+            Series = [new PlotSeries(Quantity(field.Quantity), field.CellCentres, values, "Brush.Accent")],
+        };
+    }
+
     // ---- Performance ------------------------------------------------------
 
     /// <summary>
@@ -238,7 +300,6 @@ public sealed class ResultsWorkspace(RunResult run, UserPreferences? preferences
                 new PlotSeries("Knock integral", index, knock, "Brush.Danger", PlotSeriesKind.Bar),
                 new PlotSeries("EGT", index, egt, "Brush.Warning", PlotSeriesKind.Scatter, RightAxis: true),
             ],
-            Markers = [new PlotMarker(0.5, "")],
             Notes = notes,
         };
     }
@@ -261,28 +322,57 @@ public sealed class ResultsWorkspace(RunResult run, UserPreferences? preferences
         var field = _run.Fields[Math.Clamp(SelectedField, 0, _run.Fields.Count - 1)];
         var (min, max) = field.Range();
 
-        var values = new float[field.FrameCount * field.CellCount];
-        for (var f = 0; f < field.FrameCount; f++)
+        // ONE cycle, and the last one — the most converged. Showing the whole
+        // capture would compress every cycle into a few pixels: a wave crosses
+        // a 600 mm primary in about 36° of crank at 6000 rpm, so over 30
+        // cycles its diagonal is a fraction of a pixel tall and the diagram
+        // stops being a wave diagram at all.
+        var window = WindowFrames(field);
+
+        // Thirty cycles at half a degree is 21 600 frames against a canvas a
+        // few hundred pixels tall. Rows are picked nearest-neighbour, which is
+        // exactly what the renderer's own NearestNeighbor scaling would do, so
+        // the picture is unchanged and the raster is not built at a size no
+        // display can show.
+        var rows = Math.Min(window.Count, MaxHeatMapRows);
+        var values = new float[rows * field.CellCount];
+        for (var r = 0; r < rows; r++)
         {
-            field.Frame(f).CopyTo(values.AsSpan(f * field.CellCount, field.CellCount));
+            var source = rows == window.Count
+                ? window[r]
+                : window[(int)Math.Round((double)r * (window.Count - 1) / Math.Max(1, rows - 1))];
+            field.Frame(source).CopyTo(values.AsSpan(r * field.CellCount, field.CellCount));
         }
 
-        var firstAngle = field.FrameAngles.Count > 0 ? field.FrameAngles[0] : 0.0;
-        var lastAngle = field.FrameAngles.Count > 0 ? field.FrameAngles[^1] : 720.0;
+        // Labelled as CYCLE angle, not as accumulated crank. A run's tenth
+        // cycle ends near 7200°, and an axis reading 6480–7200 cannot be
+        // compared against a cam timing quoted in the 0–720 the rest of the
+        // application uses — nor can the valve events be overlaid on it.
+        var traverse = TraverseDeg(field);
+        var notes = new List<string>
+        {
+            $"Colour spans {Format(min, field.Quantity)} to {Format(max, field.Quantity)} across the whole "
+            + "capture, so a decaying wave visibly decays.",
+            "A wave is the diagonal; its gradient is the local wave speed and a reflection is a change of slope.",
+        };
+
+        if (traverse > 0)
+        {
+            notes.Add($"End to end is about {traverse:F0}° of crank at this speed, so a one-way wave leans "
+                      + "that far across the pipe.");
+        }
 
         return new PlotModel
         {
             Title = $"x–t wave diagram — {field.Name}",
-            Subtitle = $"{Quantity(field.Quantity)} at {_run.CaptureRpm:F0} rpm",
+            Subtitle = $"{Quantity(field.Quantity)} at {_run.CaptureRpm:F0} rpm, last converged cycle",
             XAxis = new PlotAxis("Distance from the port", 0, field.Length, "m"),
-            YAxis = new PlotAxis("Crank angle", firstAngle, lastAngle, "°", CycleTicks(firstAngle, lastAngle)),
-            HeatMap = new HeatMapLayer(values, field.CellCount, field.FrameCount, min, max, Quantity(field.Quantity)),
-            Notes =
-            [
-                $"Colour spans {Format(min, field.Quantity)} to {Format(max, field.Quantity)} across the whole "
-                + "capture, so a decaying wave visibly decays.",
-                "A wave is the diagonal; its gradient is the local wave speed and a reflection is a change of slope.",
-            ],
+            YAxis = new PlotAxis("Crank angle", 0, 720, "°", [0, 180, 360, 540, 720]),
+            HeatMap = new HeatMapLayer(values, field.CellCount, rows, min, max, Quantity(field.Quantity)),
+
+            // Valve events are horizontal here: y is crank angle.
+            YMarkers = ValveMarkers(),
+            Notes = notes,
         };
     }
 
@@ -510,16 +600,54 @@ public sealed class ResultsWorkspace(RunResult run, UserPreferences? preferences
         return markers;
     }
 
-    private static IReadOnlyList<double> CycleTicks(double from, double to)
+    /// <summary>
+    /// Frame indices of the last whole cycle in a capture, oldest first.
+    /// Falls back to everything when the capture is shorter than a cycle.
+    /// </summary>
+    private static IReadOnlyList<int> WindowFrames(DuctFieldCapture field)
     {
-        var ticks = new List<double>();
-        for (var t = Math.Ceiling(from / 180.0) * 180.0; t <= to; t += 180.0)
+        if (field.FrameCount == 0)
         {
-            ticks.Add(t);
+            return [];
         }
 
-        return ticks.Count > 0 ? ticks : [from, to];
+        var last = field.FrameAngles[^1];
+        var from = last - 720.0;
+        if (field.FrameAngles[0] > from)
+        {
+            return Enumerable.Range(0, field.FrameCount).ToList();
+        }
+
+        var window = new List<int>();
+        for (var i = 0; i < field.FrameCount; i++)
+        {
+            if (field.FrameAngles[i] >= from)
+            {
+                window.Add(i);
+            }
+        }
+
+        return window;
     }
+
+    /// <summary>
+    /// Crank degrees a wave takes to cross the pipe end to end — the slope a
+    /// reader should expect a one-way wave to have on the diagram.
+    /// </summary>
+    private double TraverseDeg(DuctFieldCapture field) =>
+        _run.CaptureRpm > 0 && _run.ReferenceSoundSpeed > 0
+            ? field.Length / EstimatedWaveSpeed() * 6.0 * _run.CaptureRpm
+            : 0.0;
+
+    /// <summary>
+    /// Sound speed to quote the traverse against. Exhaust gas is far hotter
+    /// than the ambient reference the decomposition is taken against, so using
+    /// the reference here would overstate the slope by nearly a factor of two.
+    /// </summary>
+    private double EstimatedWaveSpeed() =>
+        _run.Fields.Count > 0 && _run.Fields[0].Quantity == FieldQuantity.Pressure
+            ? Math.Max(_run.ReferenceSoundSpeed, 600.0)
+            : _run.ReferenceSoundSpeed;
 
     private static string Quantity(FieldQuantity q) => q switch
     {

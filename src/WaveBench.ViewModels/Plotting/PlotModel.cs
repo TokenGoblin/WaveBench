@@ -157,7 +157,18 @@ public sealed record PlotModel
 
     public IReadOnlyList<PlotSeries> Series { get; init; } = [];
 
+    /// <summary>Vertical rules, positioned on the X axis.</summary>
     public IReadOnlyList<PlotMarker> Markers { get; init; } = [];
+
+    /// <summary>
+    /// Horizontal rules, positioned on the Y axis.
+    ///
+    /// The x–t wave diagram needs these and cannot use the vertical ones: its
+    /// x axis is distance and its y axis is crank angle, so a valve event —
+    /// the thing plan §8.4 asks to be overlaid — is a horizontal line at a
+    /// crank angle, not a vertical one at a position down the pipe.
+    /// </summary>
+    public IReadOnlyList<PlotMarker> YMarkers { get; init; } = [];
 
     public HeatMapLayer? HeatMap { get; init; }
 

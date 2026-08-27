@@ -152,6 +152,18 @@ public partial class MainWindow : Window
         Refresh();
     }
 
+    /// <summary>Navigate to one Results sub-tab without a mouse.</summary>
+    public void GoToResultsTab(ResultsTab tab)
+    {
+        _shell.Navigate(Workspace.Results);
+        if (WorkspaceContent.LatestResults is { } results)
+        {
+            results.SelectedTab = tab;
+        }
+
+        Refresh();
+    }
+
     /// <summary>Step the manifold canvas zoom.</summary>
     public void StepManifoldZoom(int direction)
     {
@@ -169,19 +181,73 @@ public partial class MainWindow : Window
 
     private void ThemeToggle_Click(object sender, RoutedEventArgs e) => SetDark(!_dark);
 
-    private void RunButton_Click(object sender, RoutedEventArgs e)
-    {
-        var job = _shell.Jobs.Enqueue("sweep", "3000–9000 rpm, 13 points", total: 13);
-        _shell.Jobs.Start(job.Id);
-        _shell.Jobs.Checkpoint(job.Id, 0);
-        StatusLine.Text = _shell.StatusLine(2840, 9.1e-6);
+    private CancellationTokenSource? _runCancellation;
 
-        MessageBox.Show(
-            "Queued in the job tray.\n\nWiring the tray to the solver is Phase 19 (Results workspace); "
-            + "the headless path already works today:\n\n    wavebench sweep examples/single-360.json "
-            + "--from 3000 --to 9000 --step 500",
-            "Run", MessageBoxButton.OK, MessageBoxImage.Information);
-        Refresh();
+    /// <summary>
+    /// Sweep the model and capture the detail, off the UI thread.
+    ///
+    /// A solve takes seconds per point, so it cannot run on the dispatcher —
+    /// a frozen window during a run is indistinguishable from a crash. The
+    /// document is deep-copied first: the user is free to keep editing while
+    /// it runs, and a result must be the model that was actually solved rather
+    /// than whatever the fields happen to say when it finishes.
+    /// </summary>
+    private async void RunButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_runCancellation is not null)
+        {
+            _runCancellation.Cancel();
+            return;
+        }
+
+        var speeds = new List<double>();
+        for (var rpm = 3000.0; rpm <= 9000.0; rpm += 500.0)
+        {
+            speeds.Add(rpm);
+        }
+
+        var snapshot = EngineModelDocument.Load(_session.Document.Save());
+        var job = _shell.Jobs.Enqueue("sweep", $"3000–9000 rpm, {speeds.Count} points", speeds.Count + 1);
+        _shell.Jobs.Start(job.Id);
+
+        _runCancellation = new CancellationTokenSource();
+        var token = _runCancellation.Token;
+        RunButton.Content = "⨯  Cancel";
+
+        var progress = new Progress<RunProgress>(p =>
+        {
+            _shell.Jobs.Checkpoint(job.Id, p.Completed);
+            StatusLine.Text = $"{p.Stage}  ·  {p.Completed}/{p.Total}";
+        });
+
+        try
+        {
+            var run = await Task.Run(
+                () => ResultsRunner.Run(snapshot, speeds, captureRpm: 6000.0, progress: progress,
+                    cancellationToken: token),
+                token);
+
+            WorkspaceContent.LatestResults = new ResultsWorkspace(run, App.Preferences);
+            _shell.HasResults = true;
+            _shell.Jobs.Complete(job.Id);
+            _shell.Navigate(Workspace.Results);
+        }
+        catch (OperationCanceledException)
+        {
+            _shell.Jobs.Cancel(job.Id);
+        }
+        catch (Exception ex)
+        {
+            _shell.Jobs.Fail(job.Id, ex.Message);
+            MessageBox.Show(ex.Message, "The run failed", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+        finally
+        {
+            _runCancellation.Dispose();
+            _runCancellation = null;
+            RunButton.Content = "▶  Run";
+            Refresh();
+        }
     }
 
     private void ShowPalette()

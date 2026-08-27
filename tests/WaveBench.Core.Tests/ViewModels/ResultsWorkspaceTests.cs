@@ -170,21 +170,69 @@ public class ResultsWorkspaceTests(ITestOutputHelper output)
 
         run.Fields.Should().NotBeEmpty("a run must capture at least one pipe for the wave diagram");
 
+        var field = run.Fields[0];
         var plot = workspace.WaveDiagram();
         plot.HeatMap.Should().NotBeNull();
-        plot.HeatMap!.Columns.Should().Be(run.Fields[0].CellCount);
-        plot.HeatMap.Rows.Should().Be(run.Fields[0].FrameCount);
+        plot.HeatMap!.Columns.Should().Be(field.CellCount);
         plot.HeatMap.Max.Should().BeGreaterThan(plot.HeatMap.Min);
 
-        plot.XAxis.Unit.Should().Be("m");
+        // ONE cycle, the last one. Showing the whole capture would compress
+        // each cycle into a few pixels and stop it being a wave diagram.
+        plot.HeatMap.Rows.Should().BeLessThanOrEqualTo(field.FrameCount);
+        plot.YAxis.Min.Should().Be(0);
+        plot.YAxis.Max.Should().Be(720, "the axis is CYCLE angle, not accumulated crank");
         plot.YAxis.Unit.Should().Be("°");
-        plot.YAxis.ResolvedTicks().Should().OnlyContain(t => Math.Abs(t % 180.0) < 1e-9,
-            "crank angle divides by 180, not by the generic decimal rule");
+        plot.XAxis.Unit.Should().Be("m");
+        plot.YAxis.ResolvedTicks().Should().Equal(0, 180, 360, 540, 720);
+
+        // Valve events are HORIZONTAL on an x–t diagram: y is crank angle, so
+        // a vertical marker would be a line at 130 metres down the pipe.
+        plot.Markers.Should().BeEmpty();
+        plot.YMarkers.Select(m => m.Label).Should().Contain(["EVO", "EVC", "IVO", "IVC"]);
 
         // And it renders.
         var svg = SvgPlotWriter.Write(plot);
         svg.Should().Contain("data:image/png;base64,");
-        output.WriteLine($"{plot.Title}: {plot.HeatMap.Columns}×{plot.HeatMap.Rows} cells, {svg.Length} bytes SVG");
+        svg.Should().Contain("EVO");
+        output.WriteLine($"{plot.Title}: {plot.HeatMap.Columns}×{plot.HeatMap.Rows} "
+                         + $"(of {field.FrameCount} captured frames), {svg.Length} bytes SVG");
+        output.WriteLine(string.Join("\n", plot.Notes));
+    }
+
+    [Fact]
+    public void A_long_capture_is_windowed_and_downsampled_rather_than_drawn_whole()
+    {
+        // Thirty cycles at half a degree is 21 600 frames against a canvas a
+        // few hundred pixels tall. Drawing it whole would allocate tens of MB
+        // per redraw to produce an image the renderer immediately samples back
+        // down — and each cycle would be a few pixels, which is not a wave
+        // diagram.
+        var run = ResultsRunner.Run(
+            FourCylinder(), [6000.0], 6000.0,
+            Small with { Cycles = 8, FramesPerCycle = 360 });
+
+        var field = run.Fields[0];
+        field.FrameCount.Should().BeGreaterThan(2000);
+
+        var workspace = new ResultsWorkspace(run) { MaxHeatMapRows = 500 };
+        var plot = workspace.WaveDiagram();
+
+        plot.HeatMap!.Rows.Should().BeLessThanOrEqualTo(500);
+        plot.HeatMap.Rows.Should().BeLessThan(field.FrameCount / 4,
+            "eight cycles must come down to one");
+
+        // The colour scale still spans the WHOLE capture, not the window, so a
+        // wave that decays across eight cycles visibly decays.
+        var (min, max) = field.Range();
+        plot.HeatMap.Min.Should().Be(min);
+        plot.HeatMap.Max.Should().Be(max);
+
+        output.WriteLine($"{field.FrameCount} frames captured -> {plot.HeatMap.Rows} rows drawn");
+
+        // The slice keeps full resolution: it is one frame, and scrubbing has
+        // to reach every one of them.
+        workspace.SliceAt(field.FrameCount - 1).Series[0].Y.Should().HaveCount(field.CellCount);
+        workspace.ScrubAngleDeg.Should().BeInRange(0, 720, "the scrub readout is a cycle angle");
     }
 
     [Fact]

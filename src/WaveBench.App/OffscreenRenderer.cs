@@ -66,6 +66,70 @@ public static class OffscreenRenderer
         window.Close();
 
         CaptureManifold(outputDirectory);
+        CaptureResults(outputDirectory);
+    }
+
+    /// <summary>
+    /// The Phase 19 Results screens. Runs a real short sweep first — a
+    /// screenshot of fabricated results would be a screenshot of nothing.
+    /// </summary>
+    private static void CaptureResults(string outputDirectory)
+    {
+        var document = new WaveBench.Model.EngineModelDocument
+        {
+            Name = "Four-cylinder results",
+            Engine = new WaveBench.Model.EngineSpec
+            {
+                BoreMm = 82, StrokeMm = 56.5, RodLengthMm = 100, CompressionRatio = 11, CylinderCount = 4,
+            },
+            IntakeValves = new WaveBench.Model.ValveTrainSpec
+            {
+                HeadDiameterMm = 29, Count = 2, MaxLiftMm = 9.5, OpenDeg = 340, CloseDeg = 590,
+            },
+            ExhaustValves = new WaveBench.Model.ValveTrainSpec
+            {
+                HeadDiameterMm = 24, Count = 2, MaxLiftMm = 9.0, OpenDeg = 130, CloseDeg = 380,
+            },
+            IntakeRunner = new WaveBench.Model.DuctSpec { LengthMm = 300, DiameterMm = 36, RoughnessMm = 0.045 },
+            ExhaustRunner = new WaveBench.Model.DuctSpec { LengthMm = 600, DiameterMm = 34, RoughnessMm = 0.045 },
+            Combustion = new WaveBench.Model.CombustionSpec { Fuel = "RON95" },
+            Solver = new WaveBench.Model.SolverSpec { CellSizeMm = 12.0, MinCycles = 4, MaxCycles = 8 },
+        };
+
+        Console.WriteLine("solving for the results screenshots...");
+        var run = ResultsRunner.Run(
+            document,
+            [4000, 5000, 6000, 7000, 8000],
+            6000.0,
+            new CaptureOptions { Cycles = 2, FramesPerCycle = 360, ProbeSamplesPerCycle = 720 });
+
+        WorkspaceContent.LatestResults = new ResultsWorkspace(run, App.Preferences);
+
+        var window = new MainWindow(document, seed: false)
+        {
+            Width = 1360,
+            Height = 900,
+            WindowStartupLocation = WindowStartupLocation.Manual,
+            Left = -10_000,
+            Top = -10_000,
+            ShowInTaskbar = false,
+        };
+
+        window.Show();
+        window.GoTo(Workspace.Results);
+        Settle(window);
+        Capture(window, Path.Combine(outputDirectory, "09-results-performance.png"));
+
+        window.GoToResultsTab(ResultsTab.Waves);
+        Settle(window);
+        Capture(window, Path.Combine(outputDirectory, "10-results-waves.png"));
+
+        window.GoToResultsTab(ResultsTab.Cylinders);
+        Settle(window);
+        Capture(window, Path.Combine(outputDirectory, "11-results-cylinders.png"));
+
+        window.Close();
+        WorkspaceContent.LatestResults = null;
     }
 
     /// <summary>
