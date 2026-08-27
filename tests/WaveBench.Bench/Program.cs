@@ -33,6 +33,12 @@ public static class Program
             return;
         }
 
+        if (args.Length > 0 && args[0].Equals("sound", StringComparison.OrdinalIgnoreCase))
+        {
+            RunSoundSliderGate();
+            return;
+        }
+
         BenchmarkSwitcher.FromAssembly(typeof(Program).Assembly).Run(args);
     }
 
@@ -251,6 +257,71 @@ public static class Program
         Console.WriteLine(p99 < 16.67 && build.Elapsed.TotalMilliseconds < 1000
             ? "WAVE DIAGRAM GATE MET"
             : "WAVE DIAGRAM GATE MISSED");
+        Console.WriteLine();
+    }
+
+    /// <summary>
+    /// Plan Phase 20 gate: dragging a primary-length slider updates the timing
+    /// chart and the spectrum in under 50 ms.
+    ///
+    /// What is timed is one whole slider tick: change a length, rebuild the
+    /// timing chart, rebuild the A-vs-B order spectrum. Both figures, because
+    /// the plan asks for both — timing alone would be the easy half.
+    ///
+    /// Measured here rather than in the xUnit suite for the same reason as the
+    /// other interaction gates: that suite runs engine solves in parallel, so
+    /// a wall-clock sample taken inside it measures contention.
+    /// </summary>
+    private static void RunSoundSliderGate()
+    {
+        var workspace = new SoundWorkspace(
+            WaveBench.Acoustics.SoundCases.M50Factory(),
+            WaveBench.Acoustics.SoundCases.M50EqualLength())
+        {
+            Rpm = 6000.0,
+        };
+
+        // Warm the JIT and the FFT plan.
+        for (var i = 0; i < 20; i++)
+        {
+            workspace.B = workspace.B.WithPrimaryLength(0.60 + (0.001 * i));
+            _ = workspace.TimingChart();
+            _ = workspace.OrderSpectrumChart();
+        }
+
+        const int ticks = 400;
+        var samples = new double[ticks];
+        for (var t = 0; t < ticks; t++)
+        {
+            var length = 0.50 + (0.0005 * (t % 400));
+
+            var sw = Stopwatch.StartNew();
+            workspace.B = workspace.B.WithPrimaryLength(length);
+            var timing = workspace.TimingChart();
+            var spectrum = workspace.OrderSpectrumChart();
+            sw.Stop();
+
+            samples[t] = sw.Elapsed.TotalMilliseconds;
+            _ = timing.Series.Count + spectrum.Series.Count;
+        }
+
+        Array.Sort(samples);
+        var median = samples[ticks / 2];
+        var p99 = samples[(int)(ticks * 0.99)];
+        var worst = samples[^1];
+
+        Console.WriteLine("Sound slider gate: one length change -> timing chart + A/B order spectrum");
+        Console.WriteLine($"median {median:F2} ms, p99 {p99:F2} ms, worst {worst:F2} ms (plan Phase 20 target: < 50 ms)");
+        Console.WriteLine($"headroom at p99: {50.0 / Math.Max(p99, 1e-6):F0}×");
+
+        // 60 fps is the harder standard a drag is actually held to: 50 ms is
+        // three frames, and a slider that lands a frame in every three feels
+        // like a slider that is broken.
+        Console.WriteLine(p99 < 16.67
+            ? "  (also inside a 60 fps frame budget, so the drag is smooth rather than merely responsive)"
+            : "  (inside 50 ms but over a 60 fps frame: the drag will visibly step)");
+
+        Console.WriteLine(p99 < 50.0 ? "SOUND SLIDER GATE MET" : "SOUND SLIDER GATE MISSED");
         Console.WriteLine();
     }
 
