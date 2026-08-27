@@ -55,6 +55,12 @@ public static class ManifoldAssembler
     /// <param name="pressure">Initial and ambient pressure, Pa.</param>
     /// <param name="temperature">Ambient stagnation temperature, K.</param>
     /// <param name="cfl">CFL number.</param>
+    /// <param name="thermal">
+    /// Duct friction and wall heat transfer settings. Every pipe on the graph
+    /// is exhaust, so they all take the exhaust surface treatment. Null leaves
+    /// the pipes adiabatic and frictionless, which is what the whole product
+    /// silently did before this parameter existed.
+    /// </param>
     public static AssembledManifold Build(
         ManifoldSpec spec,
         EngineSimulator engine,
@@ -64,7 +70,8 @@ public static class ManifoldAssembler
         double density,
         double pressure,
         double temperature,
-        double cfl)
+        double cfl,
+        PipeThermalSpec? thermal = null)
     {
         ArgumentNullException.ThrowIfNull(spec);
         ArgumentNullException.ThrowIfNull(engine);
@@ -84,6 +91,11 @@ public static class ManifoldAssembler
         foreach (var node in spec.Nodes.Where(n => n.Kind == ManifoldNodeKind.Pipe))
         {
             var duct = MakeDuct(node, gas, cellSize, limiter, density, pressure, cfl);
+            if (thermal is not null)
+            {
+                EngineBuilder.ApplyThermal(duct, thermal, intake: false, temperature);
+            }
+
             ducts[node.Id] = duct;
             engine.Ducts.Add(duct);
         }

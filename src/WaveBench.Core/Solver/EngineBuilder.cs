@@ -81,7 +81,8 @@ public static class EngineBuilder
         if (document.ExhaustManifold is { Nodes.Count: > 0 } spec)
         {
             manifold = ManifoldAssembler.Build(
-                spec, engine, gas, cellSize, limiter, rho0, p0, t0, document.Solver.Cfl);
+                spec, engine, gas, cellSize, limiter, rho0, p0, t0, document.Solver.Cfl,
+                document.PipeThermal);
 
             // Notes travel on the ENGINE, not on the builder. A static would
             // be shared mutable state, and OperatingPointRunner.Sweep builds
@@ -107,6 +108,7 @@ public static class EngineBuilder
             var intake = MakeDuct(
                 document.IntakeRunner, cellSize, limiter, gas,
                 rho0 * intakeLoadFraction, p0 * intakeLoadFraction, document.Solver.Cfl);
+            ApplyThermal(intake, document.PipeThermal, intake: true, t0);
             // With a manifold the exhaust side is already built and shared;
             // without one each cylinder gets its own runner to atmosphere.
             DuctSolver exhaust;
@@ -125,6 +127,7 @@ public static class EngineBuilder
             else
             {
                 exhaust = MakeDuct(document.ExhaustRunner, cellSize, limiter, gas, rho0, p0, document.Solver.Cfl);
+                ApplyThermal(exhaust, document.PipeThermal, intake: false, t0);
                 exhaust.RightBoundary = BoundaryKind.External;
                 exhaust.RightEnd = new ReservoirBoundary { StagnationPressure = p0, StagnationTemperature = t0 };
                 exhaustAtLeftEnd = true;
@@ -193,6 +196,53 @@ public static class EngineBuilder
         }
 
         return duct;
+    }
+
+    /// <summary>
+    /// Switch on the duct source terms and hang a wall thermal node off the
+    /// duct (plan §2.1, §2.3, §2.9).
+    ///
+    /// Every duct in a built engine goes through here. Before this existed
+    /// nothing ever set <c>FrictionEnabled</c> or called <c>AttachWall</c>
+    /// outside a unit test, so every pipe in the product ran adiabatic and
+    /// frictionless — the models were built, gated at component level in
+    /// Phase 3, and then never connected.
+    /// </summary>
+    /// <param name="duct">The duct to equip.</param>
+    /// <param name="thermal">Document settings.</param>
+    /// <param name="intake">Intake tract; false for exhaust.</param>
+    /// <param name="ambientK">Ambient temperature, K.</param>
+    public static void ApplyThermal(
+        DuctSolver duct, PipeThermalSpec thermal, bool intake, double ambientK)
+    {
+        ArgumentNullException.ThrowIfNull(duct);
+        ArgumentNullException.ThrowIfNull(thermal);
+
+        duct.FrictionEnabled = thermal.Friction;
+
+        if (!thermal.WallHeatTransfer)
+        {
+            return;
+        }
+
+        var surface = WallSurface.ByName(intake ? thermal.IntakeSurface : thermal.ExhaustSurface);
+        var start = intake ? thermal.IntakeWallStartK : thermal.ExhaustWallStartK;
+
+        duct.AttachWall(new WallThermalModel(
+            duct.CellCount,
+            surface,
+            initialTemperature: start,
+            ambientTemperature: ambientK,
+            arealHeatCapacity: thermal.ArealHeatCapacityJPerM2K,
+            externalHeatTransferCoefficient: thermal.ExternalHtcWPerM2K)
+        {
+            // Solved between cycles rather than integrated every step: a steel
+            // wall's time constant is seconds against a 20 ms cycle, so
+            // transient integration would still be climbing when the run ends
+            // and the answer would depend on the assumed wall thickness.
+            Mode = WallUpdate.CyclicSteady,
+            FixedTemperature = intake ? thermal.FixIntakeWall : thermal.FixExhaustWall,
+        });
     }
 
     private static CamProfile MakeCam(ValveTrainSpec spec) =>

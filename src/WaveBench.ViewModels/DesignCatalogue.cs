@@ -110,6 +110,10 @@ public static class DesignCatalogue
     public static IReadOnlyList<string> FuelNames { get; } =
         Core.Thermo.Fuels.FuelLibrary.All.Select(f => f.Name).ToList();
 
+    /// <summary>Pipe surface treatments (plan §2.9), from the solver's own presets.</summary>
+    public static IReadOnlyList<string> PipeSurfaces { get; } =
+        Core.Solver.WallSurface.Presets.Select(s => s.Name).ToList();
+
     public static IReadOnlyList<DesignField> Fields { get; } =
     [
         // ---- Engine (plan §8.4 "Design → Engine") --------------------------
@@ -170,6 +174,42 @@ public static class DesignCatalogue
             true, 10, 200),
         new("ExhaustRunner.RoughnessMm", "Exhaust wall roughness", DesignTab.Manifold, FieldKind.Number, Quantity.Length, "mm",
             false, 0, 5),
+
+        // ---- Pipe thermal (plan §2.1, §2.3, §2.9) --------------------------
+        // Exhaust surface treatment sits in Simple mode because it is a real
+        // choice a builder makes at the parts counter, and it moves the wall
+        // by tens of kelvin — which moves the sound speed, and with it the
+        // tuned length and every acoustic resonance.
+        new("PipeThermal.ExhaustSurface", "Exhaust surface", DesignTab.Manifold, FieldKind.Choice, Quantity.None, "",
+            true, Choices: PipeSurfaces,
+            Help: "Bare, coated, wrapped or insulated. A wrap raises the wall temperature and the exhaust sound speed."),
+        new("PipeThermal.IntakeSurface", "Intake surface", DesignTab.Manifold, FieldKind.Choice, Quantity.None, "",
+            false, Choices: PipeSurfaces),
+        new("PipeThermal.ExhaustWallStartK", "Exhaust wall temperature", DesignTab.Manifold, FieldKind.Number,
+            Quantity.Temperature, "K", false, 293, 1400,
+            Help: "Starting value only — the solver iterates it to the cycle-average balance, unless it is held fixed."),
+        new("PipeThermal.IntakeWallStartK", "Intake wall temperature", DesignTab.Manifold, FieldKind.Number,
+            Quantity.Temperature, "K", false, 273, 500,
+            Help: "Held fixed by default: an intake port's wall is set by the coolant, not by the air through it."),
+        new("PipeThermal.FixExhaustWall", "Hold exhaust wall fixed", DesignTab.Manifold, FieldKind.Toggle,
+            Quantity.None, "", false,
+            Help: "Impose the temperature above instead of solving for it — for a measured wall."),
+        new("PipeThermal.FixIntakeWall", "Hold intake wall fixed", DesignTab.Manifold, FieldKind.Toggle,
+            Quantity.None, "", false),
+        new("PipeThermal.WallHeatTransfer", "Wall heat transfer", DesignTab.Manifold, FieldKind.Toggle,
+            Quantity.None, "", false,
+            Help: "Colburn heat transfer with a wall thermal node. Off makes every pipe adiabatic — a diagnostic, not a model."),
+        new("PipeThermal.Friction", "Wall friction", DesignTab.Manifold, FieldKind.Toggle, Quantity.None, "", false,
+            Help: "Haaland/Darcy wall friction. Off makes every pipe frictionless — a diagnostic, not a model."),
+        new("PipeThermal.ArealHeatCapacityJPerM2K", "Wall heat capacity", DesignTab.Manifold, FieldKind.Number,
+            Quantity.None, "J/m²K", false, 100, 100_000,
+            Help: "ρ·t·c of the pipe wall; 2 mm stainless is about 7900. Affects the transient only, never the converged answer."),
+        new("PipeThermal.ExternalHtcWPerM2K", "External convection", DesignTab.Manifold, FieldKind.Number,
+            Quantity.None, "W/m²K", false, 1, 500,
+            Help: "Outside the pipe: natural plus whatever airflow the installation gives it."),
+        new("PipeThermal.WallConvergenceK", "Wall convergence band", DesignTab.Manifold, FieldKind.Number,
+            Quantity.None, "K", false, 0.01, 50,
+            Help: "Cycle-to-cycle wall temperature change below which the operating point counts as converged."),
 
         // ---- Fuel & Combustion (plan §8.4) ---------------------------------
         new("Combustion.Fuel", "Fuel", DesignTab.FuelAndCombustion, FieldKind.Choice, Quantity.None, "", true,

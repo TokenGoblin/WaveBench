@@ -48,8 +48,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   **Gate met.** A model built using nothing but the workspace's edit API,
   saved, and reloaded exactly as the CLI does, runs bit-identically:
-  VE 1.118037, torque 223.878696 N·m, IMEP 2032462.799 Pa, knock 5.329482 on
-  both paths. Unit conversion happens only at that boundary — type 4 inches
+  VE 1.087720, torque 216.065062 N·m, IMEP 1967521.228 Pa, knock 5.303747 on
+  both paths (re-baselined when the duct source terms were wired in; see
+  "Fixed (physics)" below). Unit conversion happens only at that boundary — type 4 inches
   and the document holds 101.6 mm — and switching units or mode cannot change
   a byte of the model. Theme switching stays complete: every colour still
   resolves through `Tokens.xaml`, enforced by the existing token tests, which
@@ -302,15 +303,65 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   area, angle, rotational speed and sound level — with parsing and
   tabular-figure-friendly formatting.
 
-### Known gaps
+### Fixed (physics)
 
-- **No wall heat transfer on any duct in a built engine.** `WallThermalModel`
-  and the Colburn coefficient in `DuctSolver` exist and pass their Phase 3
-  component gates, but neither `EngineBuilder` nor `ManifoldAssembler`
-  attaches a wall to the ducts it builds, so `HeatTransferEnabled` is false
-  throughout and friction dissipation is the only source term acting on the
-  gas — exhaust can only get hotter down the pipe, which is backwards. Plan
-  §2.3 requires wall heat transfer with a selectable surface treatment
-  (bare / coated / wrapped / insulated). Recorded rather than fixed alongside
-  Phase 18 because attaching it moves every committed VE, torque and BSFC
-  figure: it is a re-baseline, not an edit. See docs/physics.md §1.10.
+- **Duct friction and wall heat transfer never reached a built engine.**
+  `DuctSolver` implements Haaland/Darcy friction (§2.1) and Colburn wall heat
+  transfer against a `WallThermalModel` node (§2.3, §2.9), and all of it
+  passed Phase 3's component gates — but `FrictionEnabled` defaults to false,
+  `HeatTransferEnabled` is `Wall is not null`, and nothing outside a unit test
+  ever set the flag or called `AttachWall`. **Every pipe in every engine the
+  product built ran adiabatic and frictionless.** Phase 3 gated a duct, Phase 5
+  gated an engine; neither checked that the engine's ducts were the ducts
+  Phase 3 had gated. Found by measuring the solved sound speed for the pulse
+  diagram and noticing it rose monotonically to the tailpipe, which is
+  backwards for an exhaust.
+
+  `EngineBuilder.ApplyThermal` now equips every duct — intake runners, plain
+  exhaust runners, and every pipe built from a manifold graph — from a new
+  `PipeThermal` block on the document, with both terms on by default and flags
+  to switch them off as a diagnostic. Surface treatment is selectable per §2.9:
+  bare stainless, ceramic coated, water jacketed, header wrap, insulated.
+
+  **Wall temperature is solved between cycles, not integrated within them.** A
+  steel wall's time constant is ~10 s against a 20 ms cycle, so explicit
+  integration is still climbing when a run ends and the answer ends up set by
+  an assumed wall thickness. `WallUpdate.CyclicSteady` holds the wall fixed
+  through a cycle, accumulates ∫h dt and ∫h·T_gas dt, and solves the
+  cycle-average balance for T_w by Newton at each cycle boundary — plan §2.9's
+  "iterate wall temperatures to convergence across cycles". `RunToConvergence`
+  will not declare convergence until the wall is periodic too. Starting the
+  exhaust wall at 400 K or 1100 K, with a heat capacity of 100 or 40 000
+  J/(m²·K), all converge to the same 909.2 K in 7 cycles.
+
+  The intake wall is **held** by default, and that is the physics: left free it
+  balances against the charge alone and settles at or below ambient, modelling
+  an intake that chills the charge where §2.2 asks for ambient plus wall heat
+  pickup. Its real temperature comes from the coolant and the head, which the
+  model does not represent, so it is an input rather than a fabricated
+  prediction.
+
+  The §2.9 differentiator now demonstrates: bare 909 K / 671.6 m/s, header wrap
+  933 K / 672.8 m/s, ceramic 948 K / 673.8 m/s, insulated 963 K / 674.5 m/s.
+  One correction to the plan's wording — it says a wrapped header's optimum
+  primary is "correspondingly shorter", but `L = a·Δθ/(12·N)` from the plan's
+  own §2.10 rises with `a`: a faster wave needs a *longer* primary to return at
+  the same crank angle. At fixed length it is the tuned *rpm* that goes up. See
+  docs/physics.md §1.11.
+
+  **Re-baseline.** Against the previous adiabatic frictionless pipes, on the
+  reference four-cylinder at 6000 rpm: VE 1.1064 → 1.0663, torque 171.93 →
+  165.39 N·m. Friction costs 0.57%, the wall a further 3.25%. Every committed
+  figure in the docs, in this file and in the app's Overview was re-measured.
+
+  Enabling the source terms put the §5.7 performance budget over its 5 s
+  target (5.77 s), so the innermost loop was profiled rather than the gate
+  waived: `(ε/3.7D)^1.11` is geometry only and is now precomputed per cell,
+  `Pr^(−2/3)` is cached on the duct, and Sutherland's `x^1.5` is evaluated as
+  `x·√x`. Three fewer transcendentals per cell per step took the budget case
+  from 132 to **85 ns/cell-step** and 5.77 s to **4.36 s — budget met**, with
+  the full physics on.
+
+  The Phase 17 gate figures are now VE 1.087720, torque 216.065062 N·m,
+  IMEP 1967521.228 Pa, knock 5.303747 — still bit-identical between the UI and
+  the CLI paths, which is what that gate is about.

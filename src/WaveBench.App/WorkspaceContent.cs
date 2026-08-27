@@ -45,10 +45,10 @@ public static class WorkspaceContent
         // Figures below are the committed CLI sweep of this model — real
         // solver output, not mock data.
         var tiles = new WrapPanel { Margin = new Thickness(0, 0, 0, 24) };
-        tiles.Children.Add(Tile("Peak torque", "58.8", "N·m @ 4000 rpm"));
-        tiles.Children.Add(Tile("Peak power", "30.7", "kW @ 7000 rpm"));
-        tiles.Children.Add(Tile("Peak VE", "1.27", "@ 4000 rpm"));
-        tiles.Children.Add(Tile("Best BSFC", "166", "g/kWh"));
+        tiles.Children.Add(Tile("Peak torque", "53.9", "N·m @ 4000 rpm"));
+        tiles.Children.Add(Tile("Peak power", "28.8", "kW @ 7000 rpm"));
+        tiles.Children.Add(Tile("Peak VE", "1.18", "@ 4000 rpm"));
+        tiles.Children.Add(Tile("Best BSFC", "168", "g/kWh"));
         tiles.Children.Add(Tile("Tuned length", "5015", "rpm organ-pipe estimate"));
         tiles.Children.Add(Tile("Resolved to", "5.6", "kHz at the acoustic mesh"));
         host.Children.Add(tiles);
@@ -64,8 +64,8 @@ public static class WorkspaceContent
     {
         // The committed sweep: 3000–9000 rpm in 500 rpm steps.
         double[] rpm = [3000, 3500, 4000, 4500, 5000, 5500, 6000, 6500, 7000, 7500, 8000, 8500, 9000];
-        double[] torque = [47.6, 52.3, 58.8, 52.5, 55.2, 46.3, 44.6, 43.6, 41.9, 34.2, 27.1, 23.7, 24.1];
-        double[] power = [14.9, 19.2, 24.6, 24.7, 28.9, 26.7, 28.0, 29.7, 30.7, 26.9, 22.7, 21.1, 22.7];
+        double[] torque = [45.5, 49.4, 53.9, 49.7, 50.6, 44.8, 42.1, 41.0, 39.3, 33.1, 26.8, 22.4, 22.4];
+        double[] power = [14.3, 18.1, 22.6, 23.4, 26.5, 25.8, 26.4, 27.9, 28.8, 26.0, 22.5, 19.9, 21.1];
 
         var canvas = new Canvas { Height = 260, ClipToBounds = true };
         canvas.Loaded += (_, _) => DrawCurves(canvas, rpm, torque, power);
@@ -104,8 +104,8 @@ public static class WorkspaceContent
         // Two quantities, two scales. Sharing one axis would print the power
         // curve against numbers a reader takes for N·m — the axis must be
         // readable for every series on it, so power gets its own on the right.
-        const double maxTorque = 62.0;
-        const double maxPower = 35.0;
+        const double maxTorque = 56.0;
+        const double maxPower = 30.0;
 
         void AxisLabel(string content, double x, double y, Brush brush)
         {
@@ -115,7 +115,7 @@ public static class WorkspaceContent
             canvas.Children.Add(label);
         }
 
-        for (var value = 0; value <= 60; value += 20)
+        for (var value = 0; value <= 40; value += 20)
         {
             var y = padTop + plotH * (1 - value / maxTorque);
             canvas.Children.Add(Line(padLeft, y, padLeft + plotW, y, value == 0 ? axis : faint, 1));

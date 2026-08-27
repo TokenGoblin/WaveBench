@@ -41,6 +41,7 @@ public static class OperatingPointRunner
     public static OperatingPointResult Run(EngineModelDocument document, double rpm, double? cellSizeScale = null)
     {
         var engine = EngineBuilder.Build(document, rpm, cellSizeScale);
+        engine.WallConvergenceK = document.PipeThermal.WallConvergenceK;
         var (result, cycles) = engine.RunToConvergence(
             r => r.NetValveMass.Length > 0 ? r.NetValveMass[0] : 0.0,
             document.Solver.ConvergenceTolerance,

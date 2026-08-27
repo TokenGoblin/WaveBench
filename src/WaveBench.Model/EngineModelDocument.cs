@@ -41,6 +41,8 @@ public sealed record EngineModelDocument
 
     public CombustionSpec? Combustion { get; set; }
 
+    public PipeThermalSpec PipeThermal { get; set; } = new();
+
     public SolverSpec Solver { get; set; } = new();
 
     public static EngineModelDocument Load(string json) =>
@@ -234,6 +236,85 @@ public sealed record CombustionSpec
     /// behaviour. See docs/physics.md.
     /// </summary>
     public bool TwoZoneHeatTransfer { get; set; } = true;
+}
+
+/// <summary>
+/// Wall friction and wall heat transfer in the ducts (plan §2.1, §2.3, §2.9).
+///
+/// These were implemented and component-tested in Phase 3 but never switched
+/// on for a built engine, so every duct ran adiabatic and frictionless. They
+/// are ON by default because the plan requires them and because an exhaust
+/// that cannot lose heat is not an exhaust: gas temperature sets the sound
+/// speed, and the sound speed sets both the tuned length and the acoustic
+/// resonances.
+/// </summary>
+public sealed record PipeThermalSpec
+{
+    /// <summary>Haaland/Darcy wall friction (plan §2.1). Costs ~0.5% torque.</summary>
+    public bool Friction { get; set; } = true;
+
+    /// <summary>Colburn wall heat transfer with a wall thermal node (plan §2.3, §2.9).</summary>
+    public bool WallHeatTransfer { get; set; } = true;
+
+    /// <summary>
+    /// Surface treatment of the intake tract. Named from the shipped presets:
+    /// "Bare stainless", "Ceramic coated", "Water jacketed", "Header wrap",
+    /// "Insulated".
+    /// </summary>
+    public string IntakeSurface { get; set; } = "Bare stainless";
+
+    /// <summary>Surface treatment of the exhaust tract — the header wrap choice.</summary>
+    public string ExhaustSurface { get; set; } = "Bare stainless";
+
+    /// <summary>
+    /// Starting wall temperature for the intake tract, K. The cyclic-steady
+    /// solve moves it to the balance point; this only sets where it starts.
+    /// </summary>
+    public double IntakeWallStartK { get; set; } = 330.0;
+
+    /// <summary>Starting wall temperature for the exhaust tract, K.</summary>
+    public double ExhaustWallStartK { get; set; } = 700.0;
+
+    /// <summary>
+    /// Hold the intake wall at <see cref="IntakeWallStartK"/> instead of
+    /// solving for it.
+    ///
+    /// <b>True by default, and that is the physics, not a shortcut.</b> An
+    /// intake port's wall temperature is set by the coolant and the head it is
+    /// cast into — not by the air passing through it. Left free to float, the
+    /// wall balances against the intake charge alone and settles at or below
+    /// ambient, because gas expanding down a runner genuinely runs cooler than
+    /// the air outside. That would model an intake tract that CHILLS the
+    /// charge, where plan §2.2 asks for the opposite: ambient plus wall heat
+    /// pickup. Predicting it properly needs the coolant circuit and a head
+    /// conduction path, which the model does not have.
+    /// </summary>
+    public bool FixIntakeWall { get; set; } = true;
+
+    /// <summary>
+    /// Hold the exhaust wall fixed rather than solving for it. False by
+    /// default: an exhaust pipe hanging in air genuinely is in balance with
+    /// the gas inside it and the air outside, which is exactly what the
+    /// cyclic-steady solve computes.
+    /// </summary>
+    public bool FixExhaustWall { get; set; }
+
+    /// <summary>
+    /// Wall areal heat capacity ρ·t·c, J/(m²·K). 2 mm stainless is ≈ 7900.
+    /// Affects only the transient path to the answer, never the converged
+    /// cyclic-steady temperature.
+    /// </summary>
+    public double ArealHeatCapacityJPerM2K { get; set; } = 7900.0;
+
+    /// <summary>External convection coefficient, W/(m²·K); natural plus light forced.</summary>
+    public double ExternalHtcWPerM2K { get; set; } = 15.0;
+
+    /// <summary>
+    /// Cycle-to-cycle wall temperature change, K, below which the wall counts
+    /// as converged. A converged gas state over a wall still marching toward
+    /// its own temperature is not a converged operating point.
+    /// </summary>
+    public double WallConvergenceK { get; set; } = 0.5;
 }
 
 public sealed record SolverSpec

@@ -417,32 +417,147 @@ pipes report 668–722 m/s, a 7.8% spread, and the port-to-final-merge transit
 is **34.3° of crank against 68.2° at an ambient 343 m/s** — a factor of two,
 on the same axis the diagram uses to decide whether two pulses collide.
 
-### Known gap: no wall heat transfer on a built engine's ducts
+Those pipe speeds are from before §1.11 wired the duct source terms in. With
+wall heat transfer attached the same header reads 658–684 m/s, and the tailpipe
+now runs *cooler* than the collector feeding it — which is what finding that
+gap was worth.
 
-The measured speeds *rise* monotonically down the header — 668 m/s in a
-primary, 722 in the tailpipe. That is backwards for a real exhaust, and the
-cause is not the sampling.
+## 1.11 Duct friction and wall heat transfer, on a built engine (Phases 3, 5)
 
-`WallThermalModel` and the Colburn coefficient in `DuctSolver` exist, are
-tested, and pass their Phase 3 component gates. But **no code path attaches a
-wall to a duct built for an engine** — neither `EngineBuilder` for the plain
-runners nor `ManifoldAssembler` for the graph. `DuctSolver.HeatTransferEnabled`
-is `Wall is not null`, so it is false for every duct in every engine the
-product builds. Friction dissipation is then the only source term acting on the
-gas, and dissipation only ever heats it.
+Measuring the solved sound speed for §1.10 turned up something worse than a
+sampling question. The speeds rose *monotonically* down the header — 668 m/s in
+a primary, 722 in the tailpipe — which is backwards for a real exhaust.
 
-Plan §2.3 requires the opposite — *"evolved down the pipe with wall heat
-transfer and a wall thermal model (insulation / coating / wrap selectable)"* —
-and §2.3 goes on to say the effect is a differentiator and a validation test:
-a wrapped header runs hotter and wants a shorter primary.
+The cause was that **no duct in any engine the product built had either source
+term switched on.** `DuctSolver` implements Haaland/Darcy friction (§2.1) and
+Colburn wall heat transfer against a `WallThermalModel` node (§2.3, §2.9); all
+of it passed Phase 3's component gates. But `FrictionEnabled` defaults to false
+and `HeatTransferEnabled` is `Wall is not null`, and nothing outside a unit test
+ever set the flag or called `AttachWall`. Every pipe in every engine ran
+adiabatic and frictionless, and the only thing acting on the gas was numerical
+dissipation — which can only heat it.
 
-This is a Phase 5 assembly hole that Phase 3's component-level gate could not
-see. It is left recorded rather than fixed here because attaching wall heat
-transfer moves exhaust density and back-pressure, and therefore every committed
-VE, torque and BSFC figure in this document and in the app — a re-baseline, not
-a Phase 18 edit. `Gate_the_pulse_diagram_uses_the_solved_sound_speed_not_a_nominal_one`
-asserts the current, wrong-way-round direction on purpose: when the wall model
-is attached that assertion fails, which is the reminder that should fire.
+Phase 3's gate tested a duct. Phase 5's gate tested an engine. Neither tested
+that the engine's ducts were the ducts Phase 3 had gated.
+
+### What was wired
+
+`EngineBuilder.ApplyThermal` now equips every duct — the intake runners, the
+plain exhaust runners, and every pipe `ManifoldAssembler` builds from a manifold
+graph — from a new `PipeThermal` block on the document. Both source terms are
+**on by default**, with flags to switch them off as a diagnostic.
+
+### Wall temperature is solved between cycles, not integrated within them
+
+A steel wall's areal heat capacity is ≈ 7900 J/(m²·K) and its inner coefficient
+during flow is a few hundred W/(m²·K), so its time constant is on the order of
+ten seconds — around 800 cycles at 6000 rpm. Integrating it explicitly, the wall
+is still climbing when the run ends, and the reported answer is then set by an
+assumed wall thickness rather than by the physics. Plan §2.9 says what to do
+instead: *"iterate wall temperatures to convergence across cycles."*
+
+`WallUpdate.CyclicSteady` holds the wall fixed within a cycle — which is what it
+physically is, on a 20 ms cycle — and accumulates `∫h dt` and `∫h·T_gas dt`.
+At each cycle boundary `SolveCyclicSteady` solves each cell's balance
+
+```
+h̄·(T̄_gas − T_w) = U_out·(T_w − T_amb) + εσ·(T_w⁴ − T_amb⁴)
+```
+
+for `T_w` by Newton. Because `T_w` is constant over the cycle, substituting
+`h̄·T̄_gas = (1/Δt)∫h·T_gas dt` is exact rather than a linearisation. The left
+side falls and the right side rises with `T_w`, so the residual is strictly
+monotone and the root is bracketed between ambient and the flow-weighted gas
+mean. `EngineSimulator.RunToConvergence` calls it every cycle and will not
+declare convergence until the wall is also periodic.
+
+Two things follow, and both are asserted in `PipeThermalTests`:
+
+- **The answer no longer depends on the wall.** Starting the exhaust wall at
+  400 K or at 1100 K, and giving it a heat capacity of 100 or 40 000 J/(m²·K),
+  all converge to the same 909.2 K in 7 cycles.
+- **The adopted temperature satisfies the balance.** `LastResidual` is the
+  residual at the temperature actually in effect; for a free wall Newton drives
+  it to ≈ 3e-11 W/m² against the 9.2 kW/m² the wall is shedding. The same
+  number is the useful diagnostic for a *held* wall, where it reports the net
+  heat the imposed temperature is pushing through: 500 K on this header reads
+  98 kW/m².
+
+### The intake wall is held, and that is the physics
+
+`FixIntakeWall` defaults to **true**. Left free, the intake wall balances against
+the intake charge alone and settles at or below ambient, because gas expanding
+down a runner genuinely runs cooler than the air outside. That models an intake
+tract which *chills* the charge, where plan §2.2 asks for ambient **plus wall
+heat pickup**. An intake port's wall temperature is set by the coolant and the
+head it is cast into; predicting it needs a coolant circuit and a head
+conduction path the model does not have, so it is an input (330 K by default)
+rather than a fabricated prediction. The exhaust wall is free, because an
+exhaust pipe hanging in air really is in balance with the gas inside and the
+air outside.
+
+### Surface treatments, and the plan's own worked claim
+
+Plan §2.9: *"exhaust gas temperature sets `a`, and `a` sets the tuned length and
+the acoustic resonance frequencies. A wrapped header runs hotter and its optimum
+primary length is correspondingly shorter. The software must be able to
+demonstrate this — it is a differentiator and a validation test."*
+
+On the reference four-cylinder at 6000 rpm:
+
+| Exhaust surface | Wall (K) | a (m/s) | Tuned primary at 6000 rpm |
+|---|---|---|---|
+| Bare stainless  | 909 | 671.6 | 2332 mm |
+| Header wrap     | 933 | 672.8 | 2336 mm |
+| Ceramic coated  | 948 | 673.8 | 2340 mm |
+| Insulated       | 963 | 674.5 | 2342 mm |
+
+Wrapping does raise the wall, and it does raise the wave speed. Ceramic lands
+between wrap and insulation because at ~930 K radiation is a real term and
+ceramic's low emissivity (0.55) holds more heat than the wrap's resistance
+alone — the presets are an (ε, R) pair, not a single "insulation" number.
+
+**One correction to the plan's wording.** The second half of that sentence does
+not follow from the tuning relation the plan itself gives in §2.10,
+`L = a·Δθ/(12·N)`. `L` rises with `a` at fixed `N`: a faster wave needs a
+*longer* primary to bring the reflection back at the same crank angle. The
+reading that is "shorter" is the other rearrangement — at a *fixed* length, a
+wrapped header tunes at a *higher* rpm. The test asserts the direction the
+physics gives, not the sentence.
+
+### What it cost
+
+Against the previous adiabatic, frictionless pipes, on the reference
+four-cylinder at 6000 rpm:
+
+| | VE | Torque (N·m) |
+|---|---|---|
+| Neither (what the product silently did) | 1.1064 | 171.93 |
+| Friction only | 1.0993 | 170.94 |
+| Friction and wall | 1.0663 | 165.39 |
+
+Friction costs 0.57% of torque; the wall a further 3.25%, almost all of it the
+330 K intake wall heating the charge and costing density. Every committed
+performance figure in this document, in the CHANGELOG and in the app's Overview
+was re-measured against the new baseline.
+
+### And it cost runtime, which was paid back
+
+Switching the source terms on put the §5.7 budget case over its 5 s target, at
+5.77 s. The gate's own instruction is to profile before adding features, so the
+innermost loop was profiled rather than the target waived. Three transcendentals
+per cell per timestep were removable without changing the physics:
+
+- `(ε/3.7D)^1.11` in Haaland's bracket depends only on geometry, and is now
+  evaluated once per cell at construction (`HaalandRoughnessTerm`).
+- `Pr^(−2/3)` in the Colburn analogy is a constant, cached on the duct and
+  recomputed only if `Prandtl` is assigned.
+- Sutherland's `(T/T_ref)^1.5` is `x·√x`. `Math.Sqrt` is one instruction where
+  `Math.Pow` is a call; the two can differ in the last ulp, which is far inside
+  the correlation's own few-percent accuracy and is equally deterministic.
+
+Result: **132 → 85 ns/cell-step**, and the budget case from 5.77 s to 4.36 s
+with the full physics running. Budget met.
 
 ## 2. Fuel model (Phase 1)
 

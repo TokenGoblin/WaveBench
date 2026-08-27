@@ -265,8 +265,15 @@ public class ManifoldSolveTests(ITestOutputHelper output)
         // sound speed. Until now every caller handed in a constant; this
         // closes that by reading the speed out of the solved ducts.
         var manifold = CollectorLibrary.Build("4-2-1", Geometry);
-        var document = FourCylinder(manifold);
+        var document = FourCylinder(manifold) with
+        {
+            // The other topology tests run deliberately short; this one needs
+            // the wall temperatures settled, or it measures a header still
+            // warming up rather than one at its operating point.
+            Solver = new SolverSpec { CellSizeMm = 14.0, MinCycles = 6, MaxCycles = 20 },
+        };
         var engine = EngineBuilder.Build(document, 6000.0);
+        engine.WallConvergenceK = document.PipeThermal.WallConvergenceK;
 
         engine.ManifoldPipes.Should().HaveCount(
             manifold.Nodes.Count(n => n.Kind == ManifoldNodeKind.Pipe),
@@ -293,30 +300,22 @@ public class ManifoldSolveTests(ITestOutputHelper output)
         // machinery is decoration and one mean would have done.
         var spread = (speeds.Values.Max() - speeds.Values.Min()) / speeds.Values.Average();
         output.WriteLine($"spread across pipes: {spread * 100:F1}%");
-        spread.Should().BeGreaterThan(0.05, "each pipe carries gas at its own state");
+        spread.Should().BeGreaterThan(0.02, "each pipe carries gas at its own state");
 
-        // Direction, asserted as the model actually behaves rather than as
-        // intuition suggests. Sound speed RISES down this header — 668 m/s in
-        // a primary, 722 in the tailpipe — because friction dissipation is
-        // currently the only source term acting on a built engine's ducts.
+        // Gas must lose heat on its way out. The tailpipe is the last metre of
+        // the path and sees no fresh blowdown of its own — only what the
+        // collector hands it, minus what the wall takes.
         //
-        // WallThermalModel and the Colburn coefficient in DuctSolver exist and
-        // pass their Phase 3 component gates, but EngineBuilder and
-        // ManifoldAssembler never attach a wall to the ducts they build, so
-        // nothing takes heat OUT of the pipe. Plan §2.3 requires the opposite:
-        // "evolved down the pipe with wall heat transfer and a wall thermal
-        // model". Fixing that is a Phase 5 assembly change that moves every
-        // committed performance figure, so it is recorded rather than smuggled
-        // in here — see docs/physics.md §1.10.
-        //
-        // This assertion is deliberately the wrong way round for the finished
-        // physics: when the wall model is attached it will FAIL, which is
-        // precisely the reminder that wants to fire.
-        var primary = speeds["pri1"];
+        // This assertion was impossible until the wall thermal model was
+        // actually attached to a built engine's ducts. Before that the profile
+        // rose monotonically to the exit, because nothing in the product ever
+        // set FrictionEnabled or called AttachWall and the only thing acting
+        // on the gas was numerical dissipation.
+        var collector = speeds["collector"];
         var tail = speeds["tail"];
-        output.WriteLine($"primary {primary:F0} m/s vs tailpipe {tail:F0} m/s");
-        tail.Should().BeGreaterThan(primary,
-            "with no wall heat transfer attached, friction dissipation only ever heats the gas");
+        output.WriteLine($"collector {collector:F0} m/s -> tailpipe {tail:F0} m/s");
+        tail.Should().BeLessThan(collector,
+            "the wall takes heat out of the gas between the collector and the exit");
 
         var order = CollectorLibrary.DefaultFiringOrder(4);
         var solved = PulseInterference.Arrivals(manifold, "final", order, 130.0, speeds, 6000.0);

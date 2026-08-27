@@ -89,6 +89,18 @@ public class DesignGateTests(ITestOutputHelper output)
             ("ExhaustRunner.DiameterMm", "37"),
             ("ExhaustRunner.RoughnessMm", "0.05"),
 
+            ("PipeThermal.Friction", "true"),
+            ("PipeThermal.WallHeatTransfer", "true"),
+            ("PipeThermal.IntakeSurface", "Bare stainless"),
+            ("PipeThermal.ExhaustSurface", "Header wrap"),
+            ("PipeThermal.IntakeWallStartK", "62"),           // 62 °C
+            ("PipeThermal.ExhaustWallStartK", "427"),         // 427 °C
+            ("PipeThermal.FixIntakeWall", "true"),
+            ("PipeThermal.FixExhaustWall", "false"),
+            ("PipeThermal.ArealHeatCapacityJPerM2K", "7900"),
+            ("PipeThermal.ExternalHtcWPerM2K", "18"),
+            ("PipeThermal.WallConvergenceK", "0.5"),
+
             ("Combustion.Fuel", "E85"),
             ("Combustion.Lambda", "0.88"),
             ("Combustion.StartDeg", "-18"),

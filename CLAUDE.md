@@ -62,17 +62,20 @@ round-trips valid UTF-8 through CP1252 and destroys the character for real.
 Check the bytes — `[IO.File]::ReadAllText($p,[Text.Encoding]::UTF8)` — or
 just use the Read tool, before concluding a file is damaged.
 
-**Open gap, high value, not yet fixed: no duct in a built engine has a wall
-thermal model.** `WallThermalModel` and the Colburn coefficient exist and pass
-their Phase 3 component gates, but neither `EngineBuilder` nor
-`ManifoldAssembler` ever sets `DuctSolver.Wall`, so `HeatTransferEnabled` is
-false everywhere and friction dissipation is the only source term - exhaust gas
-gets monotonically HOTTER down the header (668 -> 722 m/s on the reference
-4-2-1). Plan §2.3 requires wall heat transfer with selectable surface treatment
-and calls the wrapped-header effect a validation test. Fixing it re-baselines
-every VE / torque / BSFC figure in docs and in the app. See docs/physics.md
-§1.10; a test asserts the current wrong-way-round direction on purpose so the
-fix cannot land silently.
+**Duct source terms (fixed, keep them wired).** `EngineBuilder.ApplyThermal`
+equips EVERY duct with Haaland friction and a Colburn wall node from
+`document.PipeThermal`. For a long time nothing did, and every pipe in the
+product ran adiabatic and frictionless while Phase 3's component gates passed -
+so `PipeThermalTests.Gate_every_duct_in_a_built_engine_has_friction_and_a_wall`
+exists to stop that recurring. Wall temperature is solved BETWEEN cycles
+(`WallUpdate.CyclicSteady`), never integrated within them: a steel wall's time
+constant is ~10 s against a 20 ms cycle. The intake wall is held fixed by
+design - see docs/physics.md §1.11 before changing that.
+
+**Committed performance figures live in docs/physics.md, CHANGELOG.md and the
+app's Overview tiles + TorqueCard arrays.** Any physics change moves them; the
+sweep behind the tiles is `wavebench sweep examples/single-360.json --from 3000
+--to 9000 --step 500`.
 
 Known deferrals: ISO 532-3 / ECMA-418-2 / fluctuation strength / DIN 45681
 (Phase 11 - no verification anchors available; ISO 532-1 and DIN 45692 are

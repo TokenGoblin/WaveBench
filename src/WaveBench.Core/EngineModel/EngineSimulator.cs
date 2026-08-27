@@ -200,9 +200,45 @@ public sealed class EngineSimulator
     }
 
     /// <summary>
+    /// Wall temperature convergence band, K (plan §2.9: "iterate wall
+    /// temperatures to convergence across cycles"). A converged gas state over
+    /// a wall still climbing toward its own balance is not a converged
+    /// operating point — the gas metric goes quiet long before the wall does,
+    /// because the wall moves on a slower loop.
+    /// </summary>
+    public double WallConvergenceK { get; set; } = 0.5;
+
+    /// <summary>Largest wall temperature change at the last cycle boundary, K.</summary>
+    public double LastWallChangeK { get; private set; }
+
+    /// <summary>
+    /// Solve every cyclic-steady wall for its cycle-average balance and adopt
+    /// the result. Called at each cycle boundary by
+    /// <see cref="RunToConvergence"/>; returns the largest change in K, or
+    /// zero when no duct has such a wall.
+    /// </summary>
+    public double SettleWalls()
+    {
+        var change = 0.0;
+        foreach (var duct in Ducts)
+        {
+            if (duct.Wall is { Mode: Solver.WallUpdate.CyclicSteady } wall)
+            {
+                change = Math.Max(change, wall.SolveCyclicSteady());
+            }
+        }
+
+        return LastWallChangeK = change;
+    }
+
+    /// <summary>
     /// Run cycles until the chosen metric is periodic (plan §5.4): relative
     /// change below tolerance between successive cycles, minimum/maximum
     /// cycle counts. Returns the converged cycle's result and the count.
+    ///
+    /// Pipe walls in cyclic-steady mode are settled at every cycle boundary
+    /// and their temperature must also be periodic before the run is called
+    /// converged.
     /// </summary>
     public (CycleResult Result, int Cycles) RunToConvergence(
         Func<CycleResult, double> metric,
@@ -211,15 +247,17 @@ public sealed class EngineSimulator
         int maxCycles = 40)
     {
         CycleResult last = RunCycle();
+        SettleWalls();
         var lastMetric = metric(last);
         for (var cycle = 2; cycle <= maxCycles; cycle++)
         {
             var result = RunCycle();
+            var wallChange = SettleWalls();
             var value = metric(result);
             var change = Math.Abs(value - lastMetric) / Math.Max(Math.Abs(value), 1e-12);
             last = result;
             lastMetric = value;
-            if (cycle >= minCycles && change < tolerance)
+            if (cycle >= minCycles && change < tolerance && wallChange < WallConvergenceK)
             {
                 return (last, cycle);
             }

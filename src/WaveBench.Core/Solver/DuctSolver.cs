@@ -109,6 +109,13 @@ public sealed class DuctSolver
         _fluxEner = new double[_n + 1];
         _hWall = new double[_n];
 
+        _roughnessTerm = new double[_n];
+        for (var i = 0; i < _n; i++)
+        {
+            _roughnessTerm[i] = PipeFlowPhysics.HaalandRoughnessTerm(
+                _geometry.Roughness / _geometry.HydraulicDiameter[i]);
+        }
+
         var s = gas.SpeciesCount;
         _rhoY = new double[s][];
         _wY = new double[s][];
@@ -171,7 +178,23 @@ public sealed class DuctSolver
 
     public WallThermalModel? Wall { get; private set; }
 
-    public double Prandtl { get; set; } = 0.71;
+    public double Prandtl
+    {
+        get => _prandtl;
+        set
+        {
+            _prandtl = value;
+            PrandtlFactor = PipeFlowPhysics.PrandtlFactor(value);
+        }
+    }
+
+    private double _prandtl = 0.71;
+
+    /// <summary>Pr^(−2/3), kept in step with <see cref="Prandtl"/> so the source-term loop never evaluates it.</summary>
+    public double PrandtlFactor { get; private set; } = PipeFlowPhysics.PrandtlFactor(0.71);
+
+    /// <summary>(ε/3.7D)^1.11 per cell — geometry only, so it never changes during a run.</summary>
+    private double[] _roughnessTerm = [];
 
     /// <summary>Pulsating-flow enhancement on Colburn h (empirical, plan §2.1).</summary>
     public double HeatTransferEnhancement { get; set; } = 1.3;
@@ -806,7 +829,11 @@ public sealed class DuctSolver
 
             var mu = PipeFlowPhysics.SutherlandViscosity(t);
             var re = rho * Math.Abs(u) * d / mu;
-            var fD = PipeFlowPhysics.DarcyFrictionFactor(re, _geometry.Roughness / d);
+
+            // Roughness term is geometry only — precomputed per cell in
+            // RebuildRoughnessTerms, because this is the innermost loop of the
+            // whole solver and Math.Pow here was measurable.
+            var fD = PipeFlowPhysics.DarcyFrictionFactorPrecomputed(re, _roughnessTerm[i]);
 
             if (FrictionEnabled)
             {
@@ -819,8 +846,8 @@ public sealed class DuctSolver
             {
                 FillMassFractions(c, y);
                 var cp = _gas.Cp(rho, _wP[c], y);
-                var h = PipeFlowPhysics.ColburnHeatTransferCoefficient(
-                    fD, rho, u, cp, Prandtl, HeatTransferEnhancement);
+                var h = PipeFlowPhysics.ColburnPrecomputed(
+                    fD, rho, u, cp, PrandtlFactor, HeatTransferEnhancement);
                 _hWall[i] = h;
                 _ener[c] += dt * h * 4.0 / d * (Wall!.Temperature[i] - t);
             }

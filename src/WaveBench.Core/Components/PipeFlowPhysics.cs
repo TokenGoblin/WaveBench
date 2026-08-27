@@ -18,8 +18,32 @@ public static class PipeFlowPhysics
         const double muRef = 1.716e-5;
         const double tRef = 273.15;
         const double s = 110.4;
-        return muRef * Math.Pow(t / tRef, 1.5) * (tRef + s) / (t + s);
+
+        // x^1.5 as x·√x. Called once per cell per timestep in the duct source
+        // terms, where Math.Pow is one of the three most expensive things in
+        // the loop; Math.Sqrt is a single instruction. The two can differ in
+        // the last ulp, which is far inside the correlation's own few-percent
+        // accuracy, and both are deterministic.
+        var r = t / tRef;
+        return muRef * r * Math.Sqrt(r) * (tRef + s) / (t + s);
     }
+
+    /// <summary>
+    /// The geometry-only part of Haaland's bracket, (ε/3.7D)^1.11.
+    ///
+    /// Depends on nothing that changes with time, so a solver marching a mesh
+    /// should evaluate it once per cell and keep it — see
+    /// <see cref="DarcyFrictionFactorPrecomputed"/>. Hoisting it out removes a
+    /// <c>Math.Pow</c> from the innermost loop.
+    /// </summary>
+    public static double HaalandRoughnessTerm(double relativeRoughness) =>
+        Math.Pow(relativeRoughness / 3.7, 1.11);
+
+    /// <summary>
+    /// Pr^(−2/3), the constant factor in the Colburn analogy. Hoisted for the
+    /// same reason.
+    /// </summary>
+    public static double PrandtlFactor(double prandtl) => Math.Pow(prandtl, -2.0 / 3.0);
 
     /// <summary>
     /// Darcy friction factor. Laminar 64/Re below Re 2300; Haaland's explicit
@@ -43,18 +67,48 @@ public static class PipeFlowPhysics
             return 64.0 / reynolds;
         }
 
+        var roughnessTerm = HaalandRoughnessTerm(relativeRoughness);
         if (reynolds > reTurbulent)
         {
-            return Haaland(reynolds, relativeRoughness);
+            return Haaland(reynolds, roughnessTerm);
         }
 
         var w = (reynolds - reLaminar) / (reTurbulent - reLaminar);
-        return (1.0 - w) * (64.0 / reynolds) + w * Haaland(reynolds, relativeRoughness);
+        return (1.0 - w) * (64.0 / reynolds) + w * Haaland(reynolds, roughnessTerm);
     }
 
-    private static double Haaland(double re, double relRough)
+    /// <summary>
+    /// <see cref="DarcyFrictionFactor"/> with the roughness term already
+    /// evaluated by <see cref="HaalandRoughnessTerm"/>. Identical arithmetic,
+    /// one <c>Math.Pow</c> fewer per call.
+    /// </summary>
+    public static double DarcyFrictionFactorPrecomputed(double reynolds, double roughnessTerm)
     {
-        var inv = -1.8 * Math.Log10(Math.Pow(relRough / 3.7, 1.11) + 6.9 / re);
+        const double reLaminar = 2300.0;
+        const double reTurbulent = 4000.0;
+
+        if (reynolds <= 0)
+        {
+            return 0.0;
+        }
+
+        if (reynolds < reLaminar)
+        {
+            return 64.0 / reynolds;
+        }
+
+        if (reynolds > reTurbulent)
+        {
+            return Haaland(reynolds, roughnessTerm);
+        }
+
+        var w = (reynolds - reLaminar) / (reTurbulent - reLaminar);
+        return (1.0 - w) * (64.0 / reynolds) + w * Haaland(reynolds, roughnessTerm);
+    }
+
+    private static double Haaland(double re, double roughnessTerm)
+    {
+        var inv = -1.8 * Math.Log10(roughnessTerm + 6.9 / re);
         return 1.0 / (inv * inv);
     }
 
@@ -71,6 +125,15 @@ public static class PipeFlowPhysics
     {
         var fanning = darcyFrictionFactor / 4.0;
         return pulsatingEnhancement * fanning / 2.0 * rho * Math.Abs(speed) * cp
-               * Math.Pow(prandtl, -2.0 / 3.0);
+               * PrandtlFactor(prandtl);
     }
+
+    /// <summary>
+    /// <see cref="ColburnHeatTransferCoefficient"/> with Pr^(−2/3) already
+    /// evaluated by <see cref="PrandtlFactor"/>.
+    /// </summary>
+    public static double ColburnPrecomputed(
+        double darcyFrictionFactor, double rho, double speed, double cp,
+        double prandtlFactor, double pulsatingEnhancement) =>
+        pulsatingEnhancement * (darcyFrictionFactor / 4.0) / 2.0 * rho * Math.Abs(speed) * cp * prandtlFactor;
 }
