@@ -37,6 +37,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - DIN 45692:2009 sharpness in acum, on the ISO 532-1 specific-loudness
   pattern. The standard's reference signal measures 1.028 acum against the
   defined 1.0.
+- **Phase 17 — the Design workspace.** Engine, Head & Cam, Manifold and
+  Fuel & Combustion screens with every model field editable, derived readouts
+  and inline model checks, four starter templates, and 60-second autosave
+  with crash recovery. `DesignCatalogue` describes each field as data — path,
+  tab, kind, unit family, Simple-mode visibility, bounds, choices, help — and
+  a test walks the document schema by reflection so a field the UI cannot
+  reach fails the build. All behaviour is in `WaveBench.ViewModels` with zero
+  UI types; the WPF layer only builds controls.
+
+  **Gate met.** A model built using nothing but the workspace's edit API,
+  saved, and reloaded exactly as the CLI does, runs bit-identically:
+  VE 1.118037, torque 223.878696 N·m, IMEP 2032462.799 Pa, knock 5.329482 on
+  both paths. Unit conversion happens only at that boundary — type 4 inches
+  and the document holds 101.6 mm — and switching units or mode cannot change
+  a byte of the model. Theme switching stays complete: every colour still
+  resolves through `Tokens.xaml`, enforced by the existing token tests, which
+  caught two undefined resource keys in this very change.
 - Two-zone burned/unburned combustion split (plan §2.4 Level 2), closing that
   deferral. Zones share the cylinder pressure and their volumes sum to it;
   the unburned zone compresses isentropically from start of combustion and

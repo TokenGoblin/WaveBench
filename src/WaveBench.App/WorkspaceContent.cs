@@ -167,69 +167,341 @@ public static class WorkspaceContent
 
     // ---- Design (plan §8.4/§8.5): fields with provenance badges ----------
 
+    /// <summary>
+    /// The Design workspace (Phase 17). All behaviour is in
+    /// <see cref="DesignWorkspace"/>; this method only builds controls and
+    /// forwards keystrokes to it, which is what keeps the gate testable
+    /// without a window.
+    /// </summary>
     private static void RenderDesign(Panel host, ShellViewModel shell, ProjectSession session)
     {
-        host.Children.Add(Heading("Engine",
-            "Every field carries its origin. Hover an Auto badge for the derivation and its citation."));
+        var workspace = DesignFor(shell, session);
+        var tab = workspace.SelectedTab;
+        var title = DesignWorkspace.Tabs.First(t => t.Tab == tab).Title;
 
-        var grid = new Grid { Margin = new Thickness(0, 0, 0, 16) };
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(260) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(140) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        host.Children.Add(Heading(title,
+            "Every field carries its origin. Hover a badge for the derivation and its citation."));
+        host.Children.Add(SubTabs(host, shell, session, workspace));
 
-        var fields = new (string Path, string Label, string Unit)[]
+        var all = DesignCatalogue.For(tab).Count;
+        var fields = workspace.Fields(tab);
+
+        if (fields.Count > 0)
         {
-            ("Engine.BoreMm", "Bore", "mm"),
-            ("Engine.StrokeMm", "Stroke", "mm"),
-            ("Engine.RodLengthMm", "Rod length", "mm"),
-            ("Engine.CompressionRatio", "Compression ratio", ""),
-            ("IntakeValves.MaxLiftMm", "Intake max lift", "mm"),
-            ("ExhaustValves.ThroatDiameterMm", "Exhaust throat", "mm"),
-            ("IntakeRunner.LengthMm", "Intake runner length", "mm"),
-            ("Solver.Cfl", "Solver CFL", ""),
-        };
+            var grid = new Grid();
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(240) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(130) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(52) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
 
-        var visible = fields.Where(f =>
-            shell.Mode == UiMode.Advanced || ShellViewModel.SimpleModeFields.Contains(f.Path)).ToArray();
-
-        for (var i = 0; i < visible.Length; i++)
-        {
-            grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(34) });
-            var (path, label, unit) = visible[i];
-
-            var name = Styled(new TextBlock { Text = label, VerticalAlignment = VerticalAlignment.Center }, "Text.Body");
-            Grid.SetRow(name, i);
-            Grid.SetColumn(name, 0);
-            grid.Children.Add(name);
-
-            var raw = ModelPath.Get(session.Document, path);
-            var valueText = raw is double dv
-                ? dv.ToString("0.###", CultureInfo.InvariantCulture)
-                : raw?.ToString() ?? "—";
-            var value = Styled(new TextBlock
+            for (var i = 0; i < fields.Count; i++)
             {
-                Text = string.IsNullOrEmpty(unit) ? valueText : $"{valueText} {unit}",
+                grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+                AddFieldRow(grid, i, fields[i], workspace, host, shell, session);
+            }
+
+            host.Children.Add(Card(grid));
+        }
+
+        var derived = workspace.Derived(tab);
+        if (derived.Count > 0)
+        {
+            host.Children.Add(DerivedCard(derived));
+        }
+
+        var issues = workspace.Issues(tab);
+        if (issues.Count > 0)
+        {
+            host.Children.Add(IssuesCard(issues));
+        }
+
+        if (shell.Mode == UiMode.Simple && fields.Count < all)
+        {
+            host.Children.Add(Note(
+                $"Simple mode is showing {fields.Count} of {all} fields on this tab. The rest stay ACTIVE — "
+                + "switching modes never changes the model, and the banner above lists what is hidden."));
+        }
+    }
+
+    /// <summary>
+    /// One workspace per session, so the selected tab and any inline
+    /// rejections survive a re-render.
+    /// </summary>
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ProjectSession, DesignWorkspace>
+        DesignWorkspaces = [];
+
+    private static DesignWorkspace DesignFor(ShellViewModel shell, ProjectSession session) =>
+        DesignWorkspaces.GetValue(session, s => new DesignWorkspace(s, shell.Preferences));
+
+    private static UIElement SubTabs(Panel host, ShellViewModel shell, ProjectSession session, DesignWorkspace workspace)
+    {
+        var strip = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 16) };
+
+        foreach (var (tab, title) in DesignWorkspace.Tabs)
+        {
+            var selected = tab == workspace.SelectedTab;
+            var button = new Button
+            {
+                Content = title,
+                Margin = new Thickness(0, 0, 8, 0),
+                Padding = new Thickness(14, 6, 14, 7),
+                Background = (Brush)Application.Current.Resources[selected ? "Brush.Accent" : "Brush.Surface"],
+                Foreground = (Brush)Application.Current.Resources[selected ? "Brush.OnAccent" : "Brush.TextSecondary"],
+                BorderBrush = (Brush)Application.Current.Resources["Brush.BorderSubtle"],
+                BorderThickness = new Thickness(1),
+                Cursor = System.Windows.Input.Cursors.Hand,
+            };
+
+            var target = tab;
+            button.Click += (_, _) =>
+            {
+                workspace.SelectedTab = target;
+                Render(host, shell, session);
+            };
+
+            strip.Children.Add(button);
+        }
+
+        return strip;
+    }
+
+    private static void AddFieldRow(
+        Grid grid, int row, FieldView view, DesignWorkspace workspace,
+        Panel host, ShellViewModel shell, ProjectSession session)
+    {
+        var field = view.Field;
+
+        var label = Styled(new TextBlock
+        {
+            Text = field.Label,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 5, 8, 5),
+            ToolTip = field.Help,
+        }, "Text.Body");
+        Grid.SetRow(label, row);
+        Grid.SetColumn(label, 0);
+        grid.Children.Add(label);
+
+        var editor = Editor(view, workspace, host, shell, session);
+        Grid.SetRow(editor, row);
+        Grid.SetColumn(editor, 1);
+
+        // A name has no unit, so it takes the unit column's width rather than
+        // being clipped into a box sized for "146.9".
+        if (field.Kind is FieldKind.Text or FieldKind.Choice)
+        {
+            Grid.SetColumnSpan(editor, 2);
+        }
+        else
+        {
+            var unit = Styled(new TextBlock
+            {
+                Text = view.DisplayUnit,
                 VerticalAlignment = VerticalAlignment.Center,
-            }, "Text.Body");
+                Margin = new Thickness(8, 5, 8, 5),
+            }, "Text.Secondary");
+            Grid.SetRow(unit, row);
+            Grid.SetColumn(unit, 2);
+            grid.Children.Add(unit);
+        }
+
+        grid.Children.Add(editor);
+
+        var badge = Badge(view.Provenance);
+        Grid.SetRow(badge, row);
+        Grid.SetColumn(badge, 3);
+        grid.Children.Add(badge);
+
+        if (workspace.Rejections.TryGetValue(field.Path, out var reason))
+        {
+            var error = Styled(new TextBlock
+            {
+                Text = reason,
+                VerticalAlignment = VerticalAlignment.Center,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(12, 5, 0, 5),
+                Foreground = (Brush)Application.Current.Resources["Brush.Warning"],
+            }, "Text.Small");
+            Grid.SetRow(error, row);
+            Grid.SetColumn(error, 4);
+            grid.Children.Add(error);
+        }
+    }
+
+    private static FrameworkElement Editor(
+        FieldView view, DesignWorkspace workspace, Panel host, ShellViewModel shell, ProjectSession session)
+    {
+        var field = view.Field;
+
+        // The value as rendered. Committing this back would be a write the
+        // user never made: the display is rounded for legibility, so merely
+        // tabbing THROUGH a field would rewrite the model with the rounded
+        // number and stamp it "You". An edit that changes nothing is not an
+        // edit.
+        var rendered = view.Display;
+
+        void Commit(string text)
+        {
+            if (text.Trim() == rendered)
+            {
+                return;
+            }
+
+            workspace.Edit(field.Path, text);
+            Render(host, shell, session);
+        }
+
+        switch (field.Kind)
+        {
+            case FieldKind.Toggle:
+            {
+                var box = new CheckBox
+                {
+                    IsChecked = string.Equals(view.Display, "true", StringComparison.OrdinalIgnoreCase),
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Margin = new Thickness(0, 5, 0, 5),
+                    Foreground = (Brush)Application.Current.Resources["Brush.TextPrimary"],
+                };
+                box.Click += (_, _) => Commit(box.IsChecked == true ? "true" : "false");
+                return box;
+            }
+
+            case FieldKind.Choice:
+            {
+                var combo = new ComboBox
+                {
+                    ItemsSource = field.Choices,
+                    SelectedItem = field.Choices?.FirstOrDefault(c =>
+                        c.Contains(view.Display, StringComparison.OrdinalIgnoreCase)
+                        || view.Display.Contains(c, StringComparison.OrdinalIgnoreCase)),
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Margin = new Thickness(0, 4, 0, 4),
+                };
+                combo.SelectionChanged += (_, _) =>
+                {
+                    if (combo.SelectedItem is string chosen)
+                    {
+                        Commit(chosen);
+                    }
+                };
+                return combo;
+            }
+
+            default:
+            {
+                var box = new TextBox
+                {
+                    Text = view.Display,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Margin = new Thickness(0, 4, 0, 4),
+                    Padding = new Thickness(6, 3, 6, 4),
+                    Background = (Brush)Application.Current.Resources["Brush.Canvas"],
+                    Foreground = (Brush)Application.Current.Resources["Brush.TextPrimary"],
+                    BorderBrush = (Brush)Application.Current.Resources["Brush.BorderSubtle"],
+                };
+                box.SetValue(
+                    System.Windows.Documents.Typography.NumeralAlignmentProperty, FontNumeralAlignment.Tabular);
+
+                // Commit on Enter or focus loss — never per keystroke, which
+                // would reject "1" on the way to typing "12".
+                box.LostFocus += (_, _) => Commit(box.Text);
+                box.KeyDown += (_, e) =>
+                {
+                    if (e.Key == System.Windows.Input.Key.Enter)
+                    {
+                        Commit(box.Text);
+                    }
+                };
+                return box;
+            }
+        }
+    }
+
+    private static UIElement DerivedCard(IReadOnlyList<DerivedReadout> readouts)
+    {
+        var panel = new StackPanel();
+        panel.Children.Add(Styled(new TextBlock
+        {
+            Text = "Derived",
+            Margin = new Thickness(0, 0, 0, 4),
+        }, "Text.Body"));
+        panel.Children.Add(Styled(new TextBlock
+        {
+            Text = "Computed from the fields above. Nothing here is stored, so it cannot drift from the model.",
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 0, 0, 12),
+        }, "Text.Secondary"));
+
+        var grid = new Grid();
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(200) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(220) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+        for (var i = 0; i < readouts.Count; i++)
+        {
+            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            var r = readouts[i];
+
+            var label = Styled(new TextBlock { Text = r.Label, Margin = new Thickness(0, 3, 8, 3) }, "Text.Secondary");
+            Grid.SetRow(label, i);
+            Grid.SetColumn(label, 0);
+            grid.Children.Add(label);
+
+            var value = Styled(new TextBlock { Text = r.Value, Margin = new Thickness(0, 3, 8, 3) }, "Text.Body");
             value.SetValue(System.Windows.Documents.Typography.NumeralAlignmentProperty, FontNumeralAlignment.Tabular);
             Grid.SetRow(value, i);
             Grid.SetColumn(value, 1);
             grid.Children.Add(value);
 
-            var badge = Badge(session.Provenance[path]);
-            Grid.SetRow(badge, i);
-            Grid.SetColumn(badge, 2);
-            grid.Children.Add(badge);
+            var noteText = r.Warning ?? r.Note;
+            if (noteText is not null)
+            {
+                var note = Styled(new TextBlock
+                {
+                    Text = (r.Warning is null ? "" : "⚠  ") + noteText,
+                    TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(0, 3, 0, 3),
+                }, "Text.Small");
+
+                if (r.Warning is not null)
+                {
+                    note.Foreground = (Brush)Application.Current.Resources["Brush.Warning"];
+                }
+
+                Grid.SetRow(note, i);
+                Grid.SetColumn(note, 2);
+                grid.Children.Add(note);
+            }
         }
 
-        host.Children.Add(Card(grid));
+        panel.Children.Add(grid);
+        return Card(panel);
+    }
 
-        if (shell.Mode == UiMode.Simple)
+    private static UIElement IssuesCard(IReadOnlyList<ModelIssue> issues)
+    {
+        var panel = new StackPanel();
+        panel.Children.Add(Styled(new TextBlock
         {
-            host.Children.Add(Note(
-                $"Simple mode is showing {visible.Length} of {fields.Length} fields. The rest stay ACTIVE — "
-                + "switching modes never changes the model, and the banner above lists what is hidden."));
+            Text = "Model checks",
+            Margin = new Thickness(0, 0, 0, 10),
+        }, "Text.Body"));
+
+        foreach (var issue in issues)
+        {
+            var isError = issue.Severity == ModelIssueSeverity.Error;
+            var line = Styled(new TextBlock
+            {
+                Text = $"{(isError ? "✕" : "⚠")}  {issue.Path}: {issue.Message}",
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 2, 0, 2),
+                Foreground = (Brush)Application.Current.Resources[isError ? "Brush.Danger" : "Brush.Warning"],
+            }, "Text.Small");
+            panel.Children.Add(line);
         }
+
+        return Card(panel);
     }
 
     /// <summary>A provenance badge: colour, label AND glyph, so colour is never load-bearing (§8.11).</summary>

@@ -9,12 +9,21 @@ hard acceptance gate (Part 12). Never let a session span two phases.
 **Phase status:** Phases 0-10 complete; Phase 11 PARTIAL (compliance done;
 ISO 532-1 loudness and DIN 45692 sharpness done and verified; ISO 532-3,
 ECMA-418-2, fluctuation strength and DIN 45681 outstanding - see
-PsychoacousticStatus and docs/acoustics.md §4); **Phase 16 complete** (GUI pulled forward per the
-Part 12 allowance, all four gate criteria pass). Next: Phase 17 (Design
-workspace: Engine, Head & Cam, Fuel & Combustion screens with all inputs,
-imports and derived readouts; templates; autosave. Gate: a complete model
-can be built and saved entirely through the UI and produces byte-identical
-results to the same model run from the CLI).
+PsychoacousticStatus and docs/acoustics.md §4); **Phases 16 and 17 complete**
+(GUI pulled forward per the Part 12 allowance; Phase 17's gate verified by
+DesignGateTests - a model built through the workspace edit API alone runs
+bit-identically to the same model from the CLI). Next: Phase 18 (Manifold
+canvas: node-graph editor with palette, drag/snap/auto-layout, multi-select,
+copy/paste, inspector binding, live geometry summary, inline design warnings
+with citations. Gate: every §2.8/§4.6.2 collector configuration buildable in
+under two minutes by a new user; 60 fps with 40 components).
+
+**Design workspace:** field metadata is DATA in `DesignCatalogue`, not
+branches in a renderer - add a field there and it appears, converts units and
+validates. A reflection test walks the document schema and fails if any
+editable property is unreachable from the UI, so the Phase 17 gate cannot rot.
+`DesignWorkspace` holds all behaviour; `WorkspaceContent` only builds controls.
+Unit conversion happens ONLY at that boundary.
 
 **UI framework:** WPF, not WinUI 3 - no Windows App SDK workload here and
 unpackaged WinUI needs its runtime present. The plan sanctions WPF as the

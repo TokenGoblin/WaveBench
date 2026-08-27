@@ -65,6 +65,17 @@ public sealed class DesignWorkspace(ProjectSession session, UserPreferences? pre
     ];
 
     /// <summary>
+    /// Which sub-tab is showing. Lives here rather than in the view so the
+    /// selection survives a re-render and stays testable.
+    /// </summary>
+    public DesignTab SelectedTab { get; set; } = DesignTab.Engine;
+
+    /// <summary>The most recent rejection per field, for the view to show inline.</summary>
+    public IReadOnlyDictionary<string, string> Rejections => _rejections;
+
+    private readonly Dictionary<string, string> _rejections = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
     /// Fields to draw on a tab, filtered by mode. A field hidden by Simple
     /// mode is still IN FORCE — <see cref="ShellViewModel.AdvancedSettingsBanner"/>
     /// is what stops that being a lie by omission (plan §8.8 rule 7).
@@ -91,6 +102,21 @@ public sealed class DesignWorkspace(ProjectSession session, UserPreferences? pre
     /// the session so the value is stamped <see cref="Provenance.You"/>.
     /// </summary>
     public EditOutcome Edit(string path, string text)
+    {
+        var outcome = Apply(path, text);
+        if (outcome.Accepted)
+        {
+            _rejections.Remove(path);
+        }
+        else if (outcome.Reason is { } reason)
+        {
+            _rejections[path] = reason;
+        }
+
+        return outcome;
+    }
+
+    private EditOutcome Apply(string path, string text)
     {
         var field = DesignCatalogue.Find(path);
         if (field is null)
@@ -419,12 +445,33 @@ public sealed class DesignWorkspace(ProjectSession session, UserPreferences? pre
         return Format(field, value);
     }
 
+    /// <summary>
+    /// Decimal places for a field, chosen by what the quantity needs rather
+    /// than by how big the number happens to be — a magnitude rule prints
+    /// "86.000" next to "107.0" in the same column, which reads as though the
+    /// two were measured differently.
+    /// </summary>
+    private int Decimals(DesignField field) => field.Kind == FieldKind.Integer ? 0 : field.Quantity switch
+    {
+        Quantity.Length => Units == UnitSystem.Imperial ? 3 : 2,
+        Quantity.Pressure => Units == UnitSystem.Imperial ? 2 : 1,
+        Quantity.Temperature => 1,
+        Quantity.Angle => 1,
+        _ => 3,
+    };
+
     private string Format(DesignField field, double modelValue)
     {
         var shown = ToDisplay(field, modelValue);
-        var digits = field.Kind == FieldKind.Integer ? 0
-            : field.Quantity == Quantity.Length && Units == UnitSystem.Imperial ? 3
-            : Math.Abs(shown) >= 100 ? 1 : 3;
-        return shown.ToString("F" + digits, CultureInfo.InvariantCulture);
+        var text = shown.ToString("F" + Decimals(field), CultureInfo.InvariantCulture);
+
+        // Trim the noise: "86.00" reads as a measurement to two decimals when
+        // it is just 86. Keeps a real fractional part intact.
+        if (text.Contains('.'))
+        {
+            text = text.TrimEnd('0').TrimEnd('.');
+        }
+
+        return text.Length == 0 || text == "-" ? "0" : text;
     }
 }

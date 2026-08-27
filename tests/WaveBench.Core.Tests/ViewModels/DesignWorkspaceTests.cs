@@ -143,7 +143,7 @@ public class DesignWorkspaceTests(ITestOutputHelper output)
 
         var bore = workspace.View("Engine.BoreMm");
         bore.DisplayUnit.Should().Be("in");
-        bore.Display.Should().Be("3.780", "96 mm is 3.780 in");
+        bore.Display.Should().Be("3.78", "96 mm is 3.7795 in, shown to three decimals with the trailing zero trimmed");
 
         // Type 4 inches; the document must hold 101.6 mm.
         workspace.Edit("Engine.BoreMm", "4.0").Accepted.Should().BeTrue();
