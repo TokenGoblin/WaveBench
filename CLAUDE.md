@@ -99,41 +99,22 @@ round-trips valid UTF-8 through CP1252 and destroys the character for real.
 Check the bytes — `[IO.File]::ReadAllText($p,[Text.Encoding]::UTF8)` — or
 just use the Read tool, before concluding a file is damaged.
 
-**OPEN SOLVER DEFECT — a narrow exhaust primary aborts the run.** When the
-exhaust valve throats total more area than the primary they open into, duct
-cell 0 reaches a non-positive density in the conservative update and the run
-throws. Sharp geometric threshold, independent of mesh and speed: on an 82 mm
-bore four with two 28 mm exhaust valves, Ø34 mm primary works and Ø33 fails at
-every mesh from 5 to 20 mm and every speed from 2000 to 7000 rpm. Two throats
-at 0.85 x 28 mm = 890 mm2 against 908 mm2 for Ø34 and 855 for Ø33 - it breaks
-exactly where the valve can outflow the pipe.
+**Cylinders must not burn on their first step.** The Wiebe increment is
+`xb - _previousBurnFraction`, and a cylinder whose first step lands PAST its
+burn window would see xb ~= 0.9933 against a stored zero and dump the whole
+cycle's fuel at once. On a four-cylinder engine two of the four start past the
+window on every run, one of them mid exhaust-stroke with its valve open, and
+they detonated into a cold pipe at 14 bar on the first degree of crank. A wide
+pipe absorbed it; a narrow one went to negative density and took the solve to
+NaN. `Cylinder.Step` seeds `_previousBurnFraction` from the starting angle;
+`NarrowPrimaryTests.Gate_no_cylinder_burns_fuel_it_never_had` guards it.
 
-It used to surface as a SILENT NaN propagating all the way to a reported
-torque; `UpdateConserved` now throws with the geometry named. That is the
-improvement so far; the root cause is NOT fixed.
-
-**THREE hypotheses tried and falsified — do not repeat them.** (a) Bounding dt
-by the imposed end flux: no effect, because the network sets the override AFTER
-asking the duct for dt, so at valve opening the value in hand is the previous
-step's, which is zero. (b) Clamping the face state to sonic when the
-face-pressure bracket degenerates: no effect, so that branch is not the path
-taken. (c) Clamping the face state to sonic AFTER the bisection whenever the
-solved face is supersonic into the duct: made it WORSE - engaged on Ø34, which
-had been solving correctly, and broke it. So either the sonic pressure derived
-from R- is wrong, or a supersonic solved face is not the mechanism.
-
-Mesh independence is the strongest remaining clue and rules out the timestep:
-dt scales with dx, so the fraction of a cell removed per step is the same at
-any mesh. Suspect the imposed flux itself. `NarrowPrimaryTests` holds the
-reproduction as SKIPPED tests - remove the Skip to work on it - plus two that
-are NOT skipped and must stay green: an ordinary Ø38 primary still returns
-VE 1.060378 / 219.969680 N·m, and the narrow case still fails LOUDLY rather
-than returning a number.
-
-`Wizard.SeedGeometry` floors the primary at the throat-equivalent diameter,
-which is correct design guidance in its own right (a primary that cannot pass
-what the valves flow makes the pipe the restriction) and is documented as such
-rather than as a workaround.
+LESSON FOR THE NEXT ONE OF THESE: the failure threshold coincided exactly with
+valve throat area crossing pipe area, which made a flow-limit explanation look
+obvious and cost three wrong fixes to the valve/duct coupling. What actually
+identified it was varying something the theory said was irrelevant - cylinder
+COUNT - and finding that 1 and 2 survived where 4 did not. When a hypothesis
+fails twice, stop refining it and go looking for a variable it does not mention.
 
 **Duct source terms (fixed, keep them wired).** `EngineBuilder.ApplyThermal`
 equips EVERY duct with Haaland friction and a Colburn wall node from

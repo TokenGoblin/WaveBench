@@ -294,7 +294,8 @@ public sealed class Cylinder
         // local 360° — gas-exchange TDC, the point furthest from combustion,
         // and after the previous burn has fully finished.
         var burnAngle = BurnWindowAngle(theta);
-        if (!double.IsNaN(_previousBurnAngle) && burnAngle < _previousBurnAngle - 360.0)
+        var firstStep = double.IsNaN(_previousBurnAngle);
+        if (!firstStep && burnAngle < _previousBurnAngle - 360.0)
         {
             _cycleNumber++;
             _previousBurnFraction = 0.0;
@@ -325,6 +326,32 @@ public sealed class Cylinder
                 DurationDeg = wiebe.DurationDeg * _durationScale,
             }
             : Combustion;
+
+        // SEED THE BURN STATE ON THE FIRST STEP, from wherever this cylinder
+        // actually starts.
+        //
+        // The increment is xb − _previousBurnFraction, and _previousBurnFraction
+        // begins at zero. A cylinder whose first step lands PAST its burn
+        // window therefore sees xb ≈ 0.9933 against a stored zero and releases
+        // the entire cycle's fuel in a single step. On a four-cylinder engine
+        // that is not an edge case: the cylinders start 180° apart, so on
+        // every run two of the four begin past the window — one mid
+        // exhaust-stroke with its valve open — and detonate into a cold pipe
+        // at 14 bar on the first degree of crank.
+        //
+        // A pipe wide enough absorbs it and the transient washes out over the
+        // convergence cycles, which is why this went unseen. A primary
+        // narrower than its valve throats does not, and the duct's end cell
+        // went to negative density and took the whole solve to NaN with it.
+        //
+        // Seeding is also the physically right answer, not just the safe one:
+        // a cylinder initialised half way through its exhaust stroke has
+        // already burned. It holds no fresh charge, and it should release
+        // nothing until the next cycle brings it round to its window again.
+        if (firstStep)
+        {
+            _previousBurnFraction = effective.BurnFraction(theta);
+        }
 
         var xb = effective.BurnFraction(theta);
         var dxb = Math.Max(0.0, xb - _previousBurnFraction);

@@ -421,6 +421,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed (physics)
 
+- **Cylinders released a whole cycle's fuel on their first step.** The Wiebe
+  increment is `xb − _previousBurnFraction`, and `_previousBurnFraction` began
+  at zero — so a cylinder whose first step landed past its burn window saw
+  xb ≈ 0.9933 against a stored zero and burned everything at once. On a
+  four-cylinder engine the cylinders start 180° apart, so **two of the four did
+  this on every run**, one of them mid exhaust-stroke with its valve open,
+  detonating into a cold pipe at 14 bar on the first degree of crank.
+
+  A wide pipe absorbed it and the transient washed out over the convergence
+  cycles, which is why it went unseen. A primary narrower than its valve
+  throats did not: the duct's end cell went to negative density and the whole
+  solve became NaN — silently, all the way to a reported torque figure, until
+  `UpdateConserved` was given a positivity guard.
+
+  `Cylinder.Step` now seeds the burn state from wherever the cylinder actually
+  starts, which is also the physically right answer: a cylinder initialised
+  half way through its exhaust stroke has already burned and holds no fresh
+  charge. It fires normally on the next cycle.
+
+  The fix moves a converged answer by **eight parts per million** (Ø38 mm
+  primary: 219.969680 → 219.967828 N·m) and moved no other committed figure in
+  the suite at all — a converged periodic solution does not remember its
+  startup.
+
+  Worth recording how it was found. The failure threshold coincided exactly
+  with valve throat area crossing pipe area, which made a flow-limit
+  explanation look obvious and cost three wrong fixes to the valve/duct
+  coupling — one of which broke geometry that had been solving correctly. What
+  actually identified it was varying something the theory said was irrelevant,
+  the cylinder *count*, and finding that one and two cylinders survived where
+  four did not.
+
 - **Duct friction and wall heat transfer never reached a built engine.**
   `DuctSolver` implements Haaland/Darcy friction (§2.1) and Colburn wall heat
   transfer against a `WallThermalModel` node (§2.3, §2.9), and all of it

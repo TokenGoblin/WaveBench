@@ -487,13 +487,12 @@ public sealed class Wizard(ProjectSession session)
         // But never smaller than the valve throats feeding it. A primary that
         // cannot pass what the exhaust valves can flow is a restriction the
         // valves were sized to avoid, and it is the pipe rather than the valve
-        // that then sets the engine's breathing — which is the wrong way
-        // round on any engine anyone would build.
+        // that then sets the engine's breathing — which is the wrong way round
+        // on any engine anyone would build.
         //
-        // It is also where this solver currently fails: below that ratio the
-        // duct's end cell goes non-positive and the run aborts. See
-        // docs/numerics.md — the solver defect is real and separate, and this
-        // bound is here because it is right, not to dodge it.
+        // The solver handles narrower primaries perfectly well; the search that
+        // follows this seed is free to go below the bound if the torque says
+        // so. This is where to START, not a limit.
         var exhaustHead = ExhaustValveMm > 0
             ? ExhaustValveMm
             : (IntakeValveMm > 0 ? IntakeValveMm : BoreMm * 0.40) * 0.85;
