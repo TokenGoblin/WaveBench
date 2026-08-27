@@ -88,8 +88,15 @@ public static class DesignCatalogue
     /// <summary>Document blocks the Design workspace does not own.</summary>
     public static IReadOnlySet<string> OwnedElsewhere { get; } = new HashSet<string>(StringComparer.Ordinal)
     {
-        "SchemaVersion",  // schema metadata, not user data
-        "Solver",         // Run workspace (plan §8.4)
+        "SchemaVersion",     // schema metadata, not user data
+        "Solver",            // Run workspace (plan §8.4)
+
+        // The manifold is a GRAPH. It is edited by the canvas — place a
+        // component, drag a connection, select a node and edit it in the
+        // inspector — not by a list of labelled rows. Listing its nodes as
+        // fields here would be claiming an editing model that does not fit
+        // the thing being edited.
+        "ExhaustManifold",
     };
 
     // NOTE: these three MUST be declared before Fields. Static initialisers

@@ -74,6 +74,24 @@ public static class EngineBuilder
         var engine = new EngineSimulator { Rpm = rpm };
         var phasePerCylinder = 720.0 / document.Engine.CylinderCount;
 
+        // A manifold graph REPLACES the per-cylinder exhaust runner. Built
+        // once, before the cylinder loop, because a collector is shared by
+        // every cylinder that feeds it — which is the entire point of one.
+        AssembledManifold? manifold = null;
+        if (document.ExhaustManifold is { Nodes.Count: > 0 } spec)
+        {
+            manifold = ManifoldAssembler.Build(
+                spec, engine, gas, cellSize, limiter, rho0, p0, t0, document.Solver.Cfl);
+
+            // Notes travel on the ENGINE, not on the builder. A static would
+            // be shared mutable state, and OperatingPointRunner.Sweep builds
+            // engines in parallel.
+            foreach (var note in manifold.Notes)
+            {
+                engine.Notes.Add(note);
+            }
+        }
+
         for (var c = 0; c < document.Engine.CylinderCount; c++)
         {
             // Start the intake runner at the plenum's pressure, not ambient:
@@ -82,7 +100,29 @@ public static class EngineBuilder
             var intake = MakeDuct(
                 document.IntakeRunner, cellSize, limiter, gas,
                 rho0 * intakeLoadFraction, p0 * intakeLoadFraction, document.Solver.Cfl);
-            var exhaust = MakeDuct(document.ExhaustRunner, cellSize, limiter, gas, rho0, p0, document.Solver.Cfl);
+            // With a manifold the exhaust side is already built and shared;
+            // without one each cylinder gets its own runner to atmosphere.
+            DuctSolver exhaust;
+            bool exhaustAtLeftEnd;
+            if (manifold is not null)
+            {
+                if (!manifold.Ports.TryGetValue(c + 1, out var attachment))
+                {
+                    throw new InvalidOperationException(
+                        $"The exhaust manifold has no port for cylinder {c + 1}.");
+                }
+
+                exhaust = attachment.Duct;
+                exhaustAtLeftEnd = attachment.AtLeftEnd;
+            }
+            else
+            {
+                exhaust = MakeDuct(document.ExhaustRunner, cellSize, limiter, gas, rho0, p0, document.Solver.Cfl);
+                exhaust.RightBoundary = BoundaryKind.External;
+                exhaust.RightEnd = new ReservoirBoundary { StagnationPressure = p0, StagnationTemperature = t0 };
+                exhaustAtLeftEnd = true;
+                engine.Ducts.Add(exhaust);
+            }
 
             intake.LeftBoundary = BoundaryKind.External;
             intake.LeftEnd = new ReservoirBoundary
@@ -90,8 +130,6 @@ public static class EngineBuilder
                 StagnationPressure = p0 * intakeLoadFraction,
                 StagnationTemperature = t0,
             };
-            exhaust.RightBoundary = BoundaryKind.External;
-            exhaust.RightEnd = new ReservoirBoundary { StagnationPressure = p0, StagnationTemperature = t0 };
 
             var cylinder = new Cylinder(gas, crank, c * phasePerCylinder, p0, t0) { CylinderIndex = c };
 
@@ -115,14 +153,13 @@ public static class EngineBuilder
             }
 
             engine.Ducts.Add(intake);
-            engine.Ducts.Add(exhaust);
             engine.Cylinders.Add(cylinder);
             engine.Valves.Add(new ValveConnection(
                 cylinder, intake, ductLeftEnd: false,
                 MakeCam(document.IntakeValves),
                 ToValveGeometry(document.IntakeValves)));
             engine.Valves.Add(new ValveConnection(
-                cylinder, exhaust, ductLeftEnd: true,
+                cylinder, exhaust, ductLeftEnd: exhaustAtLeftEnd,
                 MakeCam(document.ExhaustValves),
                 ToValveGeometry(document.ExhaustValves)));
         }

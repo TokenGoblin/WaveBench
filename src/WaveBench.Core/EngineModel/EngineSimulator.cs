@@ -18,6 +18,14 @@ public sealed class EngineSimulator
 
     public List<PlenumVolume> Plenums { get; } = [];
 
+    /// <summary>
+    /// Modelling decisions taken while building this engine that the user
+    /// should see — a junction that fell back to the constant-pressure model,
+    /// for instance. Carried on the engine rather than on the builder because
+    /// operating points are built in parallel.
+    /// </summary>
+    public List<string> Notes { get; } = [];
+
     public List<OrificeConnector> Connectors { get; } = [];
 
     public List<ValveConnection> Valves { get; } = [];

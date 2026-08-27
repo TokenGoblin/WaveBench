@@ -40,6 +40,17 @@ public sealed class ValveConnection
     /// <summary>Mass flow of the last update, positive into the cylinder, kg/s.</summary>
     public double MassFlow { get; private set; }
 
+    /// <summary>
+    /// The pipe this valve opens into. Exposed because with a manifold graph
+    /// the pipe is no longer implied by the valve's position in a list — four
+    /// cylinders sharing a collector must be shown to reach four DIFFERENT
+    /// primaries, and that is only checkable from outside.
+    /// </summary>
+    public DuctSolver Duct => _duct;
+
+    /// <summary>Which end of <see cref="Duct"/> the cylinder sits at.</summary>
+    public bool DuctLeftEnd => _ductLeftEnd;
+
     private double _lastFacePressure;
 
     public double CurrentLift { get; private set; }

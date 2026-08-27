@@ -29,6 +29,16 @@ public sealed record EngineModelDocument
 
     public required DuctSpec ExhaustRunner { get; set; }
 
+    /// <summary>
+    /// Exhaust manifold as a node graph (plan §2.8). Null keeps the simple
+    /// per-cylinder <see cref="ExhaustRunner"/>, which is what every model
+    /// without a collector wants and what keeps existing projects working
+    /// untouched. When present it REPLACES the runner: a topology and a
+    /// single pipe are two answers to the same question, and honouring both
+    /// would mean the exhaust a user sees is not the exhaust that runs.
+    /// </summary>
+    public ManifoldSpec? ExhaustManifold { get; set; }
+
     public CombustionSpec? Combustion { get; set; }
 
     public SolverSpec Solver { get; set; } = new();
@@ -113,6 +123,30 @@ public sealed record EngineModelDocument
         if (Ambient.PressureKPa is < 50 or > 120)
         {
             Warn("ambient.pressureKPa", "Ambient pressure outside 50–120 kPa — high-altitude or boosted intent?");
+        }
+
+        if (ExhaustManifold is { } manifold)
+        {
+            issues.AddRange(manifold.Validate("exhaustManifold"));
+
+            var ported = manifold.Nodes
+                .Where(n => n.Kind == ManifoldNodeKind.Port)
+                .Select(n => n.Cylinder)
+                .ToHashSet();
+
+            for (var c = 1; c <= Engine.CylinderCount; c++)
+            {
+                if (!ported.Contains(c))
+                {
+                    Error("exhaustManifold", $"Cylinder {c} has no port on the exhaust manifold.");
+                }
+            }
+
+            foreach (var extra in ported.Where(c => c > Engine.CylinderCount))
+            {
+                Error("exhaustManifold", $"The manifold has a port for cylinder {extra}, but the engine has "
+                    + $"{Engine.CylinderCount}.");
+            }
         }
 
         return issues;
