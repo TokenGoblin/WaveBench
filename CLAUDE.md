@@ -87,6 +87,30 @@ round-trips valid UTF-8 through CP1252 and destroys the character for real.
 Check the bytes — `[IO.File]::ReadAllText($p,[Text.Encoding]::UTF8)` — or
 just use the Read tool, before concluding a file is damaged.
 
+**OPEN SOLVER DEFECT — a narrow exhaust primary aborts the run.** When the
+exhaust valve throats total more area than the primary they open into, duct
+cell 0 reaches a non-positive density in the conservative update and the run
+throws. Sharp geometric threshold, independent of mesh and speed: on an 82 mm
+bore four with two 28 mm exhaust valves, Ø34 mm primary works and Ø33 fails at
+every mesh from 5 to 20 mm and every speed from 2000 to 7000 rpm. Two throats
+at 0.85 x 28 mm = 890 mm2 against 908 mm2 for Ø34 and 855 for Ø33 - it breaks
+exactly where the valve can outflow the pipe.
+
+It used to surface as a SILENT NaN propagating all the way to a reported
+torque; `UpdateConserved` now throws with the geometry named. That is the
+improvement so far; the root cause is NOT fixed. Two hypotheses tried and
+falsified: (a) bounding dt by the imposed end flux - fails because the network
+sets the override AFTER asking for dt, and at valve opening the previous
+step's flux is zero; (b) clamping the face state to sonic when the
+face-pressure bracket degenerates - no effect, so that branch is not the path
+taken. Reproduce by setting ExhaustRunner.DiameterMm below the valve-throat
+equivalent and running any operating point.
+
+`Wizard.SeedGeometry` floors the primary at the throat-equivalent diameter,
+which is correct design guidance in its own right (a primary that cannot pass
+what the valves flow makes the pipe the restriction) and is documented as such
+rather than as a workaround.
+
 **Duct source terms (fixed, keep them wired).** `EngineBuilder.ApplyThermal`
 equips EVERY duct with Haaland friction and a Colburn wall node from
 `document.PipeThermal`. For a long time nothing did, and every pipe in the

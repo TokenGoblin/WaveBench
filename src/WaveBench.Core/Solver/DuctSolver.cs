@@ -765,6 +765,25 @@ public sealed class DuctSolver
             _mom[c] += f * _wP[c] * (aR - aL); // well-balanced p·dA/dx source
             _ener[c] -= f * (aR * _fluxEner[i + 1] - aL * _fluxEner[i]);
 
+            // The reconstruction and the Hancock half-step both guard
+            // positivity; this is the update itself, and it did not. A cell
+            // that goes non-positive here produces √(γp/ρ) = NaN on the next
+            // pass, and the NaN then propagates silently all the way out to a
+            // reported torque figure — which is how a 33 mm exhaust primary
+            // came back as "VE NaN" rather than as an error.
+            //
+            // The timestep limit in StableTimestep is what prevents this; this
+            // is the assertion that it worked. Failing loudly is the point: a
+            // number that is wrong is worse than no number.
+            if (!double.IsFinite(_rho[c]) || _rho[c] <= 0)
+            {
+                throw new InvalidOperationException(
+                    $"Duct cell {i} of {_n} reached a non-physical density ({_rho[c]:E3} kg/m³) after the "
+                    + $"conservative update. This is a solver failure, not a modelling one — the timestep "
+                    + $"was too large for the flux imposed at the pipe end. Geometry: {_geometry.Length * 1000:F0} mm "
+                    + $"× Ø{_geometry.HydraulicDiameter[i] * 1000:F1} mm, {_n} cells.");
+            }
+
             // Keep Σ(ρY) ≡ ρ exactly: clamp and renormalise the species vector.
             if (_gas.SpeciesCount > 0)
             {
