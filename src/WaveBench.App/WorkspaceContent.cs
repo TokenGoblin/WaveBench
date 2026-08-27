@@ -21,6 +21,29 @@ public static class WorkspaceContent
     /// </summary>
     public static ResultsWorkspace? LatestResults { get; set; }
 
+    /// <summary>
+    /// One Sound workspace per session, so the selected design, tab and speed
+    /// survive the re-render every control triggers.
+    /// </summary>
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ProjectSession, SoundWorkspace>
+        SoundWorkspaces = [];
+
+    /// <summary>
+    /// The Sound workspace opens on the plan's own M50 comparison. A blank A/B
+    /// would leave the user with nothing to compare and no idea what the screen
+    /// is for; the worked example arrives populated and is replaced as soon as
+    /// they load their own.
+    /// </summary>
+    private static SoundWorkspace SoundFor(ProjectSession session) =>
+        SoundWorkspaces.GetValue(session, _ => new SoundWorkspace(
+            WaveBench.Acoustics.SoundCases.M50Factory(),
+            WaveBench.Acoustics.SoundCases.M50EqualLength(),
+            App.Preferences));
+
+    /// <summary>Drive the Sound sub-tab without a mouse — used by the offscreen renderer.</summary>
+    public static void SelectSoundTab(ProjectSession session, SoundTab tab) =>
+        SoundFor(session).SelectedTab = tab;
+
     public static void Render(Panel host, ShellViewModel shell, ProjectSession session)
     {
         host.Children.Clear();
@@ -34,6 +57,9 @@ public static class WorkspaceContent
                 break;
             case Workspace.Results:
                 ResultsContent.Render(host, shell, session, LatestResults);
+                break;
+            case Workspace.Sound:
+                SoundContent.Render(host, shell, session, SoundFor(session));
                 break;
             default:
                 RenderPlaceholder(host, shell);

@@ -116,10 +116,22 @@ public static class SvgPlotWriter
 
         AppendGrid(svg, plot, p, plotW, plotH, X, Y);
 
+        // Series are clipped to the plot rectangle. A value far outside the
+        // axis range is not a reason to redraw the axis — an order spectrum's
+        // floor is −300 dB and an axis showing that would render everything
+        // else flat — but it is also not licence to draw over the legend.
+        svg.Append(CultureInfo.InvariantCulture,
+            $"""<clipPath id="plot"><rect x="{F(PadLeft)}" y="{F(PadTop)}" width="{F(plotW)}" height="{F(plotH)}"/></clipPath>""");
+        svg.Append('\n');
+        svg.Append("""<g clip-path="url(#plot)">""");
+        svg.Append('\n');
+
         foreach (var series in plot.Series)
         {
             AppendSeries(svg, series, p, plotH, X, series.RightAxis ? YRight : Y);
         }
+
+        svg.Append("</g>\n");
 
         AppendMarkers(svg, plot, p, plotH, X);
         AppendYMarkers(svg, plot, p, plotW, Y);

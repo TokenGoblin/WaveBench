@@ -21,6 +21,15 @@ decomposition verified against the textbook reflection, x-t wave diagram with
 scrub and animation, per-cylinder charts with EGT and knock, PNG+SVG export of
 every plot, Run wired to the solver; animation gate met at p99 0.0023 ms).
 
+**Phase 20 complete** (Sound workspace: the M50 factory-vs-6-1 comparison
+reproduced from geometry and firing order alone, order spectrum/waterfall/
+character/timing figures, "Explain this" with an exact cause split, TMM
+silencing with live sliders, level-matched gapless A/B audition. All three gate
+clauses met: slider p99 8.4 ms against 50 ms; A/B matched to -23 LUFS with no
+click; M50 table reproduced.) NOT built: the Compliance tab, which needs a
+radiated level from a solved run - the instant model has order structure but no
+absolute level, and a verdict from it would be a number with nothing behind it.
+
 **PHASE ORDER IS USER-REORDERED: 19 -> 20 -> 23, then the forced-induction
 block (12-15), then 21/22/24/25.** The user chose this to get a complete
 naturally-aspirated tool sooner. Phase 20's acoustics engine (8-11) is already

@@ -35,6 +35,13 @@ public sealed class PlotView : Canvas
 
     private PlotModel _model;
 
+    /// <summary>
+    /// Set while series are being drawn. Its children are positioned relative
+    /// to the plot's top-left rather than the canvas's, so they inherit the
+    /// clip.
+    /// </summary>
+    private Canvas? _seriesLayer;
+
     public PlotView(PlotModel model)
     {
         _model = model;
@@ -132,11 +139,26 @@ public sealed class PlotView : Canvas
         DrawTitle();
         DrawHeatMap(plotW, plotH);
         DrawGrid(plotW, plotH, X, Y);
+
+        // Series are drawn into a clipped layer. A value far outside the axis
+        // range is not a reason to redraw the axis — an order spectrum's floor
+        // is −300 dB and an axis showing that would render everything else
+        // flat — but it is also not licence to draw over the legend, which is
+        // what an unclipped polyline does.
+        _seriesLayer = new Canvas
+        {
+            Width = plotW,
+            Height = plotH,
+            Clip = new RectangleGeometry(new Rect(0, 0, plotW, plotH)),
+        };
+        Add(_seriesLayer, PadLeft, PadTop);
+
         foreach (var series in _model.Series)
         {
             DrawSeries(series, plotH, X, series.RightAxis ? YRight : Y);
         }
 
+        _seriesLayer = null;
         DrawMarkers(plotH, X);
         DrawYMarkers(plotW, Y);
         DrawAxisLabels(plotW, plotH, X, Y, YRight);
@@ -276,7 +298,7 @@ public sealed class PlotView : Canvas
                     }
 
                     var top = y(series.Y[i]);
-                    Add(new Rectangle
+                    AddSeries(new Rectangle
                     {
                         Width = barWidth,
                         Height = Math.Abs(baseline - top),
@@ -297,7 +319,7 @@ public sealed class PlotView : Canvas
                         continue;
                     }
 
-                    Add(new Ellipse { Width = 6, Height = 6, Fill = brush },
+                    AddSeries(new Ellipse { Width = 6, Height = 6, Fill = brush },
                         x(series.X[i]) - 3, y(series.Y[i]) - 3);
                 }
 
@@ -329,7 +351,7 @@ public sealed class PlotView : Canvas
                     line.Points.Add(new Point(x(series.X[i]), y(series.Y[i])));
                 }
 
-                Children.Add(line);
+                AddSeriesGeometry(line);
                 return;
             }
         }
@@ -523,6 +545,44 @@ public sealed class PlotView : Canvas
         SetLeft(element, left);
         SetTop(element, top);
         Children.Add(element);
+    }
+
+    /// <summary>
+    /// Add a POSITIONED series element — a bar or a marker dot, whose shape
+    /// carries no coordinates of its own. Left/top are in canvas space and are
+    /// rebased onto the clipped layer.
+    /// </summary>
+    private void AddSeries(UIElement element, double left, double top)
+    {
+        if (_seriesLayer is null)
+        {
+            Add(element, left, top);
+            return;
+        }
+
+        SetLeft(element, left - PadLeft);
+        SetTop(element, top - PadTop);
+        _seriesLayer.Children.Add(element);
+    }
+
+    /// <summary>
+    /// Add series geometry whose points are ALREADY in canvas coordinates — a
+    /// polyline. It is placed at minus the layer's own origin so the two
+    /// offsets cancel; rebasing it like a positioned element instead applies
+    /// the padding twice and slides the whole curve down and right, which is
+    /// subtle enough on a plot with no reference marks to go unnoticed.
+    /// </summary>
+    private void AddSeriesGeometry(UIElement element)
+    {
+        if (_seriesLayer is null)
+        {
+            Children.Add(element);
+            return;
+        }
+
+        SetLeft(element, -PadLeft);
+        SetTop(element, -PadTop);
+        _seriesLayer.Children.Add(element);
     }
 
     private static TextBlock Tabular(TextBlock block)

@@ -55,6 +55,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a byte of the model. Theme switching stays complete: every colour still
   resolves through `Tokens.xaml`, enforced by the existing token tests, which
   caught two undefined resource keys in this very change.
+- **Phase 20 — the Sound workspace.** The §8.4 layout: two named designs with a
+  one-click swap, collector timing, the A-vs-B order spectrum with the firing
+  harmonics marked, the order waterfall against rpm, the character radar, TMM
+  silencing with live geometry sliders, and the level-matched A/B audition.
+  "Explain this" writes the plan's sentence.
+
+  **The M50 worked example is reproduced from geometry and firing order
+  alone** (§3.0's "worked example the module must nail"). The equal-length 6-1
+  spaces its pulses at exactly 120.000° at every speed tested; the factory cast
+  manifold runs 3.4° to 16.2° and the error grows *proportionally* with rpm,
+  which is the signature of a fixed transit mismatch. In the order domain the
+  factory leaks −25 to −51 dB into orders 0.5 through 2.5 while the 6-1 sits at
+  the numerical floor, and the firing harmonics match within 0.6 dB:
+  3.7% of the factory's energy is off-harmonic against 0.0%.
+
+  **All three gate clauses met.** A primary-length change rebuilding both the
+  timing chart and the A/B spectrum runs at 6.26 ms median, 8.41 ms p99 against
+  the 50 ms target — inside a 60 fps frame, which is the harder standard a drag
+  is really held to. The A/B audition matches both designs to −23.00 LUFS while
+  reporting the true difference, keeps the playback position across a switch,
+  and crossfades: the largest sample step is 1.010× the material's own against
+  33.4× for a one-sample switch, and the level moves 0.49 dB across the fade.
+
+  Three findings worth recording. My first M50 geometry was mirror-symmetric,
+  which under the 1-5-3-6-2-4 firing order repeats every three firings and
+  makes the signal periodic at 360° — so it had *no half-order content at all*
+  and the cast manifold looked clean on the metric that should condemn it. Real
+  logs taper toward their single outlet and the coolant gradient is monotonic;
+  both now are. Second, both designs were reading ≈ −310 dB at order 0.5 and
+  the comparison passed on FFT round-off, so the test now requires the
+  factory's content to be real first. Third, the explanation sentence attributed
+  the timing error against the design mean while the error is defined against
+  the anchor cylinder — it read *"15° early because ... (−6.3°) and (−0.3°)"*,
+  six degrees of explanation for a fifteen-degree error. Since firing is evenly
+  spaced, `error = 6·N·(τᵢ − τ_anchor)` exactly, so the anchor is the only
+  reference where the parts sum to the whole; `UnexplainedDeg` is now exposed
+  and asserted zero.
+
+  Series are clipped to the plot rectangle in both renderers. An order
+  spectrum's floor is −300 dB, which is no reason to rescale the axis but also
+  no licence to draw over the legend.
 - **Phase 19 — the Results workspace.** Performance curves, the x–t wave
   diagram with scrub and animation, per-cylinder charts, probe traces, and the
   wave-decomposition plot. Run now solves: the button sweeps 3000–9000 rpm off

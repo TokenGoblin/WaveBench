@@ -1,5 +1,6 @@
 using System.Globalization;
 using WaveBench.Acoustics;
+using WaveBench.Acoustics.Auralisation;
 using WaveBench.Acoustics.Metrics;
 using WaveBench.ViewModels.Plotting;
 
@@ -250,6 +251,115 @@ public sealed class SoundWorkspace(ExhaustSoundDesign a, ExhaustSoundDesign b, U
                 "Axes are " + string.Join(", ", axes.Select((n, i) => $"{i + 1} {n}")) + ".",
             ],
         };
+    }
+
+    // ---- Silencing --------------------------------------------------------
+
+    /// <summary>Expansion-chamber silencer geometry the TMM plot is driven by.</summary>
+    public double PipeDiameterMm { get; set; } = 54.0;
+
+    public double ChamberDiameterMm { get; set; } = 130.0;
+
+    public double ChamberLengthMm { get; set; } = 320.0;
+
+    /// <summary>
+    /// Transmission loss of a simple expansion-chamber silencer against
+    /// frequency, from the transfer-matrix model (plan §8.4's
+    /// interactive-TMM-then-refine pattern).
+    ///
+    /// The TMM is linear-acoustic and runs a 512-point sweep in a couple of
+    /// milliseconds, so this follows a geometry slider directly — which is the
+    /// whole reason the plan asks for it. It is an ESTIMATE: it knows nothing
+    /// about mean flow, finite amplitude or temperature gradient, all of which
+    /// the nonlinear solve does, and the fidelity note says so.
+    /// </summary>
+    public PlotModel TransmissionLoss(double fromHz = 20, double toHz = 3000, int points = 512)
+    {
+        var pipeArea = Area(PipeDiameterMm);
+        var chamberArea = Area(ChamberDiameterMm);
+
+        var network = new AcousticNetwork(AcousticMedium.Air20C, pipeArea, pipeArea);
+        network.Elements.Add(new AreaDiscontinuityElement(pipeArea, chamberArea));
+        network.Elements.Add(new UniformDuctElement(ChamberLengthMm / 1000.0, chamberArea));
+        network.Elements.Add(new AreaDiscontinuityElement(pipeArea, chamberArea));
+
+        var frequencies = new double[points];
+        for (var i = 0; i < points; i++)
+        {
+            frequencies[i] = fromHz + ((toHz - fromHz) * i / (points - 1.0));
+        }
+
+        var loss = network.TransmissionLossSweep(frequencies);
+
+        // An expansion chamber passes freely wherever its length is a whole
+        // number of half wavelengths — the troughs are the design's weakness
+        // and the reason the length matters.
+        var speed = AcousticMedium.Air20C.SoundSpeed;
+        var passBands = new List<PlotMarker>();
+        for (var n = 1; n * speed / (2.0 * (ChamberLengthMm / 1000.0)) <= toHz && n <= 4; n++)
+        {
+            passBands.Add(new PlotMarker(
+                n * speed / (2.0 * (ChamberLengthMm / 1000.0)),
+                n == 1 ? "pass-through" : "",
+                "Brush.Warning"));
+        }
+
+        var expansionRatio = chamberArea / pipeArea;
+
+        return new PlotModel
+        {
+            Title = "Transmission loss",
+            Subtitle = $"Expansion chamber Ø{ChamberDiameterMm:F0} × {ChamberLengthMm:F0} mm on Ø{PipeDiameterMm:F0} pipe "
+                       + "· linear-acoustic estimate",
+            XAxis = new PlotAxis("Frequency", fromHz, toHz, "Hz"),
+            YAxis = new PlotAxis("Transmission loss", 0, Math.Max(20, Ceil(loss, 5)), "dB"),
+            Series = [new PlotSeries("TL", frequencies, loss, "Brush.Accent")],
+            Markers = passBands,
+            Notes =
+            [
+                $"Expansion ratio {expansionRatio:F1}:1. Peak loss rises with the ratio; the troughs do not "
+                + "move with it, only with the chamber's length.",
+                $"The chamber passes freely every {speed / (2.0 * (ChamberLengthMm / 1000.0)):F0} Hz, where its "
+                + "length is a whole number of half wavelengths — which is why a single chamber is never enough.",
+                "Transfer-matrix estimate: plane-wave, no mean flow, no temperature gradient. A solved run "
+                + "adds all three.",
+            ],
+        };
+    }
+
+    private static double Area(double diameterMm) => Math.PI / 4.0 * Math.Pow(diameterMm / 1000.0, 2);
+
+    private static double Ceil(IReadOnlyList<double> values, double step) =>
+        Math.Ceiling(values.Where(double.IsFinite).DefaultIfEmpty(0).Max() / step) * step;
+
+    // ---- Audition ---------------------------------------------------------
+
+    /// <summary>Seconds of audio the preview audition renders.</summary>
+    public double AuditionSeconds { get; set; } = 3.0;
+
+    /// <summary>
+    /// A level-matched, gapless A/B of the two designs at the current speed
+    /// (plan §8.4).
+    ///
+    /// This is the INSTANT preview — the collector pulse train rendered
+    /// straight to audio, so it follows a slider like everything else on this
+    /// screen. It carries the order structure, which is what the comparison is
+    /// about, and none of the radiation, propagation or mechanical layers that
+    /// make a full auralisation sound like a car. Those come from the solved
+    /// path; this is for deciding which design to solve.
+    /// </summary>
+    public AbAudition AuditionPreview(double targetLufs = -23.0)
+    {
+        return new AbAudition(Stem(A), Stem(B), targetLufs);
+
+        AudioStem Stem(ExhaustSoundDesign design)
+        {
+            var timing = CollectorTiming.Analyze(design.Branches, Rpm);
+            var amplitudes = Enumerable.Range(0, design.Branches.Count).Select(design.AmplitudeOf).ToArray();
+            var samples = CollectorPulseTrain.Render(
+                timing, Rpm, AuditionSeconds, Loudness.SupportedSampleRate, PulseWidthDeg, amplitudes);
+            return new AudioStem(design.Name, samples, Loudness.SupportedSampleRate);
+        }
     }
 
     // ---- "Explain this" ---------------------------------------------------

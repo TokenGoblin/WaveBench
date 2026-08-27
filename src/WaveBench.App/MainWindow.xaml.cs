@@ -164,6 +164,14 @@ public partial class MainWindow : Window
         Refresh();
     }
 
+    /// <summary>Navigate to one Sound sub-tab without a mouse.</summary>
+    public void GoToSoundTab(SoundTab tab)
+    {
+        _shell.Navigate(Workspace.Sound);
+        WorkspaceContent.SelectSoundTab(_session, tab);
+        Refresh();
+    }
+
     /// <summary>Step the manifold canvas zoom.</summary>
     public void StepManifoldZoom(int direction)
     {

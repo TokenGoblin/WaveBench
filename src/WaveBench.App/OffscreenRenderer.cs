@@ -128,6 +128,23 @@ public static class OffscreenRenderer
         Settle(window);
         Capture(window, Path.Combine(outputDirectory, "11-results-cylinders.png"));
 
+        // Sound opens on the plan's M50 comparison, which needs no run.
+        window.GoToSoundTab(SoundTab.Timing);
+        Settle(window);
+        Capture(window, Path.Combine(outputDirectory, "12-sound-timing.png"));
+
+        window.GoToSoundTab(SoundTab.Spectrum);
+        Settle(window);
+        Capture(window, Path.Combine(outputDirectory, "13-sound-spectrum.png"));
+
+        window.GoToSoundTab(SoundTab.Audition);
+        Settle(window);
+        Capture(window, Path.Combine(outputDirectory, "14-sound-audition.png"));
+
+        window.GoToSoundTab(SoundTab.Silencing);
+        Settle(window);
+        Capture(window, Path.Combine(outputDirectory, "15-sound-silencing.png"));
+
         window.Close();
         WorkspaceContent.LatestResults = null;
     }
