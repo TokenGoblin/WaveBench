@@ -1,4 +1,5 @@
 using FluentAssertions;
+using WaveBench.Analysis;
 using WaveBench.Core.EngineModel;
 using WaveBench.Core.Numerics;
 using WaveBench.Core.Solver;
@@ -255,5 +256,93 @@ public class ManifoldSolveTests(ITestOutputHelper output)
 
         act.Should().Throw<InvalidOperationException>()
             .WithMessage("*separated by a pipe*");
+    }
+
+    [Fact]
+    public void Gate_the_pulse_diagram_uses_the_solved_sound_speed_not_a_nominal_one()
+    {
+        // Plan §2.8 requires transit to be L/a with the ACTUAL computed local
+        // sound speed. Until now every caller handed in a constant; this
+        // closes that by reading the speed out of the solved ducts.
+        var manifold = CollectorLibrary.Build("4-2-1", Geometry);
+        var document = FourCylinder(manifold);
+        var engine = EngineBuilder.Build(document, 6000.0);
+
+        engine.ManifoldPipes.Should().HaveCount(
+            manifold.Nodes.Count(n => n.Kind == ManifoldNodeKind.Pipe),
+            "every pipe on the canvas must be reachable by its graph id");
+
+        engine.RunToConvergence(
+            r => r.NetValveMass.Length > 0 ? r.NetValveMass[0] : 0.0,
+            document.Solver.ConvergenceTolerance, document.Solver.MinCycles, document.Solver.MaxCycles);
+
+        var speeds = ManifoldPulseState.MeanSoundSpeed(engine, engine.ManifoldPipes);
+
+        foreach (var (id, a) in speeds.OrderBy(kv => kv.Key, StringComparer.Ordinal))
+        {
+            output.WriteLine($"{id,-12} a = {a:F0} m/s");
+        }
+
+        // Combustion products in a running header sit well above ambient air.
+        // The bound is deliberately wide: this asserts that a SOLVED number
+        // arrived, not that it hit a particular figure.
+        speeds.Values.Should().OnlyContain(a => a > 360.0 && a < 900.0,
+            "exhaust gas carries a pulse faster than the 343 m/s of ambient air");
+
+        // Pipes must NOT all report the same number, or the per-pipe
+        // machinery is decoration and one mean would have done.
+        var spread = (speeds.Values.Max() - speeds.Values.Min()) / speeds.Values.Average();
+        output.WriteLine($"spread across pipes: {spread * 100:F1}%");
+        spread.Should().BeGreaterThan(0.05, "each pipe carries gas at its own state");
+
+        // Direction, asserted as the model actually behaves rather than as
+        // intuition suggests. Sound speed RISES down this header — 668 m/s in
+        // a primary, 722 in the tailpipe — because friction dissipation is
+        // currently the only source term acting on a built engine's ducts.
+        //
+        // WallThermalModel and the Colburn coefficient in DuctSolver exist and
+        // pass their Phase 3 component gates, but EngineBuilder and
+        // ManifoldAssembler never attach a wall to the ducts they build, so
+        // nothing takes heat OUT of the pipe. Plan §2.3 requires the opposite:
+        // "evolved down the pipe with wall heat transfer and a wall thermal
+        // model". Fixing that is a Phase 5 assembly change that moves every
+        // committed performance figure, so it is recorded rather than smuggled
+        // in here — see docs/physics.md §1.10.
+        //
+        // This assertion is deliberately the wrong way round for the finished
+        // physics: when the wall model is attached it will FAIL, which is
+        // precisely the reminder that wants to fire.
+        var primary = speeds["pri1"];
+        var tail = speeds["tail"];
+        output.WriteLine($"primary {primary:F0} m/s vs tailpipe {tail:F0} m/s");
+        tail.Should().BeGreaterThan(primary,
+            "with no wall heat transfer attached, friction dissipation only ever heats the gas");
+
+        var order = CollectorLibrary.DefaultFiringOrder(4);
+        var solved = PulseInterference.Arrivals(manifold, "final", order, 130.0, speeds, 6000.0);
+        var ambient = PulseInterference.Arrivals(manifold, "final", order, 130.0, 343.0, 6000.0);
+
+        solved.Should().HaveCount(4);
+        solved.Should().OnlyContain(a => double.IsFinite(a.ArrivalAngleDeg));
+
+        // The whole reason the plan insists on the solved speed: a nominal
+        // ambient one misplaces the arrival by tens of crank degrees, which is
+        // the same order as the spacing the diagram is trying to resolve.
+        var shift = Math.Abs(solved[0].TransitDeg - ambient[0].TransitDeg);
+        output.WriteLine($"transit at solved a: {solved[0].TransitDeg:F1}°, at 343 m/s: {ambient[0].TransitDeg:F1}° "
+                         + $"— {shift:F1}° apart");
+        shift.Should().BeGreaterThan(20.0);
+
+        // A pipe the caller could not solve falls back rather than refusing to
+        // draw: the diagram with a stated assumption beats no diagram.
+        var partial = speeds.Where(kv => kv.Key != "sec1").ToDictionary(kv => kv.Key, kv => kv.Value);
+        var withFallback = PulseInterference.Arrivals(
+            manifold, "final", order, 130.0, partial, 6000.0, fallbackSoundSpeed: 600.0);
+        withFallback.Should().HaveCount(4);
+        withFallback[0].TransitDeg.Should().BeGreaterThan(solved[0].TransitDeg,
+            "600 m/s is slower than the 707 the solver found for sec1, so the pulse takes longer");
+
+        // Path length is unchanged by any of this — it is geometry.
+        solved[0].PathLengthMm.Should().BeApproximately(ambient[0].PathLengthMm, 1e-9);
     }
 }

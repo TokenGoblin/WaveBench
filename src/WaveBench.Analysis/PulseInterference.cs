@@ -113,6 +113,94 @@ public static class PulseInterference
     }
 
     /// <summary>
+    /// Pulse arrivals using the SOLVED sound speed of each pipe, which is what
+    /// plan §2.8 actually asks for.
+    ///
+    /// Transit is <c>Σ Lᵢ / aᵢ</c> over the pipes the pulse crosses, not
+    /// <c>L / a</c> with one number for the whole path. The gas in a primary
+    /// is hundreds of kelvin hotter than the gas in a tailpipe two metres
+    /// downstream, and a single mean hides that difference exactly where the
+    /// diagram is trying to resolve it.
+    ///
+    /// A pipe missing from <paramref name="soundSpeedByPipe"/> falls back to
+    /// <paramref name="fallbackSoundSpeed"/> — the caller may legitimately
+    /// have solved only part of the graph, and refusing to draw the diagram at
+    /// all would be worse than drawing it with a stated assumption.
+    /// </summary>
+    /// <param name="manifold">The topology.</param>
+    /// <param name="junctionId">Node to measure arrivals at.</param>
+    /// <param name="firingOrder">1-based cylinder numbers in firing sequence.</param>
+    /// <param name="exhaustValveOpenDeg">EVO in cycle degrees, 0 = firing TDC of cylinder 1.</param>
+    /// <param name="soundSpeedByPipe">Graph node id to solved mean sound speed, m/s.</param>
+    /// <param name="rpm">Engine speed.</param>
+    /// <param name="fallbackSoundSpeed">Used for any pipe not in the dictionary, m/s.</param>
+    public static IReadOnlyList<PulseArrival> Arrivals(
+        ManifoldSpec manifold,
+        string junctionId,
+        IReadOnlyList<int> firingOrder,
+        double exhaustValveOpenDeg,
+        IReadOnlyDictionary<string, double> soundSpeedByPipe,
+        double rpm,
+        double fallbackSoundSpeed = 600.0)
+    {
+        ArgumentNullException.ThrowIfNull(manifold);
+        ArgumentNullException.ThrowIfNull(soundSpeedByPipe);
+
+        if (rpm <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(rpm), rpm, "Engine speed must be positive.");
+        }
+
+        if (fallbackSoundSpeed <= 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(fallbackSoundSpeed), fallbackSoundSpeed, "Sound speed must be positive.");
+        }
+
+        var interval = firingOrder.Count > 0 ? 720.0 / firingOrder.Count : 720.0;
+        var degreesPerSecond = 6.0 * rpm;
+        var arrivals = new List<PulseArrival>();
+
+        for (var i = 0; i < firingOrder.Count; i++)
+        {
+            var cylinder = firingOrder[i];
+            var port = manifold.Nodes.FirstOrDefault(n =>
+                n.Kind == ManifoldNodeKind.Port && n.Cylinder == cylinder);
+            if (port is null || manifold.Path(port.Id, junctionId) is not { } path)
+            {
+                continue;
+            }
+
+            var length = 0.0;
+            var seconds = 0.0;
+
+            foreach (var id in path)
+            {
+                if (manifold.Node(id) is not { Kind: ManifoldNodeKind.Pipe } pipe)
+                {
+                    continue;
+                }
+
+                var speed = soundSpeedByPipe.TryGetValue(id, out var solved) && solved > 0
+                    ? solved
+                    : fallbackSoundSpeed;
+
+                length += pipe.LengthMm;
+                seconds += pipe.LengthMm * 1e-3 / speed;
+            }
+
+            var firing = i * interval;
+            var blowdown = Wrap(firing + exhaustValveOpenDeg);
+            var transitDeg = seconds * degreesPerSecond;
+
+            arrivals.Add(new PulseArrival(
+                cylinder, firing, blowdown, length, transitDeg, Wrap(blowdown + transitDeg)));
+        }
+
+        return arrivals;
+    }
+
+    /// <summary>
     /// Collisions among a set of arrivals. <paramref name="windowDeg"/> is
     /// how close two arrivals must be to interfere — a blowdown pulse is not
     /// an instant, it has width, and that width is the window.

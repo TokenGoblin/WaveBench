@@ -15,11 +15,25 @@ public partial class MainWindow : Window
     private bool _dark;
 
     public MainWindow()
+        : this(SampleProject.Create(), seed: true)
+    {
+    }
+
+    /// <summary>
+    /// Open on a given document. Used by the offscreen renderer to capture a
+    /// screen the shipped sample cannot show — a four-cylinder collector on a
+    /// one-cylinder example would be a fabricated screenshot.
+    /// </summary>
+    public MainWindow(EngineModelDocument document, bool seed)
     {
         InitializeComponent();
 
-        _session = new ProjectSession(SampleProject.Create());
-        SampleProject.Seed(_session);
+        _session = new ProjectSession(document);
+        if (seed)
+        {
+            SampleProject.Seed(_session);
+        }
+
         _shell = new ShellViewModel(_session, App.Preferences) { HasResults = true };
 
         // Track whatever theme startup actually applied, or the first Theme
@@ -110,6 +124,38 @@ public partial class MainWindow : Window
     public void GoTo(Workspace workspace)
     {
         _shell.Navigate(workspace);
+        Refresh();
+    }
+
+    /// <summary>Navigate to one Design sub-tab, optionally with a canvas node selected.</summary>
+    public void GoToDesignTab(DesignTab tab, string? selectNodeId = null)
+    {
+        _shell.Navigate(Workspace.Design);
+        WorkspaceContent.SelectDesignTab(_shell, _session, tab);
+        if (selectNodeId is not null)
+        {
+            WorkspaceContent.SelectManifoldNode(_shell, _session, selectNodeId);
+        }
+
+        Refresh();
+    }
+
+    /// <summary>Build a library collector and select a node on it — offscreen capture and keyboard paths.</summary>
+    public void ApplyManifoldConfiguration(string configurationId, string? selectNodeId = null)
+    {
+        WorkspaceContent.ApplyManifoldConfiguration(_shell, _session, configurationId);
+        if (selectNodeId is not null)
+        {
+            WorkspaceContent.SelectManifoldNode(_shell, _session, selectNodeId);
+        }
+
+        Refresh();
+    }
+
+    /// <summary>Step the manifold canvas zoom.</summary>
+    public void StepManifoldZoom(int direction)
+    {
+        WorkspaceContent.StepManifoldZoom(_shell, _session, direction);
         Refresh();
     }
 

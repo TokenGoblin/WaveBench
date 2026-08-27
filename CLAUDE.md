@@ -12,11 +12,19 @@ ECMA-418-2, fluctuation strength and DIN 45681 outstanding - see
 PsychoacousticStatus and docs/acoustics.md §4); **Phases 16 and 17 complete**
 (GUI pulled forward per the Part 12 allowance; Phase 17's gate verified by
 DesignGateTests - a model built through the workspace edit API alone runs
-bit-identically to the same model from the CLI). Next: Phase 18 (Manifold
-canvas: node-graph editor with palette, drag/snap/auto-layout, multi-select,
-copy/paste, inspector binding, live geometry summary, inline design warnings
-with citations. Gate: every §2.8/§4.6.2 collector configuration buildable in
-under two minutes by a new user; 60 fps with 40 components).
+bit-identically to the same model from the CLI). **Phase 18 complete**
+(manifold node graph, all nine §2.8 configurations, canvas view model +
+WPF canvas, per-node inspector, cited design warnings, pulse-interference
+diagram on the solved sound speed; 60 fps gate met at p99 0.68 ms against
+16.67 ms with 40 components). Next: Phase 19 (Results workspace).
+
+**Manifold canvas:** all behaviour is in `ManifoldWorkspace` (zero UI types);
+`ManifoldCanvas.cs` in the app only draws and forwards gestures. The canvas
+edits the graph as a VALUE - Draft() deep-copies, Commit() writes back through
+the session - because mutating in place leaves undo with two references to one
+object and nothing to restore (§8.11). Never call `_refresh()` from a mouse
+press handler: a refresh rebuilds the surface, which destroys the element
+mid-drag along with its mouse capture.
 
 **Design workspace:** field metadata is DATA in `DesignCatalogue`, not
 branches in a renderer - add a field there and it appears, converts units and
@@ -53,6 +61,18 @@ up as `Â§` in `Get-Content` / `Select-String` results. "Repairing" that
 round-trips valid UTF-8 through CP1252 and destroys the character for real.
 Check the bytes — `[IO.File]::ReadAllText($p,[Text.Encoding]::UTF8)` — or
 just use the Read tool, before concluding a file is damaged.
+
+**Open gap, high value, not yet fixed: no duct in a built engine has a wall
+thermal model.** `WallThermalModel` and the Colburn coefficient exist and pass
+their Phase 3 component gates, but neither `EngineBuilder` nor
+`ManifoldAssembler` ever sets `DuctSolver.Wall`, so `HeatTransferEnabled` is
+false everywhere and friction dissipation is the only source term - exhaust gas
+gets monotonically HOTTER down the header (668 -> 722 m/s on the reference
+4-2-1). Plan §2.3 requires wall heat transfer with selectable surface treatment
+and calls the wrapped-header effect a validation test. Fixing it re-baselines
+every VE / torque / BSFC figure in docs and in the app. See docs/physics.md
+§1.10; a test asserts the current wrong-way-round direction on purpose so the
+fix cannot land silently.
 
 Known deferrals: ISO 532-3 / ECMA-418-2 / fluctuation strength / DIN 45681
 (Phase 11 - no verification anchors available; ISO 532-1 and DIN 45692 are

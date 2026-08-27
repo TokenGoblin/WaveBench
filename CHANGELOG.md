@@ -54,6 +54,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a byte of the model. Theme switching stays complete: every colour still
   resolves through `Tokens.xaml`, enforced by the existing token tests, which
   caught two undefined resource keys in this very change.
+- **Phase 18 — the Manifold canvas.** A manifold is now a node graph
+  (`ManifoldSpec`: ports, pipes, junctions, plenums, open ends) that the
+  solver builds from, with all nine §2.8 collector configurations in
+  `CollectorLibrary` — 4-1, 4-2-1, Tri-Y, individual runners, log, 180°
+  crossover, X-pipe, H-pipe and twin-scroll divided. `ManifoldWorkspace`
+  carries the canvas behaviour with zero UI types: palette, selection,
+  drag with grid snap, auto-layout, copy/paste of a whole bank, a per-node
+  inspector in the user's units, the live geometry summary and inline design
+  warnings. The WPF layer draws the graph and forwards gestures.
+
+  Every design warning names its source — the plan's own §8.4 example comes
+  out verbatim (*"Diffuser half-angle 11.3°: separation likely. Suggested
+  ≤ 7° — lengthen the cone or reduce the exit diameter. (Claywell &
+  Horkheimer, SAE 2006-01-3654)"*) — alongside branch angle on a merge
+  (Idelchik), collector-to-primary area ratio in both directions (Blair;
+  Watson & Janota), L/D below 1, and the multi-leg junction fallback. A test
+  asserts every warning carries a citation or an actionable suggestion, and a
+  matching one asserts a library 4-2-1 produces none.
+
+  The canvas edits the graph as a VALUE — every operation deep-copies,
+  mutates and commits — so undo and redo work across canvas edits as §8.11
+  requires, rather than leaving undo holding two references to one object.
+
+  **60 fps gate met.** `WaveBench.Bench -- canvas` times 300 frames of
+  geometry summary + design warnings + a full hit-test over 40 components:
+  median 0.370 ms, p99 0.684 ms against the 16.67 ms budget, 24× headroom.
+- The pulse-interference diagram now uses the **solved** sound speed, as plan
+  §2.8 requires, instead of a nominal handed in by the caller.
+  `ManifoldPulseState.MeanSoundSpeed` samples each pipe across a full cycle —
+  on crank angle rather than step count, mass-weighted rather than
+  length-weighted — and transit becomes `Σ Lᵢ / aᵢ` over the pipes the pulse
+  actually crosses. On the reference 4-2-1 at 6000 rpm the pipes report
+  668–722 m/s and the port-to-merge transit is 34.3° of crank against 68.2°
+  at an ambient 343 m/s.
+
 - Two-zone burned/unburned combustion split (plan §2.4 Level 2), closing that
   deferral. Zones share the cylinder pressure and their volumes sum to it;
   the unburned zone compresses isentropically from start of combustion and
@@ -266,3 +301,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   pressure (Pa/kPa/bar/psi/inHg), temperature (K/°C/°F), volume, mass flow,
   area, angle, rotational speed and sound level — with parsing and
   tabular-figure-friendly formatting.
+
+### Known gaps
+
+- **No wall heat transfer on any duct in a built engine.** `WallThermalModel`
+  and the Colburn coefficient in `DuctSolver` exist and pass their Phase 3
+  component gates, but neither `EngineBuilder` nor `ManifoldAssembler`
+  attaches a wall to the ducts it builds, so `HeatTransferEnabled` is false
+  throughout and friction dissipation is the only source term acting on the
+  gas — exhaust can only get hotter down the pipe, which is backwards. Plan
+  §2.3 requires wall heat transfer with a selectable surface treatment
+  (bare / coated / wrapped / insulated). Recorded rather than fixed alongside
+  Phase 18 because attaching it moves every committed VE, torque and BSFC
+  figure: it is a re-baseline, not an edit. See docs/physics.md §1.10.

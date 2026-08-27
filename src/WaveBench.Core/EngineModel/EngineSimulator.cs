@@ -26,6 +26,15 @@ public sealed class EngineSimulator
     /// </summary>
     public List<string> Notes { get; } = [];
 
+    /// <summary>
+    /// Manifold graph node id to the duct built for it, empty when this engine
+    /// has no manifold graph. Lets an analysis read the solved state of a pipe
+    /// the user named on the canvas — see
+    /// <see cref="Solver.ManifoldPulseState"/>.
+    /// </summary>
+    public IReadOnlyDictionary<string, Solver.DuctSolver> ManifoldPipes { get; set; } =
+        new Dictionary<string, Solver.DuctSolver>(StringComparer.Ordinal);
+
     public List<OrificeConnector> Connectors { get; } = [];
 
     public List<ValveConnection> Valves { get; } = [];

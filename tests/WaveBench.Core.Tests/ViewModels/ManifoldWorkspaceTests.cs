@@ -334,4 +334,120 @@ public class ManifoldWorkspaceTests(ITestOutputHelper output)
             "a connection to a deleted node is a dangling reference");
         workspace.Selection.Should().BeEmpty();
     }
+
+    // ---- Inspector -------------------------------------------------------
+
+    [Fact]
+    public void The_inspector_offers_every_editable_property_of_each_kind()
+    {
+        var workspace = Workspace(out _);
+        workspace.ApplyConfiguration("4-1");
+
+        // A kind whose geometry the inspector cannot reach is a field that
+        // exists in the model and nowhere in the UI — the same failure the
+        // Phase 17 reflection test exists to prevent.
+        var expected = new Dictionary<ManifoldNodeKind, string[]>
+        {
+            [ManifoldNodeKind.Pipe] = ["Label", "LengthMm", "DiameterMm", "OutletDiameterMm", "RoughnessMm"],
+            [ManifoldNodeKind.Junction] = ["Label", "BranchAngleDeg"],
+            [ManifoldNodeKind.Port] = ["Label", "Cylinder"],
+            [ManifoldNodeKind.Atmosphere] = ["Label"],
+        };
+
+        foreach (var (kind, keys) in expected)
+        {
+            var node = workspace.Manifold!.Nodes.First(n => n.Kind == kind);
+            workspace.Inspector(node.Id).Select(f => f.Key).Should().Equal(keys,
+                $"every editable property of a {kind} must be reachable");
+        }
+
+        // Plenum is not in the 4-1 library entry, so place one.
+        var plenum = workspace.Add(ManifoldNodeKind.Plenum);
+        workspace.Inspector(plenum).Select(f => f.Key).Should().Equal("Label", "VolumeLitres");
+
+        workspace.Inspector("no-such-node").Should().BeEmpty("a stale selection must not throw at the view");
+    }
+
+    [Fact]
+    public void The_inspector_writes_through_the_session_so_a_canvas_edit_is_undoable()
+    {
+        var workspace = Workspace(out var session);
+        workspace.ApplyConfiguration("4-1");
+
+        var before = session.Document.ExhaustManifold!.Node("pri1")!.LengthMm;
+        workspace.EditInspector("pri1", "LengthMm", "545").Accepted.Should().BeTrue();
+        session.Document.ExhaustManifold!.Node("pri1")!.LengthMm.Should().Be(545);
+
+        session.Undo().Should().BeTrue();
+        session.Document.ExhaustManifold!.Node("pri1")!.LengthMm.Should().Be(before,
+            "plan §8.11 requires undo across canvas edits, not only form edits");
+    }
+
+    [Fact]
+    public void The_inspector_rejects_a_bad_value_with_a_reason_and_leaves_the_model_alone()
+    {
+        var workspace = Workspace(out var session);
+        workspace.ApplyConfiguration("4-1");
+        var before = session.Document.ExhaustManifold!.Node("pri1")!.LengthMm;
+
+        foreach (var (key, text, fragment) in new[]
+                 {
+                     ("LengthMm", "0", "positive"),
+                     ("LengthMm", "not a number", "number"),
+                     ("DiameterMm", "-3", "positive"),
+                     ("RoughnessMm", "-0.1", "negative"),
+                     ("BranchAngleDeg", "200", "180"),
+                     ("Cylinder", "0", "from 1"),
+                     ("Cylinder", "99", "cylinders"),
+                     ("Nonsense", "1", "Unknown field"),
+                 })
+        {
+            var outcome = workspace.EditInspector("pri1", key, text);
+            outcome.Accepted.Should().BeFalse($"{key} = '{text}' is not a value the model can hold");
+            outcome.Reason.Should().Contain(fragment,
+                "a rejection the user cannot read is a keystroke silently discarded");
+        }
+
+        session.Document.ExhaustManifold!.Node("pri1")!.LengthMm.Should().Be(before);
+        output.WriteLine(workspace.EditInspector("pri1", "Cylinder", "99").Reason);
+    }
+
+    [Fact]
+    public void The_inspector_and_the_canvas_speak_the_users_units()
+    {
+        var session = ModelTemplates.Open(ModelTemplates.Find("fsae-600")!);
+        var metric = new ManifoldWorkspace(session, new UserPreferences { Units = UnitSystem.Metric });
+        var imperial = new ManifoldWorkspace(session, new UserPreferences { Units = UnitSystem.Imperial });
+
+        metric.ApplyConfiguration("4-1");
+        metric.EditInspector("pri1", "LengthMm", "508").Accepted.Should().BeTrue();
+
+        metric.LengthUnit.Should().Be("mm");
+        imperial.LengthUnit.Should().Be("in");
+
+        Field(metric, "LengthMm").Display.Should().Be("508");
+        Field(imperial, "LengthMm").Display.Should().Be("20", "508 mm is 20 inches exactly");
+
+        // And the same number typed in inches must land as millimetres — a
+        // display-unit round trip that silently stores inches would be a
+        // 25.4× error in the solver.
+        imperial.EditInspector("pri1", "LengthMm", "18").Accepted.Should().BeTrue();
+        session.Document.ExhaustManifold!.Node("pri1")!.LengthMm.Should().BeApproximately(457.2, 1e-9);
+
+        imperial.Caption(session.Document.ExhaustManifold!.Node("pri1")!).Should().EndWith("in");
+        metric.Caption(session.Document.ExhaustManifold!.Node("pri1")!).Should().EndWith("mm");
+
+        static NodeField Field(ManifoldWorkspace workspace, string key) =>
+            workspace.Inspector("pri1").First(f => f.Key == key);
+    }
+
+    [Fact]
+    public void Every_component_kind_has_its_own_glyph_so_colour_is_never_the_only_cue()
+    {
+        // Plan §8.11: colour must never be load-bearing. Two kinds sharing a
+        // glyph would make the canvas unreadable in greyscale.
+        var glyphs = Enum.GetValues<ManifoldNodeKind>().Select(ManifoldWorkspace.Glyph).ToList();
+        glyphs.Should().OnlyHaveUniqueItems();
+        glyphs.Should().OnlyContain(g => g.Length > 0);
+    }
 }

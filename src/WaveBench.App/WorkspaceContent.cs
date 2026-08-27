@@ -183,6 +183,13 @@ public static class WorkspaceContent
             "Every field carries its origin. Hover a badge for the derivation and its citation."));
         host.Children.Add(SubTabs(host, shell, session, workspace));
 
+        // The Manifold tab is a canvas first and a form second: the runner
+        // fields below it still apply to a model with no collector graph.
+        if (tab == DesignTab.Manifold)
+        {
+            host.Children.Add(ManifoldCanvasCard(host, shell, session));
+        }
+
         var all = DesignCatalogue.For(tab).Count;
         var fields = workspace.Fields(tab);
 
@@ -416,6 +423,487 @@ public static class WorkspaceContent
                 return box;
             }
         }
+    }
+
+    // ---- Manifold canvas (plan Phase 18, §8.4) ---------------------------
+
+    /// <summary>
+    /// One workspace per session, so selection and clipboard survive the
+    /// re-render every edit triggers.
+    /// </summary>
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ProjectSession, ManifoldWorkspace>
+        ManifoldWorkspaces = [];
+
+    private static ManifoldWorkspace ManifoldFor(ShellViewModel shell, ProjectSession session) =>
+        ManifoldWorkspaces.GetValue(session, s => new ManifoldWorkspace(s, shell.Preferences));
+
+    /// <summary>Drive the sub-tab without a mouse — used by the offscreen renderer.</summary>
+    public static void SelectDesignTab(ShellViewModel shell, ProjectSession session, DesignTab tab) =>
+        DesignFor(shell, session).SelectedTab = tab;
+
+    /// <summary>Drive the canvas selection without a mouse — likewise.</summary>
+    public static void SelectManifoldNode(ShellViewModel shell, ProjectSession session, string nodeId) =>
+        ManifoldFor(shell, session).Select(nodeId);
+
+    /// <summary>Apply a library configuration without a mouse — likewise.</summary>
+    public static void ApplyManifoldConfiguration(ShellViewModel shell, ProjectSession session, string id) =>
+        ManifoldFor(shell, session).ApplyConfiguration(id);
+
+    /// <summary>Step the canvas zoom without a mouse — likewise.</summary>
+    public static void StepManifoldZoom(ShellViewModel shell, ProjectSession session, int direction) =>
+        ManifoldFor(shell, session).StepZoom(direction);
+
+    /// <summary>
+    /// Palette · canvas · inspector. Nothing here decides what a gesture
+    /// means — <see cref="ManifoldWorkspace"/> owns that, and this method owns
+    /// only the arrangement of controls around it.
+    /// </summary>
+    private static UIElement ManifoldCanvasCard(Panel host, ShellViewModel shell, ProjectSession session)
+    {
+        var workspace = ManifoldFor(shell, session);
+        void Refresh() => Render(host, shell, session);
+
+        // All three columns are the same fixed height and top-aligned. A
+        // fixed height in a Stretch slot is CENTRED by WPF, which floated the
+        // canvas halfway down a card as tall as the palette.
+        const double PanelHeight = 430;
+
+        var grid = new Grid();
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(170) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(300) });
+        grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(PanelHeight) });
+
+        var palette = new ScrollViewer
+        {
+            Content = ManifoldPalette(workspace, Refresh),
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            VerticalAlignment = VerticalAlignment.Top,
+            Height = PanelHeight,
+        };
+        Grid.SetColumn(palette, 0);
+        grid.Children.Add(palette);
+
+        var surface = new ManifoldSurface(workspace, Refresh);
+        surface.Redraw();
+
+        var scroller = new ScrollViewer
+        {
+            Content = surface,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            VerticalAlignment = VerticalAlignment.Top,
+            Height = PanelHeight,
+            Margin = new Thickness(12, 0, 12, 0),
+            Background = (Brush)Application.Current.Resources["Brush.Canvas"],
+            BorderBrush = (Brush)Application.Current.Resources["Brush.BorderSubtle"],
+            BorderThickness = new Thickness(1),
+        };
+        Grid.SetColumn(scroller, 1);
+        grid.Children.Add(scroller);
+
+        var side = ManifoldSidePanel(workspace, Refresh, PanelHeight);
+        Grid.SetColumn(side, 2);
+        grid.Children.Add(side);
+
+        return Card(grid);
+    }
+
+    private static UIElement ManifoldPalette(ManifoldWorkspace workspace, Action refresh)
+    {
+        var panel = new StackPanel();
+
+        panel.Children.Add(Styled(new TextBlock { Text = "Configurations" }, "Text.Body", bold: true));
+        panel.Children.Add(Styled(new TextBlock
+        {
+            Text = "One click builds the whole graph. Replaces what is there; Ctrl+Z puts it back.",
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 2, 0, 8),
+        }, "Text.Caption"));
+
+        foreach (var item in ManifoldWorkspace.Configurations)
+        {
+            var id = item.Id;
+            panel.Children.Add(PaletteButton(item.Label, item.Description, () =>
+            {
+                workspace.ApplyConfiguration(id);
+                refresh();
+            }));
+        }
+
+        panel.Children.Add(Styled(new TextBlock
+        {
+            Text = "Components",
+            Margin = new Thickness(0, 16, 0, 0),
+        }, "Text.Body", bold: true));
+        panel.Children.Add(Styled(new TextBlock
+        {
+            Text = "Placed below the graph. Shift-drag between two to connect them.",
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 2, 0, 8),
+        }, "Text.Caption"));
+
+        foreach (var item in ManifoldWorkspace.Components)
+        {
+            var kind = item.Kind!.Value;
+            panel.Children.Add(PaletteButton(item.Label, item.Description, () =>
+            {
+                // Drop it clear of the existing graph rather than on top of it.
+                var below = (workspace.Manifold?.Nodes.Count ?? 0) == 0
+                    ? 0.0
+                    : workspace.Manifold!.Nodes.Max(n => n.Y) + 1.5;
+                var id = workspace.Add(kind, 0, below);
+                workspace.Select(id);
+                refresh();
+            }));
+        }
+
+        panel.Children.Add(Styled(new TextBlock
+        {
+            Text = "Arrange",
+            Margin = new Thickness(0, 16, 0, 8),
+        }, "Text.Body", bold: true));
+
+        panel.Children.Add(PaletteButton("Auto-layout", "Left to right by distance from a cylinder port.", () =>
+        {
+            workspace.AutoLayout();
+            refresh();
+        }));
+
+        var zoom = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 4, 0, 0) };
+        zoom.Children.Add(ZoomButton("−", "Zoom out", workspace, -1, refresh));
+        zoom.Children.Add(ZoomButton("+", "Zoom in", workspace, +1, refresh));
+        zoom.Children.Add(Styled(new TextBlock
+        {
+            Text = $"{workspace.Zoom * 100:F0}%",
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(8, 0, 0, 0),
+        }, "Text.Caption"));
+        panel.Children.Add(zoom);
+
+        var snap = new CheckBox
+        {
+            Content = "Snap to grid",
+            IsChecked = workspace.SnapToGrid,
+            Foreground = (Brush)Application.Current.Resources["Brush.TextSecondary"],
+            Margin = new Thickness(2, 8, 0, 0),
+            ToolTip = "A view preference — it changes where the next drag lands, never the model.",
+        };
+        snap.Click += (_, _) =>
+        {
+            workspace.SnapToGrid = snap.IsChecked == true;
+            refresh();
+        };
+        panel.Children.Add(snap);
+
+        panel.Children.Add(Styled(new TextBlock
+        {
+            Text = "Click to select · Ctrl+click to add · drag empty space to box-select · "
+                 + "Del removes · Ctrl+C/V copies a bank.",
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 14, 0, 0),
+        }, "Text.Caption"));
+
+        return panel;
+    }
+
+    private static UIElement ZoomButton(
+        string glyph, string help, ManifoldWorkspace workspace, int direction, Action refresh)
+    {
+        var button = new Button
+        {
+            Content = glyph,
+            ToolTip = help,
+            Width = 30,
+            Padding = new Thickness(0, 2, 0, 3),
+            Margin = new Thickness(0, 0, 4, 0),
+            Background = (Brush)Application.Current.Resources["Brush.Surface"],
+            Foreground = (Brush)Application.Current.Resources["Brush.TextPrimary"],
+            BorderBrush = (Brush)Application.Current.Resources["Brush.BorderSubtle"],
+            BorderThickness = new Thickness(1),
+            Cursor = System.Windows.Input.Cursors.Hand,
+        };
+        button.Click += (_, _) =>
+        {
+            if (workspace.StepZoom(direction))
+            {
+                refresh();
+            }
+        };
+        return button;
+    }
+
+    private static UIElement PaletteButton(string label, string help, Action click)
+    {
+        var button = new Button
+        {
+            Content = label,
+            ToolTip = help,
+            HorizontalContentAlignment = HorizontalAlignment.Left,
+            Padding = new Thickness(10, 5, 10, 6),
+            Margin = new Thickness(0, 0, 0, 4),
+            Background = (Brush)Application.Current.Resources["Brush.Surface"],
+            Foreground = (Brush)Application.Current.Resources["Brush.TextPrimary"],
+            BorderBrush = (Brush)Application.Current.Resources["Brush.BorderSubtle"],
+            BorderThickness = new Thickness(1),
+            Cursor = System.Windows.Input.Cursors.Hand,
+        };
+        button.Click += (_, _) => click();
+        return button;
+    }
+
+    private static UIElement ManifoldSidePanel(ManifoldWorkspace workspace, Action refresh, double height)
+    {
+        var scroller = new ScrollViewer
+        {
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            VerticalAlignment = VerticalAlignment.Top,
+            Height = height,
+        };
+        var panel = new StackPanel();
+        scroller.Content = panel;
+
+        // Inspector — one node at a time. A multi-selection has no single set
+        // of geometry to show, and inventing one would let a stray Enter write
+        // the same length to eight different pipes.
+        if (workspace.Selection.Count == 1)
+        {
+            var id = workspace.Selection.First();
+            panel.Children.Add(ManifoldInspector(workspace, id, refresh));
+        }
+        else if (workspace.Selection.Count > 1)
+        {
+            panel.Children.Add(Styled(new TextBlock
+            {
+                Text = $"{workspace.Selection.Count} components selected. Drag to move them together, "
+                     + "Ctrl+C to copy the bank, or select one to edit its geometry.",
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 0, 0, 16),
+            }, "Text.Secondary"));
+        }
+
+        panel.Children.Add(Styled(new TextBlock { Text = "Geometry" }, "Text.Body", bold: true));
+        foreach (var readout in workspace.Summary().Readouts)
+        {
+            var row = new StackPanel { Margin = new Thickness(0, 6, 0, 0) };
+            row.Children.Add(Styled(new TextBlock { Text = readout.Label }, "Text.Caption"));
+
+            var value = Styled(new TextBlock { Text = readout.Value, TextWrapping = TextWrapping.Wrap }, "Text.Body");
+            value.SetValue(System.Windows.Documents.Typography.NumeralAlignmentProperty, FontNumeralAlignment.Tabular);
+            row.Children.Add(value);
+
+            if (readout.Note is not null)
+            {
+                row.Children.Add(Styled(new TextBlock
+                {
+                    Text = readout.Note, TextWrapping = TextWrapping.Wrap,
+                }, "Text.Caption"));
+            }
+
+            if (readout.Warning is not null)
+            {
+                var warn = Styled(new TextBlock
+                {
+                    Text = "⚠  " + readout.Warning, TextWrapping = TextWrapping.Wrap,
+                }, "Text.Small");
+                warn.Foreground = (Brush)Application.Current.Resources["Brush.Warning"];
+                row.Children.Add(warn);
+            }
+
+            panel.Children.Add(row);
+        }
+
+        var warnings = workspace.Warnings();
+        panel.Children.Add(Styled(new TextBlock
+        {
+            Text = warnings.Count == 0 ? "Design checks" : $"Design checks ({warnings.Count})",
+            Margin = new Thickness(0, 20, 0, 6),
+        }, "Text.Body", bold: true));
+
+        if (warnings.Count == 0)
+        {
+            panel.Children.Add(Styled(new TextBlock
+            {
+                Text = "Nothing to flag. Warnings appear here as you edit, each with the source of its limit.",
+                TextWrapping = TextWrapping.Wrap,
+            }, "Text.Caption"));
+        }
+
+        foreach (var warning in warnings)
+        {
+            panel.Children.Add(WarningCard(warning, workspace, refresh));
+        }
+
+        return scroller;
+    }
+
+    private static UIElement WarningCard(DesignWarning warning, ManifoldWorkspace workspace, Action refresh)
+    {
+        var panel = new StackPanel();
+
+        var head = Styled(new TextBlock
+        {
+            Text = "⚠  " + warning.Message,
+            TextWrapping = TextWrapping.Wrap,
+        }, "Text.Small");
+        head.Foreground = (Brush)Application.Current.Resources["Brush.Warning"];
+        panel.Children.Add(head);
+
+        if (warning.Suggestion is not null)
+        {
+            panel.Children.Add(Styled(new TextBlock
+            {
+                Text = warning.Suggestion,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 3, 0, 0),
+            }, "Text.Caption"));
+        }
+
+        // The citation is the point: a limit without a source is this tool's
+        // opinion, and the user has no way to argue with an opinion.
+        if (warning.Citation is not null)
+        {
+            panel.Children.Add(Styled(new TextBlock
+            {
+                Text = warning.Citation,
+                TextWrapping = TextWrapping.Wrap,
+                FontStyle = FontStyles.Italic,
+                Margin = new Thickness(0, 3, 0, 0),
+            }, "Text.Caption"));
+        }
+
+        if (warning.CrossLink is not null)
+        {
+            panel.Children.Add(Styled(new TextBlock
+            {
+                Text = "See " + warning.CrossLink,
+                Margin = new Thickness(0, 3, 0, 0),
+            }, "Text.Caption"));
+        }
+
+        var border = new Border
+        {
+            Child = panel,
+            Background = (Brush)Application.Current.Resources["Brush.SurfaceAlt"],
+            BorderBrush = (Brush)Application.Current.Resources["Brush.BorderSubtle"],
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(6),
+            Padding = new Thickness(10, 8, 10, 9),
+            Margin = new Thickness(0, 0, 0, 6),
+        };
+
+        // Clicking a warning selects what it is about, so "which pipe?" is one
+        // click rather than a hunt across the canvas.
+        if (warning.NodeId is not null && workspace.Manifold?.Node(warning.NodeId) is not null)
+        {
+            var target = warning.NodeId;
+            border.Cursor = System.Windows.Input.Cursors.Hand;
+            border.ToolTip = $"Select {target}";
+            border.MouseLeftButtonUp += (_, _) =>
+            {
+                workspace.Select(target);
+                refresh();
+            };
+        }
+
+        return border;
+    }
+
+    private static UIElement ManifoldInspector(ManifoldWorkspace workspace, string nodeId, Action refresh)
+    {
+        var node = workspace.Manifold?.Node(nodeId);
+        var panel = new StackPanel { Margin = new Thickness(0, 0, 0, 16) };
+
+        panel.Children.Add(Styled(new TextBlock
+        {
+            Text = node is null ? nodeId : $"{ManifoldWorkspace.Glyph(node.Kind)}  {node.Kind}  ·  {nodeId}",
+        }, "Text.Body", bold: true));
+
+        var grid = new Grid { Margin = new Thickness(0, 8, 0, 0) };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(94) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var fields = workspace.Inspector(nodeId);
+        for (var i = 0; i < fields.Count; i++)
+        {
+            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            var field = fields[i];
+
+            var label = Styled(new TextBlock
+            {
+                Text = field.Label,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 4, 8, 4),
+                ToolTip = field.Help,
+            }, "Text.Secondary");
+            Grid.SetRow(label, i);
+            Grid.SetColumn(label, 0);
+            grid.Children.Add(label);
+
+            var box = new TextBox
+            {
+                Text = field.Display,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 3, 0, 3),
+                Padding = new Thickness(6, 3, 6, 4),
+                Background = (Brush)Application.Current.Resources["Brush.Canvas"],
+                Foreground = (Brush)Application.Current.Resources["Brush.TextPrimary"],
+                BorderBrush = (Brush)Application.Current.Resources["Brush.BorderSubtle"],
+                ToolTip = field.Help,
+            };
+            box.SetValue(System.Windows.Documents.Typography.NumeralAlignmentProperty, FontNumeralAlignment.Tabular);
+
+            // Same rule as the Design form: the displayed value is rounded, so
+            // committing it unchanged on focus loss would be a write the user
+            // never made — and would stamp the model "You".
+            var rendered = field.Display;
+            var key = field.Key;
+            void Commit()
+            {
+                if (box.Text.Trim() == rendered.Trim())
+                {
+                    return;
+                }
+
+                var outcome = workspace.EditInspector(nodeId, key, box.Text);
+                if (!outcome.Accepted)
+                {
+                    MessageBox.Show(outcome.Reason, "Not applied", MessageBoxButton.OK, MessageBoxImage.Warning);
+                }
+
+                refresh();
+            }
+
+            box.LostFocus += (_, _) => Commit();
+            box.KeyDown += (_, e) =>
+            {
+                if (e.Key == System.Windows.Input.Key.Enter)
+                {
+                    Commit();
+                }
+            };
+
+            Grid.SetRow(box, i);
+            Grid.SetColumn(box, 1);
+            grid.Children.Add(box);
+
+            if (field.Unit.Length > 0)
+            {
+                var unit = Styled(new TextBlock
+                {
+                    Text = field.Unit,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Margin = new Thickness(6, 4, 0, 4),
+                }, "Text.Caption");
+                Grid.SetRow(unit, i);
+                Grid.SetColumn(unit, 2);
+                grid.Children.Add(unit);
+            }
+        }
+
+        panel.Children.Add(grid);
+        return panel;
     }
 
     private static UIElement DerivedCard(IReadOnlyList<DerivedReadout> readouts)

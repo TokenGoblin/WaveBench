@@ -326,31 +326,47 @@ public sealed record ManifoldSpec
     /// Total path length from a cylinder port to a node, mm, following the
     /// graph and summing pipe lengths. Null when there is no path.
     /// </summary>
-    public double? PathLengthMm(string fromId, string toId)
+    public double? PathLengthMm(string fromId, string toId) =>
+        Path(fromId, toId) is not { } path
+            ? null
+            : path.Sum(id => Node(id) is { Kind: ManifoldNodeKind.Pipe } pipe ? pipe.LengthMm : 0.0);
+
+    /// <summary>
+    /// The downstream path between two nodes as an ordered list of node ids,
+    /// <paramref name="fromId"/> first and <paramref name="toId"/> last, or
+    /// null when there is none.
+    ///
+    /// The sequence matters and the total length does not always suffice: a
+    /// pulse's transit time is the sum of L/a over the pipes it actually
+    /// crosses, and each of those carries gas at its own temperature.
+    /// </summary>
+    public IReadOnlyList<string>? Path(string fromId, string toId)
     {
-        var seen = new HashSet<string>(StringComparer.Ordinal);
-        var queue = new Queue<(string Id, double Length)>();
-        queue.Enqueue((fromId, 0.0));
-        seen.Add(fromId);
+        var previous = new Dictionary<string, string?>(StringComparer.Ordinal) { [fromId] = null };
+        var queue = new Queue<string>();
+        queue.Enqueue(fromId);
 
         while (queue.Count > 0)
         {
-            var (id, length) = queue.Dequeue();
+            var id = queue.Dequeue();
             if (id == toId)
             {
-                return length;
+                var path = new List<string>();
+                for (string? step = id; step is not null; step = previous[step])
+                {
+                    path.Add(step);
+                }
+
+                path.Reverse();
+                return path;
             }
 
             foreach (var next in Downstream(id))
             {
-                if (!seen.Add(next))
+                if (previous.TryAdd(next, id))
                 {
-                    continue;
+                    queue.Enqueue(next);
                 }
-
-                var node = Node(next);
-                var extra = node?.Kind == ManifoldNodeKind.Pipe ? node.LengthMm : 0.0;
-                queue.Enqueue((next, length + extra));
             }
         }
 

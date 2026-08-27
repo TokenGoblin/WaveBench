@@ -392,6 +392,58 @@ Bounded in the test as a documented discrepancy; closing it requires
 digitising the thesis's Cd figure. Runner diameter (not stated) inferred at
 50 mm from the thesis's own Helmholtz column via its Eq. 24.
 
+## 1.10 Manifold pulse state and the solved sound speed (Phase 18)
+
+Plan §2.8 requires the pulse-interference diagram to place arrivals using
+`L / a` with **the actual computed local sound speed**, never a nominal. Until
+Phase 18 every caller passed a constant (600 m/s in the tests), which is the
+right order of magnitude and the wrong method.
+
+`ManifoldPulseState.MeanSoundSpeed` now reads it out of the solve.
+`ManifoldAssembler` keeps its graph-node-id → `DuctSolver` map, `EngineBuilder`
+hangs that map on the engine, and the analysis samples each pipe across one
+full cycle. Two choices worth stating:
+
+- **Sampled on crank angle, not on step count.** Stepping is CFL-limited, so a
+  mean over steps is weighted by wherever the timestep happened to be small.
+  Sampling at fixed angular spacing keeps it a time mean of the cycle.
+- **Mass-weighted across cells, not length-weighted.** A length mean gives a
+  cool, nearly empty stretch of pipe the same say as a dense slug of hot gas,
+  and it is the hot gas the pulse travels through.
+
+Transit is then `Σ Lᵢ / aᵢ` over the pipes the pulse actually crosses, not
+`L / a` with one number for the path. On the reference 4-2-1 at 6000 rpm the
+pipes report 668–722 m/s, a 7.8% spread, and the port-to-final-merge transit
+is **34.3° of crank against 68.2° at an ambient 343 m/s** — a factor of two,
+on the same axis the diagram uses to decide whether two pulses collide.
+
+### Known gap: no wall heat transfer on a built engine's ducts
+
+The measured speeds *rise* monotonically down the header — 668 m/s in a
+primary, 722 in the tailpipe. That is backwards for a real exhaust, and the
+cause is not the sampling.
+
+`WallThermalModel` and the Colburn coefficient in `DuctSolver` exist, are
+tested, and pass their Phase 3 component gates. But **no code path attaches a
+wall to a duct built for an engine** — neither `EngineBuilder` for the plain
+runners nor `ManifoldAssembler` for the graph. `DuctSolver.HeatTransferEnabled`
+is `Wall is not null`, so it is false for every duct in every engine the
+product builds. Friction dissipation is then the only source term acting on the
+gas, and dissipation only ever heats it.
+
+Plan §2.3 requires the opposite — *"evolved down the pipe with wall heat
+transfer and a wall thermal model (insulation / coating / wrap selectable)"* —
+and §2.3 goes on to say the effect is a differentiator and a validation test:
+a wrapped header runs hotter and wants a shorter primary.
+
+This is a Phase 5 assembly hole that Phase 3's component-level gate could not
+see. It is left recorded rather than fixed here because attaching wall heat
+transfer moves exhaust density and back-pressure, and therefore every committed
+VE, torque and BSFC figure in this document and in the app — a re-baseline, not
+a Phase 18 edit. `Gate_the_pulse_diagram_uses_the_solved_sound_speed_not_a_nominal_one`
+asserts the current, wrong-way-round direction on purpose: when the wall model
+is attached that assertion fails, which is the reminder that should fire.
+
 ## 2. Fuel model (Phase 1)
 
 A fuel is a data record (`Fuel`), never a constant. Shipped library

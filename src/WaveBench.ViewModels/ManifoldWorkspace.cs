@@ -34,6 +34,19 @@ public sealed record DesignWarning(
 public sealed record GeometrySummary(IReadOnlyList<DerivedReadout> Readouts);
 
 /// <summary>
+/// One editable property of a selected node, already converted to the user's
+/// display units. The inspector is described here rather than branched on in
+/// the view for the same reason <see cref="DesignCatalogue"/> exists: a
+/// per-kind switch in a renderer is a place for a field to go missing.
+/// </summary>
+/// <param name="Key">Stable identifier, passed back to <see cref="ManifoldWorkspace.EditInspector"/>.</param>
+/// <param name="Label">Shown beside the box.</param>
+/// <param name="Display">Current value, formatted for display units.</param>
+/// <param name="Unit">The unit <paramref name="Display"/> is in; empty when dimensionless.</param>
+/// <param name="Help">Tooltip.</param>
+public sealed record NodeField(string Key, string Label, string Display, string Unit, string Help);
+
+/// <summary>
 /// The Manifold canvas (plan Phase 18, §8.4): palette, selection, drag with
 /// snap, auto-layout, copy/paste, the live geometry summary and the inline
 /// design warnings.
@@ -62,6 +75,38 @@ public sealed class ManifoldWorkspace
     public double GridSize { get; set; } = 0.5;
 
     public bool SnapToGrid { get; set; } = true;
+
+    /// <summary>
+    /// Canvas zoom. View state like <see cref="SnapToGrid"/> — it never
+    /// touches the document, and it lives here rather than in the view so it
+    /// survives the rebuild every edit triggers.
+    ///
+    /// A full 4-2-1 is fourteen grid units end to end and does not fit a
+    /// three-column layout at a readable size, so seeing the whole graph has
+    /// to be possible.
+    /// </summary>
+    public double Zoom { get; private set; } = 1.0;
+
+    private static readonly double[] ZoomSteps = [0.5, 0.65, 0.8, 1.0, 1.25, 1.5];
+
+    /// <summary>Next zoom step in or out. Returns false at the end of the range.</summary>
+    public bool StepZoom(int direction)
+    {
+        var current = Array.FindIndex(ZoomSteps, z => Math.Abs(z - Zoom) < 1e-9);
+        if (current < 0)
+        {
+            current = Array.IndexOf(ZoomSteps, 1.0);
+        }
+
+        var next = current + Math.Sign(direction);
+        if (next < 0 || next >= ZoomSteps.Length)
+        {
+            return false;
+        }
+
+        Zoom = ZoomSteps[next];
+        return true;
+    }
 
     /// <summary>
     /// The manifold being edited. Null until the user places something —
@@ -596,7 +641,247 @@ public sealed class ManifoldWorkspace
         return warnings;
     }
 
+    // ---- Inspector -----------------------------------------------------------
+
+    /// <summary>
+    /// The editable properties of one node, in display units. Empty when the
+    /// id is unknown, so a stale selection cannot throw at the view.
+    /// </summary>
+    public IReadOnlyList<NodeField> Inspector(string nodeId)
+    {
+        if (Manifold?.Node(nodeId) is not { } node)
+        {
+            return [];
+        }
+
+        var fields = new List<NodeField>
+        {
+            new("Label", "Label", node.Label, string.Empty, "Free text, shown on the canvas."),
+        };
+
+        switch (node.Kind)
+        {
+            case ManifoldNodeKind.Pipe:
+                fields.Add(new("LengthMm", "Length", Length(node.LengthMm), LengthUnit,
+                    "Centreline length. Wave tuning is length, not layout."));
+                fields.Add(new("DiameterMm", "Inlet Ø", Length(node.DiameterMm), LengthUnit,
+                    "Internal diameter at the upstream end."));
+                fields.Add(new("OutletDiameterMm", "Outlet Ø", Length(node.OutletDiameterMm), LengthUnit,
+                    "Zero means the same as the inlet — a plain pipe. Anything else is a taper."));
+                fields.Add(new("RoughnessMm", "Roughness ε", Length(node.RoughnessMm), LengthUnit,
+                    "Absolute wall roughness. Drawn steel is about 0.045 mm; cast, 0.25 mm."));
+                break;
+
+            case ManifoldNodeKind.Junction:
+                fields.Add(new("BranchAngleDeg", "Branch angle", Number(node.BranchAngleDeg, 1), "°",
+                    "Angle between each side branch and the combined leg. 90° is a plain tee; "
+                    + "a merge collector is usually 10–30°."));
+                break;
+
+            case ManifoldNodeKind.Plenum:
+                // Litres in both unit systems: Quantity.None in the catalogue's
+                // terms — there is no imperial counterpart worth offering.
+                fields.Add(new("VolumeLitres", "Volume", Number(node.VolumeLitres, 2), "L",
+                    "Treated as a 0D volume: uniform state, no wave action inside it."));
+                break;
+
+            case ManifoldNodeKind.Port:
+                fields.Add(new("Cylinder", "Cylinder", Number(node.Cylinder, 0), string.Empty,
+                    "Which cylinder this port belongs to, 1-based."));
+                break;
+        }
+
+        return fields;
+    }
+
+    /// <summary>
+    /// Write one inspector field back. Parses in display units and converts,
+    /// so the view never does arithmetic. A rejection carries a reason the
+    /// view shows beside the box rather than discarding the keystroke.
+    /// </summary>
+    public EditOutcome EditInspector(string nodeId, string key, string text)
+    {
+        if (Manifold?.Node(nodeId) is null)
+        {
+            return EditOutcome.Reject("That component is no longer on the canvas.");
+        }
+
+        if (key == "Label")
+        {
+            EditNode(nodeId, n => n.Label = text.Trim());
+            return EditOutcome.Ok;
+        }
+
+        // Invariant, exactly as DesignWorkspace parses: one convention across
+        // the app, so the same keystrokes mean the same thing on both tabs.
+        if (!double.TryParse(text.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out var shown))
+        {
+            return EditOutcome.Reject("Not a number.");
+        }
+
+        switch (key)
+        {
+            case "LengthMm":
+            {
+                var mm = ToMillimetres(shown);
+                if (mm <= 0)
+                {
+                    return EditOutcome.Reject("Length must be positive.");
+                }
+
+                EditNode(nodeId, n => n.LengthMm = mm);
+                return EditOutcome.Ok;
+            }
+
+            case "DiameterMm":
+            {
+                var mm = ToMillimetres(shown);
+                if (mm <= 0)
+                {
+                    return EditOutcome.Reject("Diameter must be positive.");
+                }
+
+                EditNode(nodeId, n => n.DiameterMm = mm);
+                return EditOutcome.Ok;
+            }
+
+            case "OutletDiameterMm":
+            {
+                var mm = ToMillimetres(shown);
+                if (mm < 0)
+                {
+                    return EditOutcome.Reject("Diameter cannot be negative. Zero means the same as the inlet.");
+                }
+
+                EditNode(nodeId, n => n.OutletDiameterMm = mm);
+                return EditOutcome.Ok;
+            }
+
+            case "RoughnessMm":
+            {
+                var mm = ToMillimetres(shown);
+                if (mm < 0)
+                {
+                    return EditOutcome.Reject("Roughness cannot be negative.");
+                }
+
+                EditNode(nodeId, n => n.RoughnessMm = mm);
+                return EditOutcome.Ok;
+            }
+
+            case "BranchAngleDeg":
+                if (shown is < 0 or > 180)
+                {
+                    return EditOutcome.Reject("Branch angle must be between 0° and 180°.");
+                }
+
+                EditNode(nodeId, n => n.BranchAngleDeg = shown);
+                return EditOutcome.Ok;
+
+            case "VolumeLitres":
+                if (shown <= 0)
+                {
+                    return EditOutcome.Reject("Volume must be positive.");
+                }
+
+                EditNode(nodeId, n => n.VolumeLitres = shown);
+                return EditOutcome.Ok;
+
+            case "Cylinder":
+            {
+                var cylinder = (int)Math.Round(shown);
+                if (cylinder < 1)
+                {
+                    return EditOutcome.Reject("Cylinders are numbered from 1.");
+                }
+
+                if (cylinder > _session.Document.Engine.CylinderCount)
+                {
+                    return EditOutcome.Reject(
+                        $"This engine has {_session.Document.Engine.CylinderCount} cylinders.");
+                }
+
+                EditNode(nodeId, n => n.Cylinder = cylinder);
+                return EditOutcome.Ok;
+            }
+
+            default:
+                return EditOutcome.Reject($"Unknown field '{key}'.");
+        }
+    }
+
+    /// <summary>
+    /// The one line of geometry a node shows on the canvas, in display units.
+    /// Formatting lives here rather than in the view so the canvas and any
+    /// other head read identically.
+    /// </summary>
+    public string Caption(ManifoldNode node) => node.Kind switch
+    {
+        ManifoldNodeKind.Pipe when node.OutletDiameterMm > 0 =>
+            $"{Short(node.LengthMm)} × Ø{Short(node.DiameterMm)}→{Short(node.OutletDiameterMm)} {LengthUnit}",
+        ManifoldNodeKind.Pipe => $"{Short(node.LengthMm)} × Ø{Short(node.DiameterMm)} {LengthUnit}",
+        ManifoldNodeKind.Junction => $"{Legs(node.Id)} legs at {Number(node.BranchAngleDeg, 0)}°",
+        ManifoldNodeKind.Plenum => $"{Number(node.VolumeLitres, 2)} L",
+        ManifoldNodeKind.Port => $"cylinder {node.Cylinder}",
+        _ => "open end",
+    };
+
+    /// <summary>
+    /// A glyph per component kind, so a node is identifiable without relying
+    /// on its colour (plan §8.11).
+    /// </summary>
+    public static string Glyph(ManifoldNodeKind kind) => kind switch
+    {
+        ManifoldNodeKind.Port => "◉",
+        ManifoldNodeKind.Pipe => "▬",
+        ManifoldNodeKind.Junction => "⋔",
+        ManifoldNodeKind.Plenum => "▣",
+        _ => "◇",
+    };
+
+    private int Legs(string id) =>
+        Manifold is null ? 0 : Manifold.Upstream(id).Count() + Manifold.Downstream(id).Count();
+
     // ---- Internals -----------------------------------------------------------
+
+    private bool Imperial => Preferences.Units == UnitSystem.Imperial;
+
+    /// <summary>Matches <see cref="DesignWorkspace.DisplayUnit"/> for <see cref="Quantity.Length"/>.</summary>
+    public string LengthUnit => Imperial ? "in" : "mm";
+
+    /// <summary>
+    /// Inspector precision — the same 2 dp metric / 3 dp imperial the rest of
+    /// the Design workspace uses, so the same number does not read differently
+    /// on two tabs.
+    /// </summary>
+    private string Length(double millimetres) =>
+        Number(Imperial ? millimetres / 25.4 : millimetres, Imperial ? 3 : 2);
+
+    /// <summary>
+    /// Canvas precision. A node box is a label, not a readout: "300 × Ø36 mm"
+    /// is legible at a glance where "300.00 × Ø36.00 mm" is not. The inspector
+    /// beside it shows the full value.
+    /// </summary>
+    private string Short(double millimetres) =>
+        Number(Imperial ? millimetres / 25.4 : millimetres, Imperial ? 2 : 0);
+
+    private double ToMillimetres(double shown) => Imperial ? shown * 25.4 : shown;
+
+    /// <summary>
+    /// Invariant, with trailing zeros trimmed — the same formatting
+    /// <see cref="DesignWorkspace"/> uses, so 508 mm does not read as "508" on
+    /// one tab and "508.00" on the next.
+    /// </summary>
+    private static string Number(double value, int decimals)
+    {
+        var text = value.ToString("F" + decimals.ToString(CultureInfo.InvariantCulture), CultureInfo.InvariantCulture);
+        if (text.Contains('.'))
+        {
+            text = text.TrimEnd('0').TrimEnd('.');
+        }
+
+        return text.Length == 0 || text == "-" ? "0" : text;
+    }
 
     private double Displacement()
     {

@@ -22,6 +22,15 @@ public static class OffscreenRenderer
     {
         Directory.CreateDirectory(outputDirectory);
 
+        // We open more than one window in sequence. On the default
+        // OnLastWindowClose, closing the first begins application shutdown and
+        // tears the resource dictionary down, so the next window resolves no
+        // brushes at all. App.OnAppStartup calls Shutdown() when we return.
+        if (Application.Current is { } app)
+        {
+            app.ShutdownMode = ShutdownMode.OnExplicitShutdown;
+        }
+
         var window = new MainWindow
         {
             Width = 1360,
@@ -52,6 +61,65 @@ public static class OffscreenRenderer
         window.GoTo(Workspace.Overview);
         Settle(window);
         Capture(window, Path.Combine(outputDirectory, "05-overview-dark.png"));
+
+        window.SetDark(false);
+        window.Close();
+
+        CaptureManifold(outputDirectory);
+    }
+
+    /// <summary>
+    /// The Phase 18 canvas, on a four-cylinder model with a 4-2-1 header.
+    /// A separate window because the shipped sample is a single: putting a
+    /// four-into-one on it would be a screenshot of something that cannot
+    /// exist.
+    /// </summary>
+    private static void CaptureManifold(string outputDirectory)
+    {
+        var document = new WaveBench.Model.EngineModelDocument
+        {
+            Name = "Four-cylinder with a 4-2-1 header",
+            Engine = new WaveBench.Model.EngineSpec
+            {
+                BoreMm = 82, StrokeMm = 78, RodLengthMm = 133, CompressionRatio = 10.5, CylinderCount = 4,
+            },
+            IntakeValves = new WaveBench.Model.ValveTrainSpec
+            {
+                HeadDiameterMm = 33, Count = 2, MaxLiftMm = 10, OpenDeg = 350, CloseDeg = 580,
+            },
+            ExhaustValves = new WaveBench.Model.ValveTrainSpec
+            {
+                HeadDiameterMm = 28, Count = 2, MaxLiftMm = 9.5, OpenDeg = 140, CloseDeg = 370,
+            },
+            IntakeRunner = new WaveBench.Model.DuctSpec { LengthMm = 380, DiameterMm = 40 },
+            ExhaustRunner = new WaveBench.Model.DuctSpec { LengthMm = 520, DiameterMm = 38 },
+        };
+
+        var window = new MainWindow(document, seed: false)
+        {
+            Width = 1360,
+            Height = 860,
+            WindowStartupLocation = WindowStartupLocation.Manual,
+            Left = -10_000,
+            Top = -10_000,
+            ShowInTaskbar = false,
+        };
+
+        window.Show();
+        window.GoToDesignTab(DesignTab.Manifold);
+        Settle(window);
+        Capture(window, Path.Combine(outputDirectory, "06-manifold-empty.png"));
+
+        window.ApplyManifoldConfiguration("4-2-1", selectNodeId: "sec1");
+        Settle(window);
+        Capture(window, Path.Combine(outputDirectory, "07-manifold-canvas.png"));
+
+        // Zoomed out far enough that the whole header is on screen at once —
+        // a 4-2-1 is fourteen grid units end to end.
+        window.StepManifoldZoom(-1);
+        window.StepManifoldZoom(-1);
+        Settle(window);
+        Capture(window, Path.Combine(outputDirectory, "08-manifold-zoomed-out.png"));
 
         window.Close();
     }

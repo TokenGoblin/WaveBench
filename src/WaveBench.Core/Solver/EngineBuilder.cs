@@ -90,6 +90,13 @@ public static class EngineBuilder
             {
                 engine.Notes.Add(note);
             }
+
+            // Keep the node-id → duct map on the engine so an analysis can
+            // read the SOLVED state of a named pipe afterwards. Without it the
+            // pulse-interference diagram (§2.8) has to be handed a nominal
+            // sound speed, which is the one thing the plan says it must not
+            // be.
+            engine.ManifoldPipes = manifold.Pipes;
         }
 
         for (var c = 0; c < document.Engine.CylinderCount; c++)

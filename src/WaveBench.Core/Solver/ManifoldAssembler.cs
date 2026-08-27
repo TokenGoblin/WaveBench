@@ -18,9 +18,16 @@ public sealed record PortAttachment(DuctSolver Duct, bool AtLeftEnd);
 /// here would mean the user believes they got the pressure-loss model when
 /// they did not.
 /// </param>
+/// <param name="Pipes">
+/// Graph node id to the duct built for it. Keeping the mapping is what lets
+/// an analysis read the SOLVED state of a named pipe — without it, the
+/// pulse-interference diagram has no way to ask how fast gas is actually
+/// moving in "pri1" and has to be handed a nominal number instead.
+/// </param>
 public sealed record AssembledManifold(
     IReadOnlyDictionary<int, PortAttachment> Ports,
-    IReadOnlyList<string> Notes);
+    IReadOnlyList<string> Notes,
+    IReadOnlyDictionary<string, DuctSolver> Pipes);
 
 /// <summary>
 /// Turns a <see cref="ManifoldSpec"/> graph into solver objects — a
@@ -205,7 +212,7 @@ public static class ManifoldAssembler
             }
         }
 
-        return new AssembledManifold(ports, notes);
+        return new AssembledManifold(ports, notes, ducts);
     }
 
     private static DuctSolver RequirePipe(
