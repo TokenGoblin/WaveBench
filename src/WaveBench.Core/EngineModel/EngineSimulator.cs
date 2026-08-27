@@ -163,6 +163,13 @@ public sealed class EngineSimulator
             cyl.ResetPeakPressure();
         }
 
+        // EGT is a per-cycle mean, so its accumulator starts here with
+        // everything else the cycle measures.
+        foreach (var valve in Valves)
+        {
+            valve.ResetFlowStatistics();
+        }
+
         var previousDt = 0.0;
         while (Angle - start < 720.0)
         {
@@ -179,12 +186,20 @@ public sealed class EngineSimulator
         var peak = new double[Cylinders.Count];
         var fuel = new double[Cylinders.Count];
         var knock = new double[Cylinders.Count];
+        var egt = new double[Cylinders.Count];
         for (var c = 0; c < Cylinders.Count; c++)
         {
             imep[c] = (Cylinders[c].CumulativeWork - workBefore[c]) / Cylinders[c].Geometry.DisplacedVolume;
             peak[c] = Cylinders[c].CyclePeakPressure;
             fuel[c] = Cylinders[c].CumulativeFuelBurned - fuelBefore[c];
             knock[c] = Cylinders[c].CumulativeKnockIntegral - knockBefore[c];
+
+            // Builder order is intake, exhaust per cylinder, so the exhaust
+            // valve of cylinder c is at 2c+1.
+            var exhaustValve = (2 * c) + 1;
+            egt[c] = exhaustValve < Valves.Count
+                ? Valves[exhaustValve].MeanExhaustTemperature
+                : double.NaN;
         }
 
         return new CycleResult
@@ -196,6 +211,7 @@ public sealed class EngineSimulator
             PeakPressure = peak,
             FuelMass = fuel,
             KnockIntegral = knock,
+            ExhaustTemperature = egt,
         };
     }
 
@@ -531,6 +547,13 @@ public sealed class CycleResult
     public double[] FuelMass { get; init; } = [];
 
     public double[] KnockIntegral { get; init; } = [];
+
+    /// <summary>
+    /// Per-cylinder exhaust gas temperature, K: the mass-weighted mean of what
+    /// actually left through the exhaust valve this cycle. NaN for a cylinder
+    /// that exported nothing.
+    /// </summary>
+    public double[] ExhaustTemperature { get; init; } = [];
 }
 
 /// <summary>Brake-side performance from cycle metrics (plan §2.5).</summary>

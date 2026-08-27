@@ -28,6 +28,38 @@ public sealed record OperatingPointResult
     public required double KnockIntegral { get; init; }
 
     public required int CyclesToConvergence { get; init; }
+
+    // ---- Per cylinder (plan §8.4: the VE bar chart with numeric spread,
+    //      knock margin and EGT per cylinder) ------------------------------
+    //
+    // A four-cylinder mean hides the thing a header is designed to fix. Two
+    // cylinders at 1.05 and two at 0.85 average to the same 0.95 as four even
+    // ones, and only one of those is a manifold worth building.
+
+    /// <summary>Volumetric efficiency of each cylinder, in cylinder order.</summary>
+    public double[] PerCylinderVolumetricEfficiency { get; init; } = [];
+
+    /// <summary>Indicated mean effective pressure of each cylinder, Pa.</summary>
+    public double[] PerCylinderImepPa { get; init; } = [];
+
+    /// <summary>Peak cylinder pressure of each cylinder, Pa.</summary>
+    public double[] PerCylinderPeakPressurePa { get; init; } = [];
+
+    /// <summary>Livengood–Wu knock integral of each cylinder; 1.0 is onset.</summary>
+    public double[] PerCylinderKnockIntegral { get; init; } = [];
+
+    /// <summary>Mass-weighted exhaust gas temperature of each cylinder, K.</summary>
+    public double[] PerCylinderExhaustTemperatureK { get; init; } = [];
+
+    /// <summary>
+    /// Spread of per-cylinder VE as a fraction of the mean — the single number
+    /// that says whether the cylinders are being fed alike. Zero for a single.
+    /// </summary>
+    public double VolumetricEfficiencySpread =>
+        PerCylinderVolumetricEfficiency.Length < 2
+            ? 0.0
+            : (PerCylinderVolumetricEfficiency.Max() - PerCylinderVolumetricEfficiency.Min())
+              / Math.Max(PerCylinderVolumetricEfficiency.Average(), 1e-12);
 }
 
 /// <summary>
@@ -54,10 +86,15 @@ public static class OperatingPointRunner
         var totalDisplacement = crank.DisplacedVolume * engine.Cylinders.Count;
 
         // Intake valves are even indices (builder order: intake, exhaust per cylinder).
+        var cylinders = engine.Cylinders.Count;
+        var perCylinderVe = new double[cylinders];
         var inducted = 0.0;
-        for (var v = 0; v < result.NetValveMass.Length; v += 2)
+        for (var c = 0; c < cylinders; c++)
         {
-            inducted += result.NetValveMass[v];
+            var intakeValve = 2 * c;
+            var mass = intakeValve < result.NetValveMass.Length ? result.NetValveMass[intakeValve] : 0.0;
+            inducted += mass;
+            perCylinderVe[c] = mass / (rhoRef * crank.DisplacedVolume);
         }
 
         var ve = inducted / (rhoRef * totalDisplacement);
@@ -84,6 +121,11 @@ public static class OperatingPointRunner
             PeakPressurePa = peak,
             KnockIntegral = result.KnockIntegral.DefaultIfEmpty(0.0).Max(),
             CyclesToConvergence = cycles,
+            PerCylinderVolumetricEfficiency = perCylinderVe,
+            PerCylinderImepPa = result.Imep,
+            PerCylinderPeakPressurePa = result.PeakPressure,
+            PerCylinderKnockIntegral = result.KnockIntegral,
+            PerCylinderExhaustTemperatureK = result.ExhaustTemperature,
         };
     }
 

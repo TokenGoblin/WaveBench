@@ -40,6 +40,33 @@ public sealed class ValveConnection
     /// <summary>Mass flow of the last update, positive into the cylinder, kg/s.</summary>
     public double MassFlow { get; private set; }
 
+    private double _exportedMass;
+    private double _exportedMassTemperature;
+
+    /// <summary>Mass that has left the cylinder through this valve since the last reset, kg.</summary>
+    public double ExportedMass => _exportedMass;
+
+    /// <summary>
+    /// Mass-weighted mean temperature of the gas that LEFT the cylinder
+    /// through this valve, K — the exhaust gas temperature plan §8.4 reports
+    /// per cylinder. NaN until something has flowed out.
+    ///
+    /// Weighted by mass and not by time on purpose: a valve spends most of the
+    /// cycle shut or barely cracked, and a time mean would average the
+    /// blowdown that carries the energy against a long tail of almost no flow.
+    /// EGT is a property of the gas stream, so it is the stream that has to do
+    /// the weighting.
+    /// </summary>
+    public double MeanExhaustTemperature =>
+        _exportedMass > 0 ? _exportedMassTemperature / _exportedMass : double.NaN;
+
+    /// <summary>Start a new accumulation window — called at each cycle boundary.</summary>
+    public void ResetFlowStatistics()
+    {
+        _exportedMass = 0.0;
+        _exportedMassTemperature = 0.0;
+    }
+
     /// <summary>
     /// The pipe this valve opens into. Exposed because with a manifold graph
     /// the pipe is no longer implied by the valve's position in a list — four
@@ -182,6 +209,15 @@ public sealed class ValveConnection
         var (rhoFace, uFace, aFace) = Face(pFaceSolved);
         var mDotIntoDuct = rhoFace * uFace * FaceArea;
         MassFlow = -mDotIntoDuct;
+
+        // EGT accumulator: what leaves the cylinder leaves at the cylinder's
+        // temperature, weighted by how much of it there is.
+        if (mDotIntoDuct > 0)
+        {
+            var exported = mDotIntoDuct * dt;
+            _exportedMass += exported;
+            _exportedMassTemperature += exported * _cylinder.Temperature;
+        }
 
         // Impose the duct end flux (+x sense).
         var fRho = sign * rhoFace * uFace;
