@@ -38,6 +38,13 @@ references, units). Use the Edit tool, or `[IO.File]::ReadAllText/WriteAllText`
 with `New-Object Text.UTF8Encoding $false`. Same reason commit messages go
 via `git commit -F` with a UTF-8-no-BOM file.
 
+**And do not diagnose mojibake from PowerShell's own output.** The console
+prints UTF-8 files through the ANSI codepage, so a perfectly good `§` shows
+up as `Â§` in `Get-Content` / `Select-String` results. "Repairing" that
+round-trips valid UTF-8 through CP1252 and destroys the character for real.
+Check the bytes — `[IO.File]::ReadAllText($p,[Text.Encoding]::UTF8)` — or
+just use the Read tool, before concluding a file is damaged.
+
 Known deferrals: ISO 532-3 / ECMA-418-2 / fluctuation strength / DIN 45681
 (Phase 11 - no verification anchors available; ISO 532-1 and DIN 45692 are
 done and verified); Bassett 2001 UNSTEADY junction coefficients (branch-angle
