@@ -296,10 +296,40 @@ public sealed class EngineSimulator
         return probe;
     }
 
-    /// <summary>Drop all probes (call when the mesh is rebuilt — probes hold duct references).</summary>
+    /// <summary>x–t field captures attached to ducts; add via <see cref="AddFieldCapture"/>.</summary>
+    public IReadOnlyList<DuctFieldCapture> Fields => _fields;
+
+    private readonly List<DuctFieldCapture> _fields = [];
+
+    /// <summary>
+    /// Record a pipe's whole field over crank angle (plan §8.4 wave diagram).
+    ///
+    /// Costs cells × frames × 4 bytes and nothing else, so it is opt-in per
+    /// pipe: capturing every duct of a collector network at half a degree
+    /// would be tens of megabytes for pipes nobody is looking at.
+    /// </summary>
+    public DuctFieldCapture AddFieldCapture(
+        Solver.DuctSolver duct,
+        string name,
+        FieldQuantity quantity = FieldQuantity.Pressure,
+        int samplesPerCycle = 720,
+        int expectedCycles = 4)
+    {
+        if (!Ducts.Contains(duct))
+        {
+            throw new ArgumentException("Duct is not part of this engine.", nameof(duct));
+        }
+
+        var capture = new DuctFieldCapture(duct, name, quantity, samplesPerCycle, expectedCycles);
+        _fields.Add(capture);
+        return capture;
+    }
+
+    /// <summary>Drop all probes and field captures (they hold duct references).</summary>
     public void ClearProbes()
     {
         _probes.Clear();
+        _fields.Clear();
         Capture.Clear();
     }
 
@@ -314,6 +344,11 @@ public sealed class EngineSimulator
         foreach (var probe in _probes)
         {
             probe.Clear();
+        }
+
+        foreach (var field in _fields)
+        {
+            field.Clear();
         }
 
         Capture.Enabled = true;
@@ -350,6 +385,13 @@ public sealed class EngineSimulator
         foreach (var probe in _probes)
         {
             probe.Record();
+        }
+
+        // Field captures decimate themselves on angle, so they see every step
+        // and keep only the ones that land on a frame boundary.
+        foreach (var field in _fields)
+        {
+            field.Offer(Angle);
         }
     }
 }
