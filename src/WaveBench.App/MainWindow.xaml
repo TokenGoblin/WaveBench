@@ -34,15 +34,15 @@
                                     Cursor="Hand"
                                     ToolTip="{Binding ToolTip}"
                                     AutomationProperties.Name="{Binding AutomationName}">
-                                <Button.Template>
-                                    <ControlTemplate TargetType="Button">
-                                        <Border Background="{TemplateBinding Background}"
-                                                CornerRadius="{StaticResource Radius.Input}"
-                                                Padding="{TemplateBinding Padding}">
-                                            <ContentPresenter />
-                                        </Border>
-                                    </ControlTemplate>
-                                </Button.Template>
+                                <!--
+                                    No inline template. This button used to carry
+                                    one with no triggers in it, which left the
+                                    app's primary navigation with no hover and no
+                                    pressed state at all. The implicit Button
+                                    style in Tokens.xaml supplies both, and
+                                    BorderThickness="0" above keeps the flat look
+                                    the rail wants.
+                                -->
                                 <DockPanel>
                                     <TextBlock Text="{Binding Glyph}" Width="24" FontSize="15"
                                                Foreground="{Binding Foreground}" />

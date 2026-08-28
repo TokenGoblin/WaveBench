@@ -153,6 +153,22 @@ logic in WaveBench.App beyond view construction.
 literal - three tests enforce it, including one that resolves every
 resource key because XAML lookups fail at runtime, not compile time.
 
+**A workspace renderer must CLEAR its host before adding to it.** Every
+`Render(Panel host, ...)` hands its children a `Refresh` closure that calls
+straight back into itself, so a sub-tab, a slider or a Next button re-enters the
+same method. Three of the four renderers appended without clearing, so each
+click stacked a whole second copy of the workspace below the first, inside a
+StackPanel, off the bottom of the viewport - the stale copy stayed put and the
+app looked frozen. `ContentHostTests` scans the App source and fails if any
+renderer omits the clear or does it after the first Add.
+
+LESSON: the user reported "buttons don't do anything and don't change colour".
+The colour half was real (there was no Button style at all) and fixing it
+changed nothing, because it was not the cause. What settled it was counting
+buttons in the LIVE window through UI Automation - 81 of them, with the Sound
+workspace present five times over. When a UI symptom is vague, enumerate the
+actual visual/automation tree before theorising about styles or handlers.
+
 **Never drive synthetic mouse/keyboard input at the desktop to capture the
 app.** Use `WaveBench.App.exe --screenshot <dir>`, which renders the
 visual tree offscreen.

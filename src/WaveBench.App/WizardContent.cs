@@ -20,6 +20,11 @@ public static class WizardContent
 {
     public static void Render(Panel host, ShellViewModel shell, ProjectSession session, Wizard wizard)
     {
+        // Clear first: every Next, Back, step-rail jump and answer edit calls
+        // back into this method through the Refresh closure below, so
+        // re-rendering has to replace rather than append.
+        host.Children.Clear();
+
         void Refresh() => Render(host, shell, session, wizard);
 
         host.Children.Add(Heading(wizard));

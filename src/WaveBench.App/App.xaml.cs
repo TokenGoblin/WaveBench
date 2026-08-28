@@ -33,6 +33,12 @@ public partial class App : Application
         Bind("Brush.BorderStrong", dark ? "BorderSubtle" : "BorderStrong", "Light.BorderStrong");
         Bind("Brush.TextPrimary", "TextPrimary", "Light.TextPrimary");
         Bind("Brush.TextSecondary", "TextSecondary", "Light.TextSecondary");
+
+        // Interaction ink flips from black to white with the theme. Miss these
+        // and dark mode gets a black hover overlay on a dark button, which is
+        // indistinguishable from no feedback at all.
+        Bind("Brush.OverlayHover", "OverlayHover", "Light.OverlayHover");
+        Bind("Brush.OverlayPressed", "OverlayPressed", "Light.OverlayPressed");
     }
 
     /// <summary>

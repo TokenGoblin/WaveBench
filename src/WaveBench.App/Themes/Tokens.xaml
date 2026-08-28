@@ -62,6 +62,18 @@
     <Color x:Key="Accent.OnAccent">#FFFFFF</Color>
     <SolidColorBrush x:Key="Brush.OnAccent" Color="{StaticResource Accent.OnAccent}" />
 
+    <!-- Interaction ink. Semi-transparent overlays rather than replacement
+         fills, so one pair of tokens gives hover and pressed feedback on a
+         surface button, an accent button and a transparent rail item alike.
+         Swapping the fill instead would need a variant per button colour, and
+         the one that got forgotten would be the one that looked dead. -->
+    <Color x:Key="Light.OverlayHover">#0F000000</Color>
+    <Color x:Key="Light.OverlayPressed">#26000000</Color>
+    <Color x:Key="Dark.OverlayHover">#18FFFFFF</Color>
+    <Color x:Key="Dark.OverlayPressed">#33FFFFFF</Color>
+    <SolidColorBrush x:Key="Brush.OverlayHover" Color="{StaticResource Light.OverlayHover}" />
+    <SolidColorBrush x:Key="Brush.OverlayPressed" Color="{StaticResource Light.OverlayPressed}" />
+
     <!-- ============ Radius · spacing · motion · type (§8.1) ============ -->
     <CornerRadius x:Key="Radius.Card">8</CornerRadius>
     <CornerRadius x:Key="Radius.Input">6</CornerRadius>
@@ -85,6 +97,78 @@
     <sys:Double x:Key="Type.Display">32</sys:Double>
 
     <!-- ============ Base styles ============ -->
+
+    <!--
+        Buttons. IMPLICIT (no x:Key) on purpose: every button in this app is
+        built in code, and a keyed style is a style somebody forgets to apply.
+
+        This exists because the app previously had no button style at all. The
+        workspace rail carried its own inline template with no triggers in it,
+        so the primary navigation gave no hover and no pressed feedback
+        whatsoever, and every other button was left to whatever the platform
+        default happened to be — which is a pale blue Aero wash that neither
+        matches this design nor reads as a press on a light surface. A user
+        clicking around found the whole thing unresponsive, and they were right
+        to: nothing acknowledged the click.
+
+        The feedback is an ink overlay above the fill rather than a replacement
+        fill, so it works on any background the caller sets.
+    -->
+    <Style TargetType="Button">
+        <Setter Property="Background" Value="{DynamicResource Brush.Surface}" />
+        <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderSubtle}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="Padding" Value="12,6,12,7" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="FontFamily" Value="{StaticResource Type.Family}" />
+        <Setter Property="FontSize" Value="{StaticResource Type.Body}" />
+        <Setter Property="SnapsToDevicePixels" Value="True" />
+        <Setter Property="HorizontalContentAlignment" Value="Center" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Grid>
+                        <Border x:Name="Fill"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="{StaticResource Radius.Input}" />
+                        <Border x:Name="Ink"
+                                CornerRadius="{StaticResource Radius.Input}" />
+                        <ContentPresenter Margin="{TemplateBinding Padding}"
+                                          HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                          VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
+                                          RecognizesAccessKey="True" />
+                    </Grid>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Ink" Property="Background"
+                                    Value="{DynamicResource Brush.OverlayHover}" />
+                        </Trigger>
+                        <Trigger Property="IsPressed" Value="True">
+                            <Setter TargetName="Ink" Property="Background"
+                                    Value="{DynamicResource Brush.OverlayPressed}" />
+                        </Trigger>
+                        <!-- Keyboard focus has to be visible too: §8.1 asks for
+                             an accessibility pass, and a mouse-only affordance
+                             fails it. -->
+                        <Trigger Property="IsKeyboardFocused" Value="True">
+                            <Setter TargetName="Fill" Property="BorderBrush"
+                                    Value="{DynamicResource Brush.Accent}" />
+                            <Setter TargetName="Fill" Property="BorderThickness" Value="1" />
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter Property="Opacity" Value="0.45" />
+                            <Setter Property="Cursor" Value="Arrow" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
     <Style x:Key="Card" TargetType="Border">
         <Setter Property="Background" Value="{DynamicResource Brush.Surface}" />
         <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderSubtle}" />

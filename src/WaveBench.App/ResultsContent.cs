@@ -21,6 +21,11 @@ public static class ResultsContent
 {
     public static void Render(Panel host, ShellViewModel shell, ProjectSession session, ResultsWorkspace? results)
     {
+        // Clear first: the sub-tabs, the scrub slider and the animation Play
+        // button all call back into this method through the Refresh closure
+        // below, so re-rendering has to replace rather than append.
+        host.Children.Clear();
+
         if (results is null)
         {
             RenderNoRun(host);

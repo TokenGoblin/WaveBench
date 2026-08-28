@@ -21,6 +21,16 @@ public static class SoundContent
 {
     public static void Render(Panel host, ShellViewModel shell, ProjectSession session, SoundWorkspace sound)
     {
+        // Clear FIRST. Every control below is handed a Refresh closure that
+        // calls straight back into this method, so this is not only the entry
+        // point from WorkspaceContent — it is also what a sub-tab, a speed
+        // button and a silencer slider all call. Without the clear, each of
+        // those appended a second complete copy of the workspace below the
+        // first, inside a StackPanel, off the bottom of the viewport. The old
+        // copy stayed exactly where it was and the app looked dead: you could
+        // click Spectrum all day and the Timing charts never moved.
+        host.Children.Clear();
+
         void Refresh() => Render(host, shell, session, sound);
 
         host.Children.Add(Heading(
