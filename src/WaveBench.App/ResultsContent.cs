@@ -21,9 +21,17 @@ public static class ResultsContent
 {
     public static void Render(Panel host, ShellViewModel shell, ProjectSession session, ResultsWorkspace? results)
     {
-        // Clear first: the sub-tabs, the scrub slider and the animation Play
-        // button all call back into this method through the Refresh closure
-        // below, so re-rendering has to replace rather than append.
+        // Clear first: the sub-tabs and the pipe selector call back into this
+        // method through the Refresh closure below, so re-rendering has to
+        // replace rather than append.
+        //
+        // The scrub slider and the Play button deliberately do NOT come through
+        // here — they call ShowFrame and tick a DispatcherTimer instead. That is
+        // not an oversight to be tidied up later: rebuilding the tree under a
+        // dragging thumb drops its mouse capture and cancels the drag, and
+        // rebuilding it per animation frame would miss the Phase 19 gate by a
+        // wide margin. Anything that fires while a pointer is down, or at frame
+        // rate, must update in place.
         host.Children.Clear();
 
         if (results is null)

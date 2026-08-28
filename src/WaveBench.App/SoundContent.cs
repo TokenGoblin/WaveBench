@@ -33,39 +33,77 @@ public static class SoundContent
 
         void Refresh() => Render(host, shell, session, sound);
 
+        // Chrome above, redrawn body below, and the split is not cosmetic.
+        //
+        // A SLIDER MUST NOT LIVE IN THE PART THAT GETS REBUILT. Both sliders
+        // here update on ValueChanged, and rebuilding the tree under a dragging
+        // thumb disconnects it — WPF drops mouse capture when the capturing
+        // element leaves the tree, the Thumb takes LostMouseCapture and cancels
+        // the drag, and the replacement slider is a new instance holding
+        // nothing. The user gets one step per click and no drag at all. This is
+        // the same hazard CLAUDE.md records for the manifold canvas; making the
+        // renderer clear its host is what exposed it here.
+        //
+        // So the sliders sit in the chrome and only `body` is rebuilt. Buttons
+        // may live anywhere: destroying a button that has already raised Click
+        // costs nothing.
+        var body = new StackPanel();
+
+        void RedrawBody()
+        {
+            body.Children.Clear();
+            FillBody(body, sound);
+        }
+
         host.Children.Add(Heading(
             "Sound",
             $"{sound.A.Name}   ⇄   {sound.B.Name}"));
 
         host.Children.Add(DesignStrip(sound, Refresh));
         host.Children.Add(SubTabs(sound, Refresh));
-        host.Children.Add(SpeedStrip(sound, Refresh));
+        host.Children.Add(SpeedStrip(sound, RedrawBody));
 
+        if (sound.SelectedTab == SoundTab.Silencing)
+        {
+            host.Children.Add(SilencerSliders(sound, RedrawBody));
+        }
+
+        host.Children.Add(body);
+        RedrawBody();
+    }
+
+    /// <summary>
+    /// The tab body — everything a speed or geometry change has to redraw, and
+    /// nothing that can be holding a mouse capture while it does.
+    /// </summary>
+    private static void FillBody(Panel body, SoundWorkspace sound)
+    {
         switch (sound.SelectedTab)
         {
             case SoundTab.Timing:
-                host.Children.Add(ExplainCard(sound));
-                host.Children.Add(PlotCard(sound.TimingChart()));
-                host.Children.Add(PlotCard(sound.Waterfall()));
+                body.Children.Add(ExplainCard(sound));
+                body.Children.Add(PlotCard(sound.TimingChart()));
+                body.Children.Add(PlotCard(sound.Waterfall()));
                 break;
 
             case SoundTab.Spectrum:
-                host.Children.Add(PlotCard(sound.OrderSpectrumChart()));
-                host.Children.Add(PlotCard(sound.CharacterRadar()));
+                body.Children.Add(PlotCard(sound.OrderSpectrumChart()));
+                body.Children.Add(PlotCard(sound.CharacterRadar()));
                 break;
 
             case SoundTab.Audition:
-                host.Children.Add(AuditionCard(sound));
+                body.Children.Add(AuditionCard(sound));
                 break;
 
             case SoundTab.Silencing:
-                host.Children.Add(SilencerSliders(sound, Refresh));
-                host.Children.Add(PlotCard(sound.TransmissionLoss()));
+                // The sliders themselves are chrome; only the curve they drive
+                // is redrawn.
+                body.Children.Add(PlotCard(sound.TransmissionLoss()));
                 break;
 
             case SoundTab.Compliance:
             default:
-                host.Children.Add(PendingCard(sound.SelectedTab));
+                body.Children.Add(PendingCard(sound.SelectedTab));
                 break;
         }
     }
@@ -154,7 +192,7 @@ public static class SoundContent
     /// single-digit milliseconds, so it can redraw on the drag rather than on
     /// release — which is the interaction plan §8.4 asks for.
     /// </summary>
-    private static UIElement SpeedStrip(SoundWorkspace sound, Action refresh)
+    private static UIElement SpeedStrip(SoundWorkspace sound, Action redraw)
     {
         var strip = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 12) };
 
@@ -189,7 +227,7 @@ public static class SoundContent
         {
             sound.Rpm = e.NewValue;
             readout.Text = $"{sound.Rpm:F0} rpm";
-            refresh();
+            redraw();
         };
 
         strip.Children.Add(slider);
@@ -204,7 +242,7 @@ public static class SoundContent
     /// interactive-TMM-then-refine pattern). A 512-point sweep is a couple of
     /// milliseconds, so these redraw on the drag.
     /// </summary>
-    private static UIElement SilencerSliders(SoundWorkspace sound, Action refresh)
+    private static UIElement SilencerSliders(SoundWorkspace sound, Action redraw)
     {
         var panel = new StackPanel();
         panel.Children.Add(Styled(new TextBlock { Text = "Expansion chamber" }, "Text.Body"));
@@ -212,19 +250,19 @@ public static class SoundContent
         panel.Children.Add(GeometrySlider("Pipe Ø", "mm", 30, 90, sound.PipeDiameterMm, v =>
         {
             sound.PipeDiameterMm = v;
-            refresh();
+            redraw();
         }));
 
         panel.Children.Add(GeometrySlider("Chamber Ø", "mm", 60, 250, sound.ChamberDiameterMm, v =>
         {
             sound.ChamberDiameterMm = v;
-            refresh();
+            redraw();
         }));
 
         panel.Children.Add(GeometrySlider("Chamber length", "mm", 80, 800, sound.ChamberLengthMm, v =>
         {
             sound.ChamberLengthMm = v;
-            refresh();
+            redraw();
         }));
 
         return Card(panel);

@@ -162,6 +162,23 @@ StackPanel, off the bottom of the viewport - the stale copy stayed put and the
 app looked frozen. `ContentHostTests` scans the App source and fails if any
 renderer omits the clear or does it after the first Add.
 
+**...and NOTHING THAT FIRES UNDER A HELD POINTER MAY TRIGGER THAT REBUILD.**
+Two names, one convention: `refresh` is the full rebuild, anything else
+(`redraw`, `editField`, `ShowFrame`) is targeted. A Slider's ValueChanged fires
+while the mouse is down; rebuild the tree from it and WPF disconnects the
+capturing Thumb, drops capture, cancels the drag and hands back a new slider
+holding nothing - one step per click, no drag. Same for a TextBox committing on
+LostFocus: that fires AFTER focus has moved, so a rebuild destroys the control
+the user just clicked into and swallows the click. Sliders and text boxes
+therefore live in the CHROME and only a `body` panel is rebuilt.
+`ContentHostTests.Gate_no_slider_rebuilds_the_tree_it_is_being_dragged_in`
+enforces it.
+
+**An async continuation must check it is still on screen before re-rendering.**
+`Navigate` never cancels a job, so the wizard's compute can finish while the
+user is looking at Results - and an unguarded `refresh()` then replaces the
+Results body while the rail and title still say Results.
+
 LESSON: the user reported "buttons don't do anything and don't change colour".
 The colour half was real (there was no Button style at all) and fixing it
 changed nothing, because it was not the cause. What settled it was counting

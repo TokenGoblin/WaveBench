@@ -136,6 +136,71 @@ public partial class ContentHostTests(ITestOutputHelper output)
         reentrant.Should().NotBeEmpty("the scan must actually find the re-entrant renderers");
     }
 
+    [Fact]
+    public void Gate_no_slider_rebuilds_the_tree_it_is_being_dragged_in()
+    {
+        // The other half of the rule, and the one that bit immediately after
+        // the renderers were made to clear. A Slider updating on ValueChanged
+        // fires while the mouse is DOWN. Rebuild the tree from that handler and
+        // WPF disconnects the capturing Thumb, drops its capture, cancels the
+        // drag, and hands back a brand-new slider holding nothing — so the
+        // control can only be stepped one click at a time and never dragged.
+        //
+        // CLAUDE.md already recorded this for the manifold canvas. It applies
+        // to every control that fires under a held pointer, so it is enforced
+        // rather than remembered.
+        //
+        // The check is on the NAME of the callback, which makes it a convention
+        // test: `refresh` is the full rebuild, anything else is targeted. That
+        // is a feature rather than a weakness — a factory taking `Action
+        // refresh` and calling it from a drag is wrong whatever the caller
+        // happens to pass today, and renaming the parameter to say what it does
+        // is the fix, not a way around the test.
+        var app = AppDirectory();
+        var offences = new List<string>();
+        var handlers = 0;
+
+        foreach (var file in app.GetFiles("*.cs", SearchOption.AllDirectories))
+        {
+            if (file.FullName.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}",
+                    StringComparison.Ordinal)
+                || file.FullName.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}",
+                    StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            var text = File.ReadAllText(file.FullName);
+
+            foreach (Match match in Regex.Matches(text, @"\.ValueChanged\s*\+="))
+            {
+                handlers++;
+                var body = LambdaBody(text, match.Index);
+
+                // `refresh` and `Refresh` are the full-rebuild closures. A
+                // targeted callback under any other name is exactly what this
+                // test is asking for.
+                if (Regex.IsMatch(body, @"\b[Rr]efresh\s*\(\s*\)"))
+                {
+                    offences.Add(
+                        $"{file.Name}: a ValueChanged handler calls the full-rebuild Refresh, which will "
+                        + "destroy the slider mid-drag");
+                }
+            }
+        }
+
+        output.WriteLine($"checked {handlers} ValueChanged handler(s)");
+        handlers.Should().BeGreaterThan(0, "the scan must actually find the sliders");
+        offences.Should().BeEmpty(string.Join(Environment.NewLine, offences));
+    }
+
+    /// <summary>Body of the lambda that follows an event subscription, by brace matching.</summary>
+    private static string LambdaBody(string text, int subscriptionIndex)
+    {
+        var open = text.IndexOf('{', subscriptionIndex);
+        return open < 0 ? string.Empty : MethodBody(text, subscriptionIndex);
+    }
+
     /// <summary>Text of the method body starting at a signature match, by brace matching.</summary>
     private static string MethodBody(string text, int signatureIndex)
     {

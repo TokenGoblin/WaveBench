@@ -20,12 +20,43 @@ public static class WizardContent
 {
     public static void Render(Panel host, ShellViewModel shell, ProjectSession session, Wizard wizard)
     {
-        // Clear first: every Next, Back, step-rail jump and answer edit calls
-        // back into this method through the Refresh closure below, so
-        // re-rendering has to replace rather than append.
+        // Clear first: every Next, Back and step-rail jump calls back into this
+        // method through the Refresh closure below, so re-rendering has to
+        // replace rather than append.
         host.Children.Clear();
 
         void Refresh() => Render(host, shell, session, wizard);
+
+        // A field edit must NOT rebuild the whole wizard. Number and Text
+        // commit on LostFocus, which fires AFTER focus has moved — so a full
+        // rebuild destroys the box the user just clicked into, focus falls back
+        // to the window, and the click is swallowed. Tabbing between two edited
+        // fields does the same. Only the preview depends on an answer's value,
+        // so only the preview is redrawn.
+        //
+        // QuestionCard's contents depend on wizard.Step alone, never on the
+        // values, so leaving it standing cannot show anything stale.
+        var previewHost = new StackPanel();
+        Grid.SetColumn(previewHost, 1);
+
+        void RedrawPreview()
+        {
+            previewHost.Children.Clear();
+            previewHost.Children.Add(PreviewCard(wizard, shell, session, Refresh));
+        }
+
+        // The compute continuation runs after an await and the user is free to
+        // navigate away while it does — §8.5 says switching workspaces never
+        // cancels a job. Re-rendering the wizard into a host now showing
+        // Results would replace that body while the rail and title still said
+        // Results.
+        void RefreshIfStillShowing()
+        {
+            if (shell.Current == Workspace.Overview && shell.Mode == UiMode.Simple)
+            {
+                Refresh();
+            }
+        }
 
         host.Children.Add(Heading(wizard));
         host.Children.Add(StepRail(wizard, Refresh));
@@ -34,13 +65,14 @@ public static class WizardContent
         columns.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         columns.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(360) });
 
-        var question = QuestionCard(wizard, Refresh);
+        // Choice changes which later steps apply, so it earns a full rebuild —
+        // and it is a button, which can be destroyed the moment it has fired.
+        var question = QuestionCard(wizard, Refresh, RedrawPreview, RefreshIfStillShowing);
         Grid.SetColumn(question, 0);
         columns.Children.Add(question);
 
-        var preview = PreviewCard(wizard, shell, session, Refresh);
-        Grid.SetColumn(preview, 1);
-        columns.Children.Add(preview);
+        columns.Children.Add(previewHost);
+        RedrawPreview();
 
         host.Children.Add(columns);
         host.Children.Add(Navigation(wizard, Refresh));
@@ -93,7 +125,24 @@ public static class WizardContent
 
     // ---- The question region ---------------------------------------------
 
-    private static UIElement QuestionCard(Wizard wizard, Action refresh)
+    /// <param name="wizard">The wizard state.</param>
+    /// <param name="refresh">
+    /// Full rebuild. For the CHOICE controls, which change which later steps
+    /// apply — and which are buttons, so destroying them after they have fired
+    /// costs nothing.
+    /// </param>
+    /// <param name="editField">
+    /// Preview-only redraw. For the Number and Text boxes, which commit on
+    /// LostFocus: a full rebuild there destroys whichever control the user has
+    /// just moved focus INTO.
+    /// </param>
+    /// <param name="afterCompute">
+    /// Full rebuild, but only if the wizard is still the thing on screen. The
+    /// compute continuation resumes after an await and the user may have
+    /// navigated away in the meantime.
+    /// </param>
+    private static UIElement QuestionCard(
+        Wizard wizard, Action refresh, Action editField, Action afterCompute)
     {
         var panel = new StackPanel();
 
@@ -107,13 +156,13 @@ public static class WizardContent
                 break;
 
             case WizardStep.Engine:
-                panel.Children.Add(Number("Bore", "mm", wizard.BoreMm, v => wizard.BoreMm = v, refresh));
-                panel.Children.Add(Number("Stroke", "mm", wizard.StrokeMm, v => wizard.StrokeMm = v, refresh));
+                panel.Children.Add(Number("Bore", "mm", wizard.BoreMm, v => wizard.BoreMm = v, editField));
+                panel.Children.Add(Number("Stroke", "mm", wizard.StrokeMm, v => wizard.StrokeMm = v, editField));
                 panel.Children.Add(Number("Cylinders", "", wizard.Cylinders,
-                    v => wizard.Cylinders = (int)Math.Round(v), refresh));
+                    v => wizard.Cylinders = (int)Math.Round(v), editField));
                 panel.Children.Add(Number("Compression ratio", ":1", wizard.CompressionRatio,
-                    v => wizard.CompressionRatio = v, refresh));
-                panel.Children.Add(Number("Redline", "rpm", wizard.RedlineRpm, v => wizard.RedlineRpm = v, refresh));
+                    v => wizard.CompressionRatio = v, editField));
+                panel.Children.Add(Number("Redline", "rpm", wizard.RedlineRpm, v => wizard.RedlineRpm = v, editField));
                 break;
 
             case WizardStep.Head:
@@ -122,17 +171,17 @@ public static class WizardContent
                     wizard.Cam,
                     v => { wizard.Cam = (CamCharacter)v; refresh(); }));
                 panel.Children.Add(Number("Intake valve Ø", "mm (0 to derive)", wizard.IntakeValveMm,
-                    v => wizard.IntakeValveMm = v, refresh));
+                    v => wizard.IntakeValveMm = v, editField));
                 panel.Children.Add(Number("Exhaust valve Ø", "mm (0 to derive)", wizard.ExhaustValveMm,
-                    v => wizard.ExhaustValveMm = v, refresh));
+                    v => wizard.ExhaustValveMm = v, editField));
                 break;
 
             case WizardStep.Fuel:
-                panel.Children.Add(Text("Fuel", wizard.Fuel, v => wizard.Fuel = v, refresh));
-                panel.Children.Add(Number("λ (relative AFR)", "", wizard.Lambda, v => wizard.Lambda = v, refresh));
+                panel.Children.Add(Text("Fuel", wizard.Fuel, v => wizard.Fuel = v, editField));
+                panel.Children.Add(Number("λ (relative AFR)", "", wizard.Lambda, v => wizard.Lambda = v, editField));
                 panel.Children.Add(Number("Ambient temperature", "°C", wizard.AmbientTemperatureC,
-                    v => wizard.AmbientTemperatureC = v, refresh));
-                panel.Children.Add(Number("Altitude", "m", wizard.AltitudeM, v => wizard.AltitudeM = v, refresh));
+                    v => wizard.AmbientTemperatureC = v, editField));
+                panel.Children.Add(Number("Altitude", "m", wizard.AltitudeM, v => wizard.AltitudeM = v, editField));
                 break;
 
             case WizardStep.Aspiration:
@@ -148,15 +197,15 @@ public static class WizardContent
 
             case WizardStep.Constraints:
                 panel.Children.Add(Number("Longest runner that fits", "mm", wizard.PackagingLimitMm,
-                    v => wizard.PackagingLimitMm = v, refresh));
+                    v => wizard.PackagingLimitMm = v, editField));
                 panel.Children.Add(Number("Noise limit", "dBC", wizard.NoiseLimitDbc,
-                    v => wizard.NoiseLimitDbc = v, refresh));
+                    v => wizard.NoiseLimitDbc = v, editField));
                 break;
 
             case WizardStep.Goal:
                 panel.Children.Add(Number("Band from", "rpm", wizard.BandFromRpm,
-                    v => wizard.BandFromRpm = v, refresh));
-                panel.Children.Add(Number("Band to", "rpm", wizard.BandToRpm, v => wizard.BandToRpm = v, refresh));
+                    v => wizard.BandFromRpm = v, editField));
+                panel.Children.Add(Number("Band to", "rpm", wizard.BandToRpm, v => wizard.BandToRpm = v, editField));
                 panel.Children.Add(Choice(
                     Enum.GetValues<TorqueShape>().Select(s => (object)s).ToList(),
                     wizard.Shape,
@@ -168,7 +217,7 @@ public static class WizardContent
                 break;
 
             default:
-                panel.Children.Add(ComputeRegion(wizard, refresh));
+                panel.Children.Add(ComputeRegion(wizard, afterCompute));
                 break;
         }
 
