@@ -794,3 +794,274 @@ trade-offs, never a single best."
 Every entry must record its source and licence or the library refuses it. The
 database is user-populated, and one anonymous contribution would make the whole
 library un-shippable.
+
+## 4. Coupled unsteady forced induction (Phase 13)
+
+### 4.1 The rotor is a boundary condition, not a pressure source
+
+`RotorNozzleBoundary` is the keystone of the phase. The rotor does not impose a
+pressure and it does not impose a flow — it imposes a **relationship** between
+them, and the duct's outgoing characteristic imposes another. Where the two meet
+is the boundary state, and solving for it every step is what lets a blowdown
+pulse arrive, do work, and reflect.
+
+Given a trial face pressure `p`, the duct delivers
+
+```
+speed = −u_in + 2(a_i − a_b)/(γ−1),   a_b = a_i·(p/p_i)^((γ−1)/2γ)
+ṁ_duct = speed · ρ_b · A
+```
+
+and the rotor swallows `ṁ_map(ER, N_corr)` read at the face's **total**
+conditions. The duct term falls with pressure and the rotor term rises, so the
+imbalance crosses zero exactly once and bisection is safe without a derivative.
+
+Three bounds matter, and two of them were learned by getting them wrong:
+
+- **Blocked.** Outflow reaches zero at `a_b = a_i − u_in·(γ−1)/2`. **Minus** —
+  `u_in` is positive *into* the duct, so an outflowing end has it negative.
+- **Choked.** The face cannot exceed sonic:
+  `a_crit = [(γ−1)·(−u_in) + 2a_i]/(γ+1)`.
+- **Backflow.** When the blocking pressure has already fallen below what is
+  downstream, gas is coming *in*, and the state it brings is the downstream
+  reservoir's rather than the interior's. That case delegates to
+  `ReservoirBoundary` rather than extending the outflow isentrope backwards
+  through a discontinuity that is not there.
+
+Placing this boundary directly on the manifold outlet gives the **quasi-steady**
+model. Placing it on the far end of a volute duct gives the **volute-resolved**
+model — the same boundary, a different topology.
+
+### 4.2 What the two turbine models actually differ by
+
+Measured on a pulsating rig at fixed shaft speed (the way a gas stand runs the
+test), 120 kPa of pulse on a 175 kPa mean at 100 Hz:
+
+| Configuration | Mean power | Loop openness |
+|---|---|---|
+| Quasi-steady | 28.51 kW | 0.014 |
+| Resolved, constant-area volute | 28.51 kW | 0.207 |
+| Resolved, contracting volute | 24.66 kW | 0.370 |
+
+Read that table carefully, because the obvious reading of it is wrong. A
+constant-area volute accounts for **the same mean power to within rounding** and
+still opens a loop fifteen times the quasi-steady residue: filling and emptying
+is a **phase** effect, not an energy one, which is exactly what a pulsating gas
+stand measures and a single-valued map cannot contain. The contraction to the
+rotor face is a restriction and a reflection as well as a volume, and it is that
+which takes the 13.5% of power.
+
+The loop widens with pulse amplitude (0.199 → 0.522 over 60–180 kPa) and with
+frequency (0.072 → 0.246 per unit delivered pulse over 25–200 Hz), matching the
+qualitative behaviour reported by Dale & Watson, Winterbone & Pearson, and
+Szymko/Martinez-Botas.
+
+**Loop openness is measured as the vertical spread of the (ER, MFP) trace at a
+given expansion ratio, not as the enclosed area.** The obvious metric — shoelace
+area over the bounding box — measures the wrong thing: a bigger pulse grows the
+box faster than the area, so a box-normalised loop appears to *shrink* with
+amplitude. The literature's "wider loop" means the vertical opening.
+
+Runtime: volute-resolved measured at **0.76×** quasi-steady against a 2× gate.
+It is not cheaper per step — it runs at a milder state and takes a larger stable
+timestep.
+
+**A resolved volute shorter than 30 mm is refused rather than answered.** Below
+that the handover junction sits on top of the rotor boundary; measured on the
+rig, a 10 mm volute moved mean power by up to 30% and moved it again with cell
+count, while a 150 mm one was mesh-independent to 0.2%. No real volute is that
+short, and returning a number from that configuration would be worse than
+refusing it.
+
+### 4.3 Twin-scroll pairing and partial admission
+
+`ScrollPairing` is arithmetic on the firing order and the cam, with no gas
+dynamics in it at all. That is the point — plan §4.6.2 requires the pairing to
+be derived from firing order alone, so a wrong one is caught before anybody runs
+anything.
+
+The **separation index** is the fraction of one cylinder's blowdown window that
+falls inside a scroll-mate's exhaust stroke, worst pair reported:
+
+| Engine | Pairing | Index | Min spacing |
+|---|---|---|---|
+| I4 1-3-4-2 | {1,4} / {3,2} | 0.000 | 360° |
+| I4 1-3-4-2 | {1,3} / {4,2} | 1.000 | 180° |
+| I6 1-5-3-6-2-4 | {1,2,3} / {4,5,6} | 0.000 | 240° |
+| I6 1-5-3-6-2-4 | {1,5,3} / {6,2,4} | 1.000 | 120° |
+| V8 crossplane | alternating | 1.000 | 180° |
+| V8 crossplane | by bank | 1.000 | 90° |
+
+The V8 rows are a finding, not a failure: eight cylinders in two scrolls means
+four events per scroll, so the widest spacing available is 180°, and a blowdown
+starting at 140° always lands inside a mate's exhaust stroke 180° later. **No
+two-scroll V8 escapes it.** The index saturates at 1 for every arrangement
+there, which is why `MinimumSpacingDeg` exists — it is what still ranks the
+options when the overlap metric has run out of room.
+
+**Partial admission** (`TwinScrollTurbine.Redistribute`) allocates the rotor
+annulus in proportion to what each scroll is currently able to deliver. That
+reduces to an even split when the scrolls are in phase — full admission, no
+penalty — and to one scroll taking 98% of the rotor when its mate has gone
+quiet, which is the out-of-phase case the pairing rule is designed to produce.
+The efficiency penalty is linear in admission imbalance and defaults to 15% at
+full single-entry admission; the **shape** follows the published trend for
+twin-entry turbines under unequal admission, the **coefficient is not fitted to
+any dataset** and is exposed for calibration.
+
+### 4.4 Turbocharger thermal model and the diabatic correction
+
+Three lumped-capacitance nodes — turbine housing, bearing housing, compressor
+housing — with oil and coolant rejection, external convection, and radiation
+from the turbine housing. At 1100 K turbine inlet in a 350 K bay:
+
+```
+turbine 777 K, bearing 438 K, compressor 385 K
+3878 W in from the gas, 1461 W to the oil, 999 W into the charge
+```
+
+The claim it supports: **a gas-stand map's efficiency is an apparent
+efficiency.** The stand measures a rise that already contains heat conducted
+from the turbine end, so `η_map = ΔT_ideal/(ΔT_aero + ΔT_heat,stand)`. Two
+consequences follow, pointing opposite ways — the compressor's real aerodynamic
+efficiency is *higher* than the map says, and the on-engine outlet temperature
+is *higher* than the map predicts, because an engine's turbine end is 400–500 K
+above a stand's.
+
+Verified two ways, because there is no measured dataset here:
+
+1. Against a **synthetic truth** where the heat flux is known exactly, the
+   correction recovers a 78.0% aerodynamic efficiency from the 74.3% apparent
+   value the stand would have recorded — to 0.2%.
+2. The **magnitude** lands where the literature puts it:
+
+| ṁ kg/s | raw map | adiabatic | on engine | over adiabatic | heat |
+|---|---|---|---|---|---|
+| 0.06 | 356.1 K | 343.2 K | 363.7 K | **20.6 K** | 1041 W |
+| 0.12 | 400.0 K | 395.4 K | 404.7 K | 9.3 K | 1139 W |
+| 0.20 | 436.0 K | 434.2 K | 439.1 K | 4.9 K | 1195 W |
+
+Plan §4.2's "15–30 K above the adiabatic prediction" is **not a flat offset**,
+and the model does not pretend it is. The heat flux is roughly fixed by the
+housing temperatures; carrying a fixed power in a smaller mass flow makes a
+bigger temperature rise. The effect is large at low flow — where the published
+figures are measured, and where a matched turbo spends its transient — and small
+at high flow. A model producing 20 K everywhere would be reproducing the quoted
+number rather than the physics.
+
+**Validation case 21 is still open**: a *measured* on-engine outlet temperature
+to compare against. The conductances in `TurboThermalProperties` are calibration
+parameters and are exposed for exactly that.
+
+### 4.5 Pulse energy delivery and manifold volume ratio
+
+`TurbineDeliveryRecorder` reduces a recorded cycle at the turbine inlet to the
+two metrics §4.6.1 names.
+
+**Pulse energy delivery** is mean turbine power divided by the power the same
+mean mass flow would have produced arriving steadily at the cycle-mean pressure.
+Above 1 the pulse paid for itself; at 1 the manifold has flattened it into
+constant-pressure operation. This is the Watson & Janota axis as a single
+number.
+
+The first definition tried — the fraction of delivered power arriving while
+pressure was above its own cycle mean — **did not discriminate**: it sat between
+60% and 67% for every manifold in a primary sweep and was not even monotone,
+because a smooth trace spends about as long above its mean as a peaky one does.
+
+A four-cylinder at 6800 rpm through a 4-1 header into the synthetic turbine:
+
+```
+  Ø mm   volume ratio   pulse delivery   peak/mean p   turbine kW      VE    IMEP bar   BSR
+    20           1.59           101.5%         1.158        16.71   0.873      13.95   0.53
+    24           1.92           105.9%         1.247        14.68   0.922      15.11   0.55
+    28           2.31           106.6%         1.268        14.24   0.935      15.52   0.55
+    32           2.76           105.0%         1.263        13.30   0.934      15.60   0.57
+    38           3.56           102.7%         1.213        12.87   0.931      15.57   0.58
+    44           4.48           101.3%         1.154        12.50   0.925      15.50   0.59
+    50           5.55           100.7%         1.121        12.27   0.921      15.44   0.59
+```
+
+Both halves of the trade are visible and both matter. Widen past Ø28 and the
+blowdown dissipates into manifold volume until the turbine runs at constant
+pressure. Narrow past it and the primary chokes: volumetric efficiency falls to
+0.873, IMEP falls with it — and **turbine power keeps rising**, because a high
+mean back-pressure feeds the turbine well while strangling the engine. Reporting
+turbine power beside VE is what stops an optimiser choosing the choked header.
+
+The sweep is run high in the rev range on purpose. At 4500 rpm this engine draws
+0.09 kg/s and a Ø26 primary is not a restriction at all, so the sweep reads as
+"narrower is always better" — true right up until it is not.
+
+### 4.6 Shaft dynamics
+
+```
+J·dω/dt = (P_turbine·η_mech − P_compressor − P_friction + P_assist)/ω
+```
+
+Integrated on **energy** rather than speed. Torque goes as `P/ω` and blows up as
+ω → 0; kinetic energy `½Jω²` does not, and its derivative is just the net power.
+That makes a stationary shaft a starting condition rather than a singularity —
+which is precisely the case a spool prediction has to handle. Checked against
+the closed form it implies: 20 000 → 120 000 rpm on 3 kW gives 79.32 ms exactly,
+79.33 ms integrated.
+
+Bearing friction is `P = C·μ_ratio·N^(n+1)` with n = 2, the default putting
+~0.9 kW into the bearings at 150 000 rpm. It is a **fitted lumped number**, and
+the oil-viscosity ratio is there so a cold-oil case runs against the same
+calibration. An electric assist is one term in the same equation and needs
+nothing else.
+
+### 4.7 Wastegate, charge cooler, boost control
+
+**The internal wastegate's scroll-division loss is modelled**, because plan §4.3
+says omitting it overstates the twin-scroll benefit at exactly the high-load
+condition where the gate is open. A shut gate retains 100% of the division; a
+fully open internal port retains 35% by default; an external gate on its own
+take-off retains all of it at any position.
+
+**Charge air cooler heat soak** needs the core's thermal mass, and the
+conductance to the coolant is where the vehicle's speed lives. Five pulls on a
+dyno with no ram air:
+
+```
+pull 1: outlet 343.6 K    pull 3: 351.9 K    pull 5: 352.5 K
+a steady ε-NTU model says 329.9 K on every one of them
+```
+
+That 22.6 K gap is the IAT climb a steady-state model hides — and it is a dyno
+phenomenon before it is a road one, because a moving car's core rejects several
+times as much.
+
+**Boost control** is a PID with feed-forward and conditional-integration
+anti-windup. The actuator's sign is the one that catches people out: solenoid
+duty *bleeds pressure away* from the diaphragm, so more duty means the gate
+opens later and boost runs higher.
+
+### 4.8 What was found along the way
+
+**The rotor boundary acted as a check valve.** A sign error in the zero-flow
+pressure — `a_i + u_in·(γ−1)/2` instead of `a_i − u_in·(γ−1)/2` — put the
+blocking pressure below the back-pressure whenever gas was leaving, which read
+as permanent backflow. With backflow suppressed the manifold could not relieve
+itself: the engine drew 0.023 kg/s against an expected 0.090, mean turbine-inlet
+pressure climbed, and primaries went to NaN at the junction a few hundred
+degrees in.
+
+**The tell was that it got worse under mesh refinement** — at 6 mm cells every
+diameter failed where at 12 mm only the narrow ones did. That is the signature
+of an ill-posed boundary, not an under-resolved one, and it is the thing to
+watch for next time.
+
+**The junction was suspected first, and measured innocent.** A `Junction` in a
+plain pipe passes a pulse of 69% of mean pressure with **0.07% error in
+delivered mass** — the linearised constant-pressure solve is far better than its
+derivation suggests at these amplitudes. That measurement is kept as
+`JunctionUnderPulseTests` because the question will come up again.
+
+**A conclusion was retracted.** Before the boundary was fixed, the evidence said
+the volute's *contraction* rather than its volume opened the hysteresis loop.
+With the boundary corrected the opposite is true — volume alone opens most of
+it — and §4.2 above states the corrected result. The lesson is the same one
+§1.11 of this document already carries: a result that rests on a component you
+have not verified is a hypothesis, not a finding.

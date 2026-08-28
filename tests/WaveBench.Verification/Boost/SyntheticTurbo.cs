@@ -152,6 +152,7 @@ internal static class SyntheticTurbo
         Name = "Synthetic 0.64 A/R turbine",
         Reference = MapReference.SaeJ1826,
         AreaRatio = 0.64,
+        RotorDiameterM = 0.055,
         Provenance = "Analytic test map — not a product. See SyntheticTurbo.",
         SpeedLines = TurbineSpeeds.Select(n => new TurbineSpeedLine(
             n,

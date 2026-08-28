@@ -50,6 +50,31 @@ relations are checked against hand calculations, not against the model; a
 0.65); the digitiser reads back an analytic map from a 900x700 PNG to within
 0.63% on efficiency and 0.08% on pressure ratio, against a 2% gate.
 
+**Phase 13 complete** (coupled unsteady forced induction: the rotor as a duct
+end boundary, quasi-steady and volute-resolved turbine models, twin-scroll
+partial admission and the firing-order pairing rule, shaft dynamics, the
+three-node turbocharger thermal model and its diabatic correction, VGT,
+wastegate with scroll-division loss, BOV/recirculation, charge cooler with
+thermal mass, boost control). All four gate clauses met: hysteresis loop 27x
+wider resolved than quasi-steady and widening with amplitude and frequency;
+twin-scroll separation index 0.000 correct against 1.000 wrong from firing
+order alone; diabatic correction recovers a known aerodynamic efficiency to
+0.2% and gives 20.6 K over adiabatic at low flow; volute-resolved runtime
+0.76x against a 2x gate. See docs/physics.md §4.
+
+**A duct end boundary must admit BACKFLOW.** An exhaust outlet does not only
+blow - between pulses the manifold falls below what is downstream and gas comes
+back. `RotorNozzleBoundary` delegates that case to `ReservoirBoundary` rather
+than extending the outflow isentrope backwards. A sign error that suppressed it
+made the boundary a check valve: the engine drew a quarter of the air it should
+have and primaries went to NaN at the junction.
+
+LESSON: the failure got WORSE under mesh refinement. That is the signature of an
+ill-posed boundary, not an under-resolved one - and it is the fastest way to
+tell those two apart. (The junction was suspected first and measured innocent:
+0.07% error on a pulse of 69% of mean pressure. `JunctionUnderPulseTests` keeps
+that number on record.)
+
 **Turbo maps are SYNTHETIC in this repo and must stay that way.** Plan §4.7:
 ship no manufacturer maps without written permission, and that applies to the
 test suite. `SyntheticTurbo` is an analytic surface, which is also the better
@@ -67,8 +92,8 @@ summary. Same document under both, so the toggle is navigation and never a
 conversion.
 
 **PHASE ORDER IS USER-REORDERED: 19 -> 20 -> 23 (all done), then the
-forced-induction block (12 done, 13-15 next), then 21/22/24/25.** The user
-chose this to get a complete naturally-aspirated tool sooner. Phase 20's acoustics engine (8-11) is already
+forced-induction block (12 and 13 done, 14-15 next), then 21/22/24/25.** The
+user chose this to get a complete naturally-aspirated tool sooner. Phase 20's acoustics engine (8-11) is already
 built and Phase 23's wizard works NA-only, so nothing in that path blocks on
 turbo work. Do NOT silently revert to plan order.
 

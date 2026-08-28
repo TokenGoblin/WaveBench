@@ -71,6 +71,19 @@ public static class TurbineModel
         return new TurbinePointResult(massFlow, efficiency, outlet, power, region);
     }
 
+    /// <summary>
+    /// Read corrected flow and efficiency off the map, with the physical
+    /// closures of this class outside the measured range. Public because the
+    /// unsteady rotor boundary reads the same map thousands of times per cycle
+    /// and must get exactly the same numbers the steady matcher does.
+    /// </summary>
+    public static (double CorrectedFlow, double Efficiency, MapRegion Region) ReadMap(
+        TurbineMap map, double expansionRatio, double correctedSpeed)
+    {
+        ArgumentNullException.ThrowIfNull(map);
+        return Read(map, expansionRatio, correctedSpeed);
+    }
+
     private static (double CorrectedFlow, double Efficiency, MapRegion Region) Read(
         TurbineMap map, double expansionRatio, double correctedSpeed)
     {

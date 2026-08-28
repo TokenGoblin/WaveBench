@@ -9,6 +9,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Phase 13 — coupled unsteady forced induction.** The turbine rotor as a duct
+  end boundary: it imposes a *relationship* between pressure and flow rather
+  than either one, solved against the duct's outgoing characteristic every
+  step, so a blowdown pulse arrives, does work and reflects. Placing it on the
+  manifold outlet gives the quasi-steady model; placing it past a meshed volute
+  gives the volute-resolved one. Plus shaft dynamics integrated on energy (a
+  stationary shaft is a starting condition, not a singularity), bearing
+  friction with oil viscosity, twin-scroll partial admission, the firing-order
+  pairing rule and its separation index, a three-node turbocharger thermal
+  model and the diabatic correction it drives, VGT vanes, a wastegate with the
+  internal-gate scroll-division loss, blow-off/recirculation, a charge cooler
+  with thermal mass, and boost control with anti-windup.
+  **All four gate clauses met:** the hysteresis loop is 27× wider resolved than
+  quasi-steady and widens with both amplitude and frequency; twin-scroll
+  pairing gives a separation index of 0.000 correct against 1.000 wrong,
+  derived from firing order alone; the diabatic correction recovers a known
+  aerodynamic efficiency to 0.2% and puts the on-engine rise at 20.6 K over
+  adiabatic at low flow, inside the published band; volute-resolved runtime is
+  0.76× quasi-steady against a 2× gate.
+- A primary-diameter sweep on a real four-cylinder into a real turbine now
+  shows **both halves** of the §4.6.1 trade: pulse energy delivery peaks at
+  Ø28 mm (106.6%) and falls to 100.7% at Ø50 as the pulse dissipates into
+  manifold volume, while below Ø28 the primary chokes and volumetric efficiency
+  falls to 0.873. Turbine power keeps rising all the way down, because a high
+  mean back-pressure feeds the turbine while strangling the engine — which is
+  why it is reported beside VE and not on its own.
+- Resolved volutes shorter than 30 mm are refused rather than answered: the
+  handover junction ends up on top of the rotor boundary and the answer moves
+  30% with cell count.
+
+### Fixed
+
+- **The rotor boundary admitted no backflow.** A sign error in the zero-flow
+  pressure made an outflowing end read as permanently back-fed, so the exhaust
+  manifold could never relieve itself: the engine drew a quarter of the air it
+  should have, turbine-inlet pressure climbed, and primaries reached
+  non-physical density at the junction. Found because the failure got *worse*
+  under mesh refinement — the signature of an ill-posed boundary rather than an
+  under-resolved one. Only ever reachable through Phase 13 code; no previously
+  committed figure moves.
+
 - **Phase 12 — turbomachinery data and steady matching.** `WaveBench.Boost`:
   compressor and turbine map schema in SAE J1826 corrected quantities with
   per-map reference conditions that are **required and never defaulted**

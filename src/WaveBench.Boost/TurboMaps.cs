@@ -216,6 +216,15 @@ public sealed record TurbineMap
     /// <summary>Volute area ratio, m — the A/R a builder chooses between.</summary>
     public double? AreaRatio { get; init; }
 
+    /// <summary>
+    /// Rotor inducer diameter, m. Needed for blade speed ratio
+    /// <c>BSR = U_tip/C_is</c> (plan §4.3), which is what says whether a
+    /// manifold is delivering its pulse where the turbine can use it — peak
+    /// η_ts sits near BSR 0.65–0.70. Null when the datasheet does not state a
+    /// wheel size, and BSR is then reported as NaN rather than guessed.
+    /// </summary>
+    public double? RotorDiameterM { get; init; }
+
     public string Provenance { get; init; } = "";
 
     public void Validate()
