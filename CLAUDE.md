@@ -6,70 +6,71 @@
 relevant parts before writing code. 26 phases, strictly in order, each with a
 hard acceptance gate (Part 12). Never let a session span two phases.
 
-**Phase status:** Phases 0-10 complete; Phase 11 PARTIAL (compliance done;
-ISO 532-1 loudness and DIN 45692 sharpness done and verified; ISO 532-3,
-ECMA-418-2, fluctuation strength and DIN 45681 outstanding - see
-PsychoacousticStatus and docs/acoustics.md §4); **Phases 16 and 17 complete**
-(GUI pulled forward per the Part 12 allowance; Phase 17's gate verified by
-DesignGateTests - a model built through the workspace edit API alone runs
-bit-identically to the same model from the CLI). **Phase 18 complete**
-(manifold node graph, all nine §2.8 configurations, canvas view model +
-WPF canvas, per-node inspector, cited design warnings, pulse-interference
-diagram on the solved sound speed; 60 fps gate met at p99 0.68 ms against
-16.67 ms with 40 components). **Phase 19 complete** (Results workspace: wave
-decomposition verified against the textbook reflection, x-t wave diagram with
-scrub and animation, per-cylinder charts with EGT and knock, PNG+SVG export of
-every plot, Run wired to the solver; animation gate met at p99 0.0023 ms).
+## START HERE — where the project stands
 
-**Phase 20 complete** (Sound workspace: the M50 factory-vs-6-1 comparison
-reproduced from geometry and firing order alone, order spectrum/waterfall/
-character/timing figures, "Explain this" with an exact cause split, TMM
-silencing with live sliders, level-matched gapless A/B audition. All three gate
-clauses met: slider p99 8.4 ms against 50 ms; A/B matched to -23 LUFS with no
-click; M50 table reproduced.) NOT built: the Compliance tab, which needs a
-radiated level from a solved run - the instant model has order structure but no
-absolute level, and a verdict from it would be a number with nothing behind it.
+**22 of 26 phases complete. 841 tests green, none skipped. CI green on main.**
 
-**Phase 23 complete** (Simple mode and the wizard: nine steps with explainers
-and a live preview, the derivation layer filling the full model, the bounded
-search, the Design Brief with why/confidence/uncertainty and a build list, PDF
-export, "Open in Advanced"). Checkable gate half met: the brief's numbers are
-bit-identical to Advanced mode from the same document, first preview 0.0 ms
-against a one-second budget. The usability half - a novice reaching a brief in
-15 minutes - is not something a test settles.
+| Phase | State | Notes |
+|---|---|---|
+| 0-10 | done | core gas dynamics, thermo, engine, acoustics |
+| **11** | **PARTIAL** | **blocks v0.4** — see "What is left" below |
+| 12 | done | turbo maps, steady matching, map digitiser |
+| 13 | done | coupled unsteady forced induction — docs/physics.md §4 |
+| 14 | done | forced-induction engine behaviour — docs/physics.md §5 |
+| **15** | **NEXT** | transient + FI acoustics · **v0.6** — read the caveat below |
+| 16-20 | done | shell, Design, Manifold canvas, Results, Sound |
+| **21** | to do | Boost workspace · **v0.9** |
+| **22** | to do | Optimisation (largest remaining phase) |
+| 23 | done | Simple mode and the wizard |
+| **24** | to do | Learn layer and guardrails |
+| **25** | to do | Reporting, docs, packaging · **v1.0** |
 
-**Phase 12 complete** (turbomachinery data and steady matching: map schema in
-SAE J1826 corrected quantities, compressor and turbine models with physical
-extrapolation, shaft balance, surge/choke margins, turbo library with
-auto-match ranking, and the map digitiser). All three gate clauses met: map
-round-trip is bit-identical and refuses a map with no reference conditions;
-shaft balance closes to 1e-3 (the bisection's own tolerance) and the adiabatic
-relations are checked against hand calculations, not against the model; a
-2.0-litre four on the synthetic 60 mm unit gives a plausible operating line
-(PR 1.11 -> 3.00, shaft 35k -> 141k of 165k rated, back-pressure ratio 0.99 ->
-0.65); the digitiser reads back an analytic map from a 900x700 PNG to within
-0.63% on efficiency and 0.08% on pressure ratio, against a 2% gate.
+**PHASE ORDER IS USER-REORDERED and 15 is next by that ordering.** See the note
+further down; do not silently revert to plan order.
 
-**Phase 13 complete** (coupled unsteady forced induction: the rotor as a duct
-end boundary, quasi-steady and volute-resolved turbine models, twin-scroll
-partial admission and the firing-order pairing rule, shaft dynamics, the
-three-node turbocharger thermal model and its diabatic correction, VGT,
-wastegate with scroll-division loss, BOV/recirculation, charge cooler with
-thermal mass, boost control). All four gate clauses met: hysteresis loop 27x
-wider resolved than quasi-steady and widening with amplitude and frequency;
-twin-scroll separation index 0.000 correct against 1.000 wrong from firing
-order alone; diabatic correction recovers a known aerodynamic efficiency to
-0.2% and gives 20.6 K over adiabatic at low flow; volute-resolved runtime
-0.76x against a 2x gate. See docs/physics.md §4.
+### What is left, in the order the user chose
 
-**Phase 14 complete** (forced-induction engine behaviour: fresh-charge tracking,
-scavenging pressure ratio, blow-through and its fuel/TIT cost, superchargers,
-electric assist, the FSAE restrictor, ambient sensitivity). Both gate clauses
-met: the NA and boosted cam optima diverge by 15 degrees of lobe centre (20 vs
-50 degrees of overlap) and the scavenging output explains it - NA below a
-pressure ratio of 1 everywhere, boosted above it everywhere; the FSAE choke
-ceiling matches hand calculation at 0.0715 kg/s and a choked restrictor is shown
-turning shaft speed into a surge trajectory. See docs/physics.md §5.
+1. **Phase 15 — transient and FI acoustics (v0.6).** Spool and time-to-torque,
+   heat soak, turbine four-pole, blade-pass, whoosh, surge flutter, BOV noise.
+   **One gate clause cannot be satisfied as written:** "transient spool within
+   15% of a measured case" needs a measured dataset that is not in this repo.
+   The other two clauses (turbine attenuation and OPI drop; surge flutter
+   derived rather than tuned by ear) are fully checkable. Raise the re-scope
+   with the user BEFORE building, not after.
+2. **Phase 21 — Boost workspace (v0.9).** All the physics behind it already
+   exists and is tested; it has no UI at all yet.
+3. **Phase 22 — Optimisation.** DOE, CMA-ES, NSGA-II, Bayesian, surrogate inner
+   loop, Pareto explorer. The biggest single phase remaining.
+4. **Phase 24 — Learn layer.** Breadth, not depth: "why" text on every field,
+   "Show me" sweeps, Concepts panel, tours, guardrails.
+5. **Phase 25 — Reporting, docs, release (v1.0).**
+6. **Phase 11's four psychoacoustic metrics** — ISO 532-3, ECMA-418-2,
+   fluctuation strength, DIN 45681. Deferred for a REASON, not skipped: each
+   needs verification against published reference signals and none are
+   redistributable. This is the only backwards gap and it blocks the v0.4 tag
+   while everything after it is built. Decide with the user whether to hunt for
+   anchors or re-scope the milestone.
+
+### Standing deferrals (all deliberate, all stated in docs)
+
+- Bassett 2001 UNSTEADY junction coefficients — branch-angle dependence
+  currently carried by the Idelchik wye forms.
+- Phase 20's **Compliance tab** — needs an absolute radiated level from a solved
+  run; the instant model has order structure but no absolute level, and a
+  verdict from it would be a number with nothing behind it.
+- Yin-case short-runner discrepancy (docs/physics.md §1.9).
+- SIMD flux kernels, for when 3000-cell collector networks arrive
+  (docs/numerics.md §6).
+- Validation cases needing measured data that is not here: 12 (measured order
+  levels), 20 (transient spool), 21 (diabatic correction vs a measured
+  on-engine outlet temperature).
+- Twin-scroll partial-admission efficiency coefficient — follows the published
+  trend, fitted to no dataset, exposed for calibration.
+
+Per-phase detail and every committed figure live in `docs/physics.md`,
+`docs/acoustics.md`, `docs/numerics.md` and `CHANGELOG.md`. Do not duplicate
+them here; this file is for what a new session needs to avoid repeating a
+mistake.
 
 **Blow-through is a BRACKET, not a prediction.** The cylinder is single-zone, so
 it mixes perfectly - the lower bound, under 1% here where a measured DI turbo
@@ -115,11 +116,11 @@ pressure ratio, and the error is invisible in the answer.
 summary. Same document under both, so the toggle is navigation and never a
 conversion.
 
-**PHASE ORDER IS USER-REORDERED: 19 -> 20 -> 23 (all done), then the
-forced-induction block (12, 13 and 14 done, 15 next), then 21/22/24/25.** The
-user chose this to get a complete naturally-aspirated tool sooner. Phase 20's acoustics engine (8-11) is already
-built and Phase 23's wizard works NA-only, so nothing in that path blocks on
-turbo work. Do NOT silently revert to plan order.
+**Why the phase order was changed** (the order itself is in START HERE above).
+The user asked for 19 -> 20 -> 23 first, then the forced-induction block, to get
+a complete naturally-aspirated tool sooner. Phase 20's acoustics engine (8-11)
+was already built and Phase 23's wizard works NA-only, so nothing on that path
+blocked on turbo work. Do NOT silently revert to plan order.
 
 **Plots are DATA.** `PlotModel` in WaveBench.ViewModels.Plotting describes a
 figure; `PlotView` (WPF) and `SvgPlotWriter` both render it. Never draw a chart
@@ -237,12 +238,7 @@ app's Overview tiles + TorqueCard arrays.** Any physics change moves them; the
 sweep behind the tiles is `wavebench sweep examples/single-360.json --from 3000
 --to 9000 --step 500`.
 
-Known deferrals: ISO 532-3 / ECMA-418-2 / fluctuation strength / DIN 45681
-(Phase 11 - no verification anchors available; ISO 532-1 and DIN 45692 are
-done and verified); Bassett 2001 UNSTEADY junction coefficients (branch-angle
-dependence is now carried via the Idelchik wye forms); Yin-case short-runner discrepancy
-(docs/physics.md §1.9); SIMD flux kernels when 3000-cell collector networks
-arrive (docs/numerics.md §6).
+Deferrals are listed once, in START HERE at the top of this file.
 
 Non-negotiables (plan Part 0): TDD in physics layers · cite every empirical
 correlation in an XML doc comment with source and validity range ·
