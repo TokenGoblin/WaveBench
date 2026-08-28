@@ -42,9 +42,32 @@ public sealed class ValveConnection
 
     private double _exportedMass;
     private double _exportedMassTemperature;
+    private double _exportedFreshMass;
+    private double _importedMass;
+    private double _importedFreshMass;
 
     /// <summary>Mass that has left the cylinder through this valve since the last reset, kg.</summary>
     public double ExportedMass => _exportedMass;
+
+    /// <summary>Mass that has entered the cylinder through this valve since the last reset, kg.</summary>
+    public double ImportedMass => _importedMass;
+
+    /// <summary>
+    /// Whether this valve is on the intake side. Set at construction, because
+    /// what a port hands the cylinder — fresh charge or exhaust — is not
+    /// something the valve can work out from its own geometry.
+    /// </summary>
+    public bool IsIntake { get; init; }
+
+    /// <summary>
+    /// Fresh charge that has left the cylinder through this valve, kg
+    /// (plan §4.6.3). On an exhaust valve this is blow-through: charge that
+    /// came in the intake and went straight out again without being trapped.
+    /// </summary>
+    public double ExportedFreshMass => _exportedFreshMass;
+
+    /// <summary>Fresh charge that has entered through this valve, kg.</summary>
+    public double ImportedFreshMass => _importedFreshMass;
 
     /// <summary>
     /// Mass-weighted mean temperature of the gas that LEFT the cylinder
@@ -65,6 +88,9 @@ public sealed class ValveConnection
     {
         _exportedMass = 0.0;
         _exportedMassTemperature = 0.0;
+        _exportedFreshMass = 0.0;
+        _importedMass = 0.0;
+        _importedFreshMass = 0.0;
     }
 
     /// <summary>
@@ -217,6 +243,12 @@ public sealed class ValveConnection
             var exported = mDotIntoDuct * dt;
             _exportedMass += exported;
             _exportedMassTemperature += exported * _cylinder.Temperature;
+            _exportedFreshMass += exported * _cylinder.FreshChargeFraction;
+        }
+        else
+        {
+            _importedMass += -mDotIntoDuct * dt;
+            _importedFreshMass += -mDotIntoDuct * dt * (IsIntake ? 1.0 : 0.0);
         }
 
         // Impose the duct end flux (+x sense).
@@ -253,7 +285,14 @@ public sealed class ValveConnection
 
             var cp = gamma * r / g1;
             var hFace = cp * (pFaceSolved / (rhoFace * r)) + 0.5 * uFace * uFace;
-            _cylinder.QueueFlow(MassFlow * dt, hFace, _yDuct);
+
+            // Gas arriving through an INTAKE port counts as fresh charge;
+            // through an exhaust port it does not. Reversion that went out of
+            // the intake and came back is counted fresh again, which slightly
+            // overstates the trapped charge — the alternative is tagging the
+            // intake duct's own contents, which needs the species-resolved gas
+            // model the engine does not currently run.
+            _cylinder.QueueFlow(MassFlow * dt, hFace, _yDuct, IsIntake ? 1.0 : 0.0);
         }
         else
         {

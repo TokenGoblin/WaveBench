@@ -1065,3 +1065,170 @@ With the boundary corrected the opposite is true — volume alone opens most of
 it — and §4.2 above states the corrected result. The lesson is the same one
 §1.11 of this document already carries: a result that rests on a component you
 have not verified is a hypothesis, not a finding.
+
+## 5. Forced-induction engine behaviour (Phase 14)
+
+### 5.1 Fresh-charge tracking, and what it is an approximation of
+
+`Cylinder.FreshChargeMass` follows air (plus its fuel, when port-injected) that
+came in through an intake port and has not yet burned or left. Gas leaving takes
+fresh charge with it in proportion to the cylinder's current fresh fraction;
+the flame consumes it in proportion to the Wiebe increment; an intake port
+delivers it and an exhaust port does not.
+
+**It is single-zone, and that is a stated bound rather than a detail.** A real
+cylinder with good scavenging is closer to displacement than to mixing — a jet
+of fresh charge crosses to the exhaust valve while residuals sit in the corners
+— so perfect mixing **under-states** blow-through. On the engine below it
+reports under 1% where a measured DI turbo at the same overlap and scavenging
+pressure shows several. `ScavengingAnalyser.ShortCircuitFraction` supplies the
+other bound: at 1, every kilogram entering during overlap crosses untouched.
+Where a real engine sits between them is port angle, valve shrouding and chamber
+shape, none of which a 1D solver can resolve — so the tool brackets it and
+refuses to pick.
+
+Two things went wrong here and both are worth recording:
+
+- The flame first consumed fresh charge as `mass × (1 − dxb)` each step. That
+  compounds to `exp(−Σdxb) = 0.37`, leaving a third of the charge apparently
+  unburned — **reported as 35% blow-through on an engine with zero overlap**,
+  which is how it was found. Consumption is proportional to the charge present
+  at ignition, not a repeated fraction of what is left.
+- The Wiebe asymptote never reaches 1, so 0.67% survived every burn and scored
+  as blow-through on every exhaust event. The burn now zeroes the tracker when
+  its window closes, for the reason the existing comment beside it already gave:
+  the missing fraction is the exponential tail, not charge sitting in the
+  chamber.
+
+### 5.2 Scavenging pressure ratio and the cam optimum
+
+`ScavengingAnalyser` samples intake-port over exhaust-port pressure through
+every overlap window and reports the mean, the peak, and the degrees spent above
+1 — the window in which overlap scavenges instead of reverting.
+
+Validation case 17, run at 2200 rpm on the same four-cylinder NA and with a
+2.0 bar plenum, 230° cams, lobe centres moved symmetrically so overlap is
+`230 − 2·LCA`:
+
+```
+                LCA   overlap   p_int/p_exh   torque N·m      VE   blow-through
+ naturally      115         0           —          263.7   0.950           0.0%
+ aspirated      105        20        0.929         275.4   0.970           0.0%   ← optimum
+                 90        50        0.978         269.2   0.927           0.0%
+
+ boosted        115         0           —          499.6   0.991           0.0%
+ 2.0 bar        105        20        1.097         517.7   1.009           0.0%
+                 90        50        1.496         544.9   1.101           0.8%   ← optimum
+```
+
+The optima are 15° of lobe centre apart — 20° of overlap against 50° — and the
+scavenging output is what explains it: every NA point sits below 1 and every
+boosted point above. The positive-pressure window opens from 5.2° to 35.1° as
+the lobe centres tighten, and the same 50° of overlap that costs the NA engine
+6 N·m against its own optimum gains the boosted engine 27 N·m against its own.
+
+Boost is imposed as a plenum condition; the exhaust side is not. Turbine
+manifold pressure comes out of the flow the engine gives it, which is what makes
+the scavenging pressure ratio a result rather than an assumption.
+
+At zero and 10° nominal overlap the two valves never leave their seats together,
+so the ratio is **undefined and reported as NaN** rather than as a number.
+
+### 5.3 Blow-through, and charging it to the objective
+
+Plan §4.6.3: *"Do not let the optimiser exploit free scavenging that the
+modelled injection system cannot actually have."* So the cost is computed and
+subtracted from the torque the optimiser sees:
+
+| Injection | Fuel lost | Measured λ | TIT rise | Net torque at 50° overlap |
+|---|---|---|---|---|
+| Direct | none | reads **lean** — blow-through air with no fuel in it | none | 544.9 N·m |
+| Port, mixed bound | 0.8% | unaffected — the fuel goes out with the air | 9.9 K | 540.4 N·m |
+| Port, displacement bound | 12.2% | unaffected | 167 K | 468.8 N·m |
+
+The lambda column is the useful asymmetry. Under DI the sensor is fooled and the
+fuel bill is not; under port injection the sensor is fine and the fuel bill is
+not. A closed loop trusting a wideband on a scavenging DI engine will richen an
+engine that did not need it.
+
+The short-circuit fraction re-attributes charge for **reporting and for the fuel
+charge**; it does not re-solve the flow, so indicated torque is untouched by it.
+That is asserted in the tests so the distinction cannot quietly erode.
+
+### 5.4 The FSAE restrictor, upstream of the compressor
+
+```
+ṁ* = C_d·A·p₀·√(γ/(R·T₀))·(2/(γ+1))^((γ+1)/(2(γ−1)))
+```
+
+For the 20 mm petrol restrictor at C_d 0.96 on a standard day that is
+**0.0715 kg/s** — checked against the hand calculation, not against the model's
+own output. At λ = 1 on petrol it is 4.87 g/s of fuel, and nothing downstream
+moves it: the 19 mm E85 throat is 90.25% of it (area goes as d²), a 35 °C day
+takes 1.6% off and 1600 m takes 15%.
+
+Two consequences the plan singles out, both reproduced:
+
+- **The operating line moves.** Sub-atmospheric inlet pressure raises corrected
+  flow, so the same 0.065 kg/s reads 5.8% further right on the map than it would
+  at ambient — and the manifold pressure the engine gets is a ratio on a reduced
+  inlet, not on ambient.
+- **A choked restrictor turns shaft speed into a surge trajectory.** With mass
+  flow pinned at the ceiling, every extra rpm is pressure ratio and nothing
+  else: surge margin falls 174% → 46% from 150 000 to 270 000 rpm, walking the
+  operating point straight at the surge line.
+
+Diffuser recovery is a parameter, not a constant, because it is the cheapest
+thing on the car to improve: at 60 g/s a sharp expansion leaves 84.0 kPa at the
+compressor and a proper diffuser leaves 98.1. It does not move the choke
+ceiling, and the test says so — that is the thing people most often hope is not
+true.
+
+### 5.5 Superchargers
+
+A Roots blower has no internal compression: it carries a fixed volume round at
+inlet pressure and the outlet compresses it isochorically, by back-flow. A screw
+has a built-in volume ratio and compresses internally before the port opens.
+Same pressure ratio, same flow, and the Roots delivers hotter charge.
+
+```
+    PR   Roots out   screw out   Roots η   screw η   Roots kW   screw kW
+   1.3     329.3 K     341.4 K       74%       54%       16.2       22.5
+   1.8     381.3 K     368.7 K       66%       77%       42.3       35.9
+   2.2     422.8 K     390.6 K       60%       82%       62.3       46.2
+```
+
+**The crossover at PR ~1.6 is real and is reported rather than hidden.** A screw
+with V_i = 1.9 is built for an internal ratio of 1.9^γ = 2.49; run it at 1.3 and
+it compresses to 2.49 and blows back down, and even with the recovery that gives
+back it has done more work than a Roots would. That is why screw blowers are
+matched to their target boost and Roots blowers are not fussy. The blow-down
+term is deliberately not clamped at zero: clamping it would charge the full
+over-compression and make every screw look worse than a Roots everywhere.
+
+The model recovers the *reversible* part of the blow-down; a real port recovers
+less, so the screw's low-ratio penalty here is if anything optimistic.
+
+A centrifugal is a compressor map on a fixed drive ratio, and the shape that
+falls out is the point: boost above atmospheric goes as engine speed squared —
+0.28 bar at 2000 rpm and 1.12 at 4000, a factor of four for a doubling. That is
+a fundamentally different torque curve from a turbo at the same peak boost.
+
+Parasitic power comes off crank torque at every speed whether the boost is
+wanted or not, which is the other half of why a supercharged curve is shaped
+differently.
+
+### 5.6 Electric assist
+
+One term in the shaft equation and nothing else — which is the test. 7 kW of
+assist takes the synthetic shaft from 30 000 to 120 000 rpm in 32 ms for 227 J
+(0.06 Wh) per event; the same shaft unassisted does not get there at all inside
+five seconds on the same turbine and compressor powers.
+
+### 5.7 Altitude and hot-day sensitivity
+
+`AmbientCondition` carries the four cases that matter — standard day, 35 °C,
+1600 m, and both at once — with the density ratio that scales a naturally
+aspirated engine's torque directly and that a turbo only partly recovers by
+spinning faster. Hot and high is worse than either alone, which is where a
+sea-level match fails.

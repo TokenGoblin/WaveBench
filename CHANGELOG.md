@@ -9,6 +9,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Phase 14 — forced-induction engine behaviour.** Fresh-charge tracking
+  through the cylinder and both ports, scavenging pressure ratio sampled across
+  every overlap window, blow-through and trapping efficiency per cylinder per
+  cycle, the unburnt-fuel and turbine-inlet-temperature cost of blow-through
+  under port injection, positive-displacement and centrifugal superchargers,
+  electric assist, the FSAE restrictor upstream of the compressor, and ambient
+  altitude/hot-day conditions.
+  **Both gate clauses met.** The NA and boosted cam optima diverge by 15° of
+  lobe centre — 20° of overlap against 50° — and the scavenging output explains
+  it: every NA point sits below a pressure ratio of 1 across the engine and
+  every boosted point above, with the positive-pressure window opening from
+  5.2° to 35.1° as the lobe centres tighten. The FSAE restrictor's choke
+  ceiling matches the hand calculation at 0.0715 kg/s for a 20 mm throat, the
+  operating line moves 5.8% right on the map at 0.065 kg/s, and a choked
+  restrictor is shown turning shaft speed into a surge trajectory (surge margin
+  174% → 46% from 150 000 to 270 000 rpm).
+- Blow-through is reported as a **bracket, not a prediction**: the single-zone
+  cylinder mixes perfectly, which is the lower bound (under 1% here), and
+  `ShortCircuitFraction` supplies the perfect-displacement upper bound (13.3%).
+  The bracket is charged to net torque through the fuel it costs — 540.4 N·m
+  falling to 468.8 at the displacement bound — so the optimiser cannot buy
+  scavenging with fuel it never accounts for.
+- The Roots-versus-screw crossover is reported rather than smoothed over: a
+  screw below its design ratio over-compresses and costs more than a Roots, and
+  only wins above it. The blow-down recovery term is deliberately unclamped so
+  that comes out rather than being hidden.
+
 - **Phase 13 — coupled unsteady forced induction.** The turbine rotor as a duct
   end boundary: it imposes a *relationship* between pressure and flow rather
   than either one, solved against the duct's outgoing characteristic every

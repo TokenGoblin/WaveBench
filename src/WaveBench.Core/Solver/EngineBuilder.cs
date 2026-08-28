@@ -167,11 +167,11 @@ public static class EngineBuilder
             engine.Valves.Add(new ValveConnection(
                 cylinder, intake, ductLeftEnd: false,
                 MakeCam(document.IntakeValves),
-                ToValveGeometry(document.IntakeValves)));
+                ToValveGeometry(document.IntakeValves)) { IsIntake = true });
             engine.Valves.Add(new ValveConnection(
                 cylinder, exhaust, ductLeftEnd: exhaustAtLeftEnd,
                 MakeCam(document.ExhaustValves),
-                ToValveGeometry(document.ExhaustValves)));
+                ToValveGeometry(document.ExhaustValves)) { IsIntake = false });
         }
 
         return engine;

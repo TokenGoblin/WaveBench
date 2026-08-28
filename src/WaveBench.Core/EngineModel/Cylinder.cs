@@ -213,13 +213,48 @@ public sealed class Cylinder
         }
     }
 
+    /// <summary>
+    /// Fresh charge currently in the cylinder, kg — air (plus its fuel, when
+    /// port-injected) that has come in through the intake and not yet burned or
+    /// left (plan §4.6.3).
+    ///
+    /// <b>Well-mixed, and that is a stated approximation.</b> Gas leaving the
+    /// cylinder takes fresh charge with it in proportion to the cylinder's
+    /// current fresh fraction, as though the contents were uniform. A real
+    /// cylinder with good scavenging is closer to displacement than to mixing —
+    /// a jet of fresh charge crosses to the exhaust valve while the residuals
+    /// sit in the corners — so this <b>under-states</b> blow-through on an
+    /// engine designed to scavenge, and over-states the trapping. It is the
+    /// same single-zone assumption the gas exchange already runs on; resolving
+    /// it needs a multi-zone or 3D scavenging model.
+    /// </summary>
+    public double FreshChargeMass { get; private set; }
+
+    /// <summary>Fresh-charge mass fraction of the cylinder contents, 0–1.</summary>
+    public double FreshChargeFraction => Mass > 0 ? Math.Clamp(FreshChargeMass / Mass, 0.0, 1.0) : 0.0;
+
+    private double _dFreshMass;
+
+    /// <summary>Fresh charge present when this cycle's flame started, kg — the flame's own budget.</summary>
+    private double _freshAtIgnition;
+
     /// <summary>Queue a port flow: dm &gt; 0 into the cylinder with source enthalpy/composition.</summary>
-    public void QueueFlow(double dm, double specificEnthalpyIn, ReadOnlySpan<double> compositionIn)
+    /// <param name="dm">Mass, kg; positive into the cylinder.</param>
+    /// <param name="specificEnthalpyIn">Enthalpy of the incoming stream.</param>
+    /// <param name="compositionIn">Its composition, for the species-resolved gas model.</param>
+    /// <param name="freshFractionIn">
+    /// How much of an INCOMING stream is fresh charge: 1 from an intake port, 0
+    /// from an exhaust port. Ignored on outflow, which takes the cylinder's own
+    /// fresh fraction with it.
+    /// </param>
+    public void QueueFlow(
+        double dm, double specificEnthalpyIn, ReadOnlySpan<double> compositionIn, double freshFractionIn = 0.0)
     {
         _dMass += dm;
         if (dm >= 0)
         {
             _dEnergy += dm * specificEnthalpyIn;
+            _dFreshMass += dm * Math.Clamp(freshFractionIn, 0.0, 1.0);
             for (var k = 0; k < _massBySpecies.Length; k++)
             {
                 _dMassBySpecies[k] += dm * compositionIn[k];
@@ -228,6 +263,7 @@ public sealed class Cylinder
         else
         {
             _dEnergy += dm * SpecificEnthalpy;
+            _dFreshMass += dm * FreshChargeFraction;
             for (var k = 0; k < _massBySpecies.Length; k++)
             {
                 _dMassBySpecies[k] += dm * (_massBySpecies[k] / Mass);
@@ -253,6 +289,7 @@ public sealed class Cylinder
         Energy += -Pressure * dV + _dEnergy + firedSources;
         CumulativeWork += Pressure * dV;
         Mass += _dMass;
+        FreshChargeMass = Math.Clamp(FreshChargeMass + _dFreshMass, 0.0, Mass);
         for (var k = 0; k < _massBySpecies.Length; k++)
         {
             _massBySpecies[k] += _dMassBySpecies[k];
@@ -260,6 +297,7 @@ public sealed class Cylinder
 
         _dMass = 0;
         _dEnergy = 0;
+        _dFreshMass = 0;
         Array.Clear(_dMassBySpecies);
 
         var thetaNew = theta + dThetaRad * 180.0 / Math.PI;
@@ -301,6 +339,7 @@ public sealed class Cylinder
             _previousBurnFraction = 0.0;
             _cycleHeatRelease = 0.0;
             _socPressure = 0.0;
+            _freshAtIgnition = 0.0;
             _burnComplete = false;
             BurnedFraction = 0.0;
             BurnedTemperature = 0.0;
@@ -357,6 +396,27 @@ public sealed class Cylinder
         var dxb = Math.Max(0.0, xb - _previousBurnFraction);
         _previousBurnFraction = Math.Max(xb, _previousBurnFraction);
 
+        // Burning converts fresh charge into products, so the fresh-charge
+        // tracker has to be consumed by the flame as well as by the ports. If
+        // it were not, a cylinder would still count as holding fresh charge
+        // after combustion and every exhaust event would be scored as
+        // blow-through.
+        //
+        // The consumption is PROPORTIONAL to the charge present at ignition,
+        // not a repeated fraction of what is left. Multiplying by (1 − dxb)
+        // every step compounds to exp(−Σdxb) = 0.37, which leaves a third of
+        // the charge apparently unburned and reads as 35% blow-through on an
+        // engine with no overlap at all. That is how this was found.
+        if (dxb > 0)
+        {
+            if (_freshAtIgnition <= 0.0)
+            {
+                _freshAtIgnition = FreshChargeMass;
+            }
+
+            FreshChargeMass = Math.Max(0.0, FreshChargeMass - (_freshAtIgnition * dxb));
+        }
+
         // The Wiebe asymptote is 1 − e^(−a) = 0.9933 at a = 5, never 1, so
         // "burned fraction reached 1" is a condition that never fires. The
         // burn is over when its WINDOW is over; the missing 0.67% is the
@@ -364,6 +424,12 @@ public sealed class Cylinder
         if (_socPressure > 0.0 && burnAngle >= effective.StartAngleDeg + effective.DurationDeg)
         {
             _burnComplete = true;
+
+            // Same reasoning as the comment above: the 0.67% the Wiebe
+            // asymptote never reaches is the exponential tail, not fresh charge
+            // still sitting in the chamber. Leaving it on the books would make
+            // every exhaust event score a little blow-through.
+            FreshChargeMass = 0.0;
         }
 
         var heat = 0.0;

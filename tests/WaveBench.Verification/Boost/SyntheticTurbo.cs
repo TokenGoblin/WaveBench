@@ -116,6 +116,35 @@ internal static class SyntheticTurbo
         }).ToList(),
     };
 
+    /// <summary>
+    /// The same analytic surface scaled down to an FSAE-sized unit: a
+    /// restricted engine draws about 0.07 kg/s, and the 60 mm map above is
+    /// sized for three times that. Putting a restricted engine on the wrong map
+    /// makes every operating point read as surge, which is true of the real
+    /// mismatch and useless for showing anything else.
+    ///
+    /// Geometric scaling: flow by the area ratio, speed by 1/√(flow scale) so
+    /// tip speed and therefore pressure ratio are preserved.
+    /// </summary>
+    public static CompressorMap FsaeCompressor(int pointsPerLine = 9)
+    {
+        const double flowScale = 0.34;
+        var speedScale = 1.0 / Math.Sqrt(flowScale);
+        var baseline = Compressor(pointsPerLine);
+
+        return new CompressorMap
+        {
+            Name = "Synthetic 40 mm compressor (FSAE class)",
+            Reference = MapReference.SaeJ1826,
+            MaxSpeedRpm = baseline.MaxSpeedRpm * speedScale,
+            Provenance = "Analytic test map — not a product. See SyntheticTurbo.",
+            SpeedLines = baseline.SpeedLines.Select(l => new CompressorSpeedLine(
+                l.CorrectedRpm * speedScale,
+                l.Points.Select(p => p with { CorrectedFlowKgPerS = p.CorrectedFlowKgPerS * flowScale })
+                    .ToList())).ToList(),
+        };
+    }
+
     // ---- Turbine ----------------------------------------------------------
 
     /// <summary>Corrected flow at ER = 3, kg/s: the choked capacity of the nozzle.</summary>

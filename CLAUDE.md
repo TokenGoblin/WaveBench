@@ -62,6 +62,30 @@ order alone; diabatic correction recovers a known aerodynamic efficiency to
 0.2% and gives 20.6 K over adiabatic at low flow; volute-resolved runtime
 0.76x against a 2x gate. See docs/physics.md §4.
 
+**Phase 14 complete** (forced-induction engine behaviour: fresh-charge tracking,
+scavenging pressure ratio, blow-through and its fuel/TIT cost, superchargers,
+electric assist, the FSAE restrictor, ambient sensitivity). Both gate clauses
+met: the NA and boosted cam optima diverge by 15 degrees of lobe centre (20 vs
+50 degrees of overlap) and the scavenging output explains it - NA below a
+pressure ratio of 1 everywhere, boosted above it everywhere; the FSAE choke
+ceiling matches hand calculation at 0.0715 kg/s and a choked restrictor is shown
+turning shaft speed into a surge trajectory. See docs/physics.md §5.
+
+**Blow-through is a BRACKET, not a prediction.** The cylinder is single-zone, so
+it mixes perfectly - the lower bound, under 1% here where a measured DI turbo
+shows several. `ScavengingAnalyser.ShortCircuitFraction` gives the
+perfect-displacement upper bound. Do not "improve" the default away from 0: what
+lies between the bounds is port and chamber geometry a 1D solver cannot resolve,
+and picking a number would be inventing one. The bracket IS charged to net
+torque through the fuel it costs, which is what stops the optimiser buying
+scavenging it cannot have.
+
+LESSON: the flame first consumed fresh charge as `mass * (1 - dxb)` per step,
+which compounds to exp(-0.9933) = 0.37 and reported 35% blow-through on an
+engine with ZERO overlap. Consumption is proportional to the charge present at
+ignition, not a repeated fraction of what remains. A metric that is non-zero
+where the mechanism cannot operate is the cheapest defect signal there is.
+
 **A duct end boundary must admit BACKFLOW.** An exhaust outlet does not only
 blow - between pulses the manifold falls below what is downstream and gas comes
 back. `RotorNozzleBoundary` delegates that case to `ReservoirBoundary` rather
@@ -92,7 +116,7 @@ summary. Same document under both, so the toggle is navigation and never a
 conversion.
 
 **PHASE ORDER IS USER-REORDERED: 19 -> 20 -> 23 (all done), then the
-forced-induction block (12 and 13 done, 14-15 next), then 21/22/24/25.** The
+forced-induction block (12, 13 and 14 done, 15 next), then 21/22/24/25.** The
 user chose this to get a complete naturally-aspirated tool sooner. Phase 20's acoustics engine (8-11) is already
 built and Phase 23's wizard works NA-only, so nothing in that path blocks on
 turbo work. Do NOT silently revert to plan order.
