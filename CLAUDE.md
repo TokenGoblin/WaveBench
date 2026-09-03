@@ -8,7 +8,7 @@ hard acceptance gate (Part 12). Never let a session span two phases.
 
 ## START HERE — where the project stands
 
-**22 of 26 phases complete. 841 tests green, none skipped. CI green on main.**
+**22 of 26 phases complete. 867 tests green, none skipped. CI green on main.**
 
 | Phase | State | Notes |
 |---|---|---|
@@ -17,9 +17,9 @@ hard acceptance gate (Part 12). Never let a session span two phases.
 | 12 | done | turbo maps, steady matching, map digitiser |
 | 13 | done | coupled unsteady forced induction — docs/physics.md §4 |
 | 14 | done | forced-induction engine behaviour — docs/physics.md §5 |
-| **15** | **NEXT** | transient + FI acoustics · **v0.6** — read the caveat below |
+| **15** | **PARTIAL** | transient + FI acoustics · **v0.6** — gate clause 1 open, see below |
 | 16-20 | done | shell, Design, Manifold canvas, Results, Sound |
-| **21** | to do | Boost workspace · **v0.9** |
+| **21** | **NEXT** | Boost workspace · **v0.9** |
 | **22** | to do | Optimisation (largest remaining phase) |
 | 23 | done | Simple mode and the wizard |
 | **24** | to do | Learn layer and guardrails |
@@ -30,13 +30,21 @@ further down; do not silently revert to plan order.
 
 ### What is left, in the order the user chose
 
-1. **Phase 15 — transient and FI acoustics (v0.6).** Spool and time-to-torque,
-   heat soak, turbine four-pole, blade-pass, whoosh, surge flutter, BOV noise.
-   **One gate clause cannot be satisfied as written:** "transient spool within
-   15% of a measured case" needs a measured dataset that is not in this repo.
-   The other two clauses (turbine attenuation and OPI drop; surge flutter
-   derived rather than tuned by ear) are fully checkable. Raise the re-scope
-   with the user BEFORE building, not after.
+1. **Phase 15's gate clause 1 — transient spool within 15% of a measured
+   case.** Everything else in Phase 15 is built and tested: Stage A (turbine
+   four-pole, OPI drop, blade-pass, whoosh, surge flutter derived from a new
+   Greitzer surge model, wastegate/BOV noise, an Intake tab in Sound — gate
+   clauses 2 and 3 met, docs/acoustics.md §5) and Stage B (`TransientDriver`
+   coupling the gas dynamics to shaft/thermal/compressor state under a
+   scripted throttle profile, `TimeToTorqueResult`'s sensitivity band,
+   repeat-run heat soak reaching the boost air — docs/physics.md §6). Clause
+   1 stays open: a bounded search found no redistributable measured
+   transient-spool dataset (docs/physics.md §6.4 has the full account of what
+   was checked and ruled out). Self-consistency (mesh convergence, energy
+   balance, sensitivity-band behaviour, the heat-soak effect against a
+   no-carry-over control) is what CI actually checks in its place. Close this
+   only if a suitable licensed dataset turns up — see the standing deferral
+   below (validation case 20).
 2. **Phase 21 — Boost workspace (v0.9).** All the physics behind it already
    exists and is tested; it has no UI at all yet.
 3. **Phase 22 — Optimisation.** DOE, CMA-ES, NSGA-II, Bayesian, surrogate inner

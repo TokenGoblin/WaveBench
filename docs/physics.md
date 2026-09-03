@@ -1232,3 +1232,163 @@ five seconds on the same turbine and compressor powers.
 aspirated engine's torque directly and that a turbo only partly recovers by
 spinning faster. Hot and high is worse than either alone, which is where a
 sea-level match fails.
+
+## 6. Transient forced-induction dynamics (Phase 15)
+
+### 6.1 The transient driver and the coupling it closes
+
+Phases 13 and 14 already built every piece a transient needs as independently
+steppable state: `TurboShaft` integrates kinetic energy against turbine and
+compressor power, `TurboThermalModel` integrates the three housing
+temperatures against an arbitrary `dt`, `EngineSimulator.Step()` advances the
+gas dynamics on its own CFL-limited clock, and `CompressorModel.Solve` reads a
+map at whatever speed and flow it is given. Nothing among them assumed a fixed
+operating point — what was missing was an orchestrator that ran them all
+*together* against a live gas-dynamics solve instead of one each held at a
+single steady condition. `WaveBench.Boost.Unsteady.TransientDriver` is that
+orchestrator, and it adds no new physics: every `Advance()` call recovers the
+solver's own `dt` from the `Time` delta across one `EngineSimulator.Step()`
+(the same idiom `TurbochargedEngineRig` already uses for the turbine
+coupling), solves the compressor at the shaft's current speed and a smoothed
+intake mass flow, and hands the result to `TurbineStage.Integrate` and
+`TurboThermalModel.Step` exactly as those methods already expected to be
+called.
+
+Two coupling choices are worth stating because they are modelling decisions,
+not derivations:
+
+- **The intake mass flow the compressor sees is smoothed**, with a short
+  exponential average (`τ ≈ 10 ms` by default), rather than fed the raw
+  pulsing port flow a poppet valve produces. A real compressor sits behind a
+  plenum volume that damps the pulse; this v0.1 engine topology has no
+  explicit intake plenum (§1.8's per-cylinder-runner-from-ambient
+  simplification), so the smoothing stands in for it.
+- **The driving profile's load fraction is the fraction of the compressor's
+  *available* boost admitted**, not (as the naturally-aspirated
+  `EngineBuilder.Build(intakeLoadFraction:)` path uses it) a fraction of
+  ambient pressure. A real throttle plate sits downstream of the compressor;
+  this topology has no separate throttle/plenum component to put it in
+  (`EngineBuilder`'s own doc comment states the same simplification for the
+  steady NA case), so `ThrottleStep` blends the intake reservoir linearly
+  between ambient (closed) and the compressor's full delivery (wide open).
+  `ThrottleStep` also ramps over a short window (3 ms by default) rather than
+  jumping instantaneously: an literal Heaviside pressure jump on a
+  `ReservoirBoundary` between two CFL-sized steps can demand a flux the
+  previous step's timestep was never sized for, which drove the boundary cell
+  non-physical the first time this was tried. Three milliseconds is still a
+  step against a spool transient running tens of milliseconds, and it kept
+  the solver well-posed.
+
+**Mesh convergence.** The same scripted step-throttle transient, run to 30 ms
+on the single-cylinder rig at two cell sizes:
+
+```
+              cells   steps    shaft rpm   boost
+   24 mm cells   14   59 381    38 247     109.78 kPa
+   12 mm cells   28   84 338    37 833     109.65 kPa
+```
+
+Rpm error 1.10%, boost error 0.12% — halving the cell size moved the answer by
+about a percent, not a mesh-dependent divergence.
+
+**Energy balance.** Summing `TurboShaft.NetPowerW · dt` independently, step by
+step, against the same `dt` the driver itself used, and comparing it to the
+shaft's own before/after ΔKE over a 30 ms run: `ΔKE = −2490.36 mJ` against
+`Σ(NetPowerW·dt) = −2490.36 mJ`, error 0.0000% (the run's default initial
+shaft speed, 40 000 rpm, is higher than this small single-cylinder engine's
+low-load exhaust energy can sustain, so the shaft decelerates — the sign is
+expected, and the point of the check is that the two independently-computed
+numbers agree to numerical precision, not that the shaft spins up). This is a
+coupling check, not a re-test of `TurboShaft`'s own integration — that is
+`ShaftAndControlTests`' job, in isolation, and it already covers it.
+
+### 6.2 Time-to-torque and the sensitivity band
+
+`TimeToTorqueResult.Evaluate` runs the identical scripted transient three
+times — a nominal case and two caller-supplied bounds on shaft inertia and
+bearing friction — and reports the 90%-rise crossing times each one produces,
+never an invented ± percentage on a single run. On the step-throttle case
+above, widening the swept uncertainty from ±5% to ±40% on both inertia and
+friction widened the boost band from 0.025 ms to 0.237 ms — the band responds
+to the uncertainty it is given, which is what Part 14 Gotcha #25 asks for
+("inertia and friction are rarely known accurately — show a sensitivity band,
+not a single number"). The torque band did not move measurably over the same
+30 ms window: at this rig's scale, indicated torque responds to the throttle
+step itself (dominant, and identical across all three runs) well before the
+turbo's own spool state has had time to make a second-order difference to it.
+That is a real result of the window being short relative to the shaft's own
+time constant here, not a defect in the band computation — a longer window or
+a larger shaft inertia would be expected to open it up, and nothing before
+this stage existed for a future run to test that with.
+
+Torque here is **indicated**, not brake: no friction model (Chen–Flynn or
+otherwise) is coupled into `TransientDriver`, so
+`TransientSample.IndicatedTorqueNm` is `PerformanceMetrics.Torque` applied to
+a sliding 720°-crank-angle window of piston work rather than a BMEP. Before a
+full window has elapsed, the partial window is scaled by `720°/window` — an
+extrapolation stated as one, not a measurement — so the very first samples of
+a transient carry an estimate instead of a meaningless zero.
+
+### 6.3 Repeat-run heat soak
+
+`TurboThermalModel`'s housing state already carries over between calls to
+`Step` — that was built in Phase 13. What Stage B adds is the other half of
+"a second dyno pull is not the same as the first" (plan §4.7): the carried
+heat has to actually change what the engine breathes, or carrying it over is
+invisible. Each `TransientDriver.Advance()` call now adds the current step's
+`TurboThermalState.CompressorAirHeatW` onto the compressor's aerodynamic
+outlet temperature — `Δt = Q/(ṁ·c_p)`, the same heat-addition principle
+`DiabaticCorrection` already uses for a held operating point, applied here to
+the transient's own moving thermal state rather than a fresh `SolveSteady`
+call — before that temperature is written into the intake boundary.
+
+Demonstrating the effect needs a real gap in housing temperature between two
+runs, and housing time constants (seconds to minutes) are far longer than a
+CFL-limited gas-dynamics transient can affordably cover in a test — so the
+verification holds the shared `TurboThermalModel` at a representative
+on-engine hot-idle condition (900 K turbine inlet) between two scripted 30 ms
+pulls, using `TurboThermalModel.Step`'s own documented ability to be called
+"on the transient's own clock rather than the solver's" with an arbitrary
+`dt`, standing in for the engine idling, still hot, between two logged dyno
+pulls. Measured result: compressor housing 349.90 K after pull 1 → 370.32 K
+after the hold → 370.21 K after pull 2; compressor outlet at t = 30 ms into
+each pull, 503.64 K (pull 1) vs. 597.95 K (pull 2), Δ = 94.3 K. A control run
+using two *independent* `TurboThermalModel` instances (nothing to carry over)
+reproduces the same outlet temperature to within 0.0001 K, which is what
+distinguishes "the housings carried heat" from "runs just differ for some
+other reason."
+
+### 6.4 What this stage does not check, and why
+
+Phase 15's gate has three clauses. Clauses 2 and 3 (turbine acoustic
+attenuation and OPI drop; surge flutter frequency physically derived) were met
+in Stage A — see docs/acoustics.md §5. **Clause 1 — "transient spool within
+15% of a measured case" — is a documented, deliberate deferral**, not an
+oversight. A bounded search (a web search pass plus a dedicated research
+pass) looked for a measured turbo-spool transient dataset redistributable
+under a licence that would let its values live in this public repository —
+CC-BY, CC0, or public domain. Two leads were investigated: Argonne National
+Laboratory's Downloadable Dynamometer Database (permissively licensed with
+attribution, but its public channel list — drive trace, dynamometer force,
+engine speed, fuel economy/emissions — could not be confirmed to include a
+boost/MAP or turbo-speed channel at transient-relevant sample rate) and Albin,
+Ritter, Liberda & Abel, "Boost Pressure Control Strategy to Account for
+Transient Behavior and Pumping Losses in a Two-Stage Turbocharged Air Path
+Concept," *Energies* 9(7):530, 2016 (CC-BY by default as an MDPI journal, but
+its transient boost-pressure traces could not be confirmed to be measured
+on-engine data rather than simulation). Everything else found was either a
+paywalled SAE/Elsevier/Springer paper — the same category this project
+already refuses for compressor and turbine maps (plan §4.7) — or an
+all-rights-reserved thesis. This matches CLAUDE.md's standing deferral list
+("Validation cases needing measured data that is not here: ... 20 (transient
+spool) ...").
+
+What §6.1–6.3 above check instead — convergence under mesh refinement, energy
+balance through the coupling, a boost rise that behaves sensibly under a step
+throttle, a sensitivity band that widens with its own supplied uncertainty,
+and a heat-soak effect that only appears when housing state is actually
+shared — is self-consistency, and it is what CI actually gates on for this
+stage. It is not a substitute for validation case 20; it is what is checkable
+without one. If a suitable measured dataset is ever found or licensed,
+validation case 20 and gate clause 1 can be closed without touching this
+section's machinery — only `WaveBench.Validation` would gain a new case.

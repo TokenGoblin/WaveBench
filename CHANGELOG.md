@@ -37,6 +37,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Sofrin 1962) and the broadband velocity-scaling exponent (Curle 1955,
   extending Lighthill 1952) carry a real citation.
 
+- **Phase 15, Stage B — transient spool, time-to-torque, heat soak.**
+  `TransientDriver` couples the CFL-limited gas-dynamics solver with the
+  already-built `TurboShaft`, `TurbineStage` and `TurboThermalModel` under a
+  scripted `DrivingProfile` (step throttle, with a 3 ms ramp so a
+  `ReservoirBoundary` never takes an unresolvable instantaneous jump) —
+  orchestration on top of Phase 13/14 physics, no new physics of its own.
+  `TimeToTorqueResult.Evaluate` runs the identical transient at caller-supplied
+  inertia/friction bounds and reports the spread the physics itself produces,
+  never an invented ± percentage (Part 14 Gotcha #25). Heat soak now reaches
+  the boost air, not just a diagnostic number: each step adds the current
+  housing heat flux onto the compressor's outlet temperature before it hits
+  the intake boundary, the same `Δt = Q/(ṁ·cₚ)` principle `DiabaticCorrection`
+  already used for a held point, applied here to the transient's own moving
+  thermal state.
+  **Gate clause 1 is a documented, deliberate deferral** — see docs/physics.md
+  §6.4 for the full account: a bounded search (web search plus a dedicated
+  research pass) found no redistributable measured transient-spool dataset —
+  Argonne's Downloadable Dynamometer Database (permissively licensed, but its
+  public channels could not be confirmed to include boost/MAP or turbo-speed
+  at transient-relevant rate) and Albin/Ritter/Liberda/Abel, *Energies*
+  9(7):530, 2016 (CC-BY, but its transient traces could not be confirmed
+  measured rather than simulated) were both investigated and ruled
+  unconfirmable; this matches CLAUDE.md's existing standing deferral for
+  validation case 20. **Gate clauses 2 and 3 were met in Stage A**, above.
+  What CI actually checks for this stage — self-consistency, not a measured
+  comparison — with the real numbers the tests produce: mesh refinement (24 mm
+  → 12 mm cells) moves the 30 ms answer by 1.10% on shaft rpm and 0.12% on
+  boost; the shaft's own energy balance closes to 0.0000% error (`ΔKE` and
+  the independently-summed `Σ(NetPowerW·dt)` agree to numerical precision);
+  the sensitivity band on time-to-90%-boost widens from 0.025 ms to 0.237 ms
+  as the swept inertia/friction uncertainty widens from ±5% to ±40%; and a
+  second scripted pull, sharing a `TurboThermalModel` held at a representative
+  hot-idle condition between pulls, comes out of the compressor 94.3 K hotter
+  than the first at the same point in the same throttle step (349.90 K → 370.32 K
+  housing over the hold, vs. 0.0001 K drift between two runs that share no
+  thermal state at all).
+
 - **Phase 14 — forced-induction engine behaviour.** Fresh-charge tracking
   through the cylinder and both ports, scavenging pressure ratio sampled across
   every overlap window, blow-through and trapping efficiency per cylinder per
