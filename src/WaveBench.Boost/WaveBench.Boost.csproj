@@ -5,5 +5,6 @@
   <ItemGroup>
     <ProjectReference Include="..\WaveBench.Core\WaveBench.Core.csproj" />
     <ProjectReference Include="..\WaveBench.Model\WaveBench.Model.csproj" />
+    <ProjectReference Include="..\WaveBench.Acoustics\WaveBench.Acoustics.csproj" />
   </ItemGroup>
 </Project>

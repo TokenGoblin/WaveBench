@@ -68,6 +68,11 @@ public static class SoundContent
             host.Children.Add(SilencerSliders(sound, RedrawBody));
         }
 
+        if (sound.SelectedTab == SoundTab.Intake)
+        {
+            host.Children.Add(IntakeSliders(sound, RedrawBody));
+        }
+
         host.Children.Add(body);
         RedrawBody();
     }
@@ -99,6 +104,10 @@ public static class SoundContent
                 // The sliders themselves are chrome; only the curve they drive
                 // is redrawn.
                 body.Children.Add(PlotCard(sound.TransmissionLoss()));
+                break;
+
+            case SoundTab.Intake:
+                body.Children.Add(PlotCard(sound.IntakeAcousticProfile()));
                 break;
 
             case SoundTab.Compliance:
@@ -262,6 +271,32 @@ public static class SoundContent
         panel.Children.Add(GeometrySlider("Chamber length", "mm", 80, 800, sound.ChamberLengthMm, v =>
         {
             sound.ChamberLengthMm = v;
+            redraw();
+        }));
+
+        return Card(panel);
+    }
+
+    private static UIElement IntakeSliders(SoundWorkspace sound, Action redraw)
+    {
+        var panel = new StackPanel();
+        panel.Children.Add(Styled(new TextBlock { Text = "Intake duct and compressor" }, "Text.Body"));
+
+        panel.Children.Add(GeometrySlider("Duct Ø", "mm", 30, 100, sound.IntakeDuctDiameterMm, v =>
+        {
+            sound.IntakeDuctDiameterMm = v;
+            redraw();
+        }));
+
+        panel.Children.Add(GeometrySlider("Duct length", "mm", 100, 1200, sound.IntakeDuctLengthMm, v =>
+        {
+            sound.IntakeDuctLengthMm = v;
+            redraw();
+        }));
+
+        panel.Children.Add(GeometrySlider("Turbo speed", "rpm", 40_000, 220_000, sound.TurboRpm, v =>
+        {
+            sound.TurboRpm = v;
             redraw();
         }));
 

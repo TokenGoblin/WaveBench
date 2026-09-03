@@ -15,5 +15,6 @@
     <ProjectReference Include="..\WaveBench.Model\WaveBench.Model.csproj" />
     <ProjectReference Include="..\WaveBench.Acoustics\WaveBench.Acoustics.csproj" />
     <ProjectReference Include="..\WaveBench.Analysis\WaveBench.Analysis.csproj" />
+    <ProjectReference Include="..\WaveBench.Boost\WaveBench.Boost.csproj" />
   </ItemGroup>
 </Project>

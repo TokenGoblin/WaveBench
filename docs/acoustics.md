@@ -514,3 +514,126 @@ plane-wave 20.0 under refinement). This is out of contract by design — plan
 §2.7 treats sudden expansions/contractions as boundary components
 (Borda–Carnot), not meshed geometry. Model abrupt steps with components;
 mesh only smooth profiles.
+
+## 5. Forced-induction acoustics (Phase 15)
+
+Gate clauses 2 and 3 of Phase 15 — turbine acoustic attenuation and the OPI
+drop it causes, and a surge-flutter frequency that is derived rather than
+tuned — are met here. Clause 1 (transient spool against a measured case)
+belongs to the coupled unsteady/thermal side of the phase, not this file; see
+CLAUDE.md's standing deferrals.
+
+### 5.1 The turbine four-pole and the OPI drop
+
+`WaveBench.Boost.Acoustics.TurbineFourPoleElement` is a new `IAcousticElement`
+in the exhaust TMM chain: an inertial area restriction from the last duct
+into the rotor throat, exactly the piston-in-baffle end correction
+`AreaDiscontinuityElement` already uses (§3.3's basis, Pierce's low-ka form),
+plus a resistive term for the acoustic energy work extraction removes,
+
+```
+L_a = ρ·δ/S_throat,  δ = 0.6·r_throat·(1 − S_throat/S_duct)   (reactive, as §3.3)
+R   = k·ρ·Ū_throat/S_throat                                    (resistive, quasi-steady)
+Z   = R + jωL_a
+```
+
+with `k` (`DissipationFactor`, default 2.0) an explicit, exposed, unfitted
+calibration constant standing in for how much more dissipative a work-
+extracting rotor is than a bare nozzle of the same throat area — real
+unsteady turbine behaviour under pulsating flow is well outside a quasi-
+steady model (Costall & Martinez-Botas, ASME GT2007-28317; Chiong, Rajoo,
+Martinez-Botas & Costall, *Energy Conversion and Management* 57, 2012).
+
+**Why this drops OPI.** Reflection off an open tailpipe end is what
+reinforces engine-order content in an NA exhaust in the first place — it is
+the physical basis of header tuning. A resistive element ahead of that end
+dissipates energy the open end would otherwise send back up the duct,
+weakening that reinforcement. `TurbineAcousticsTests` builds the M50 factory
+manifold's own collector spectrum (genuine non-firing content, from its
+unequal runners), filters it through two otherwise-identical networks — a
+bare duct and the same duct plus the turbine element, both terminated
+`UnflangedOpen` so the ONLY difference is the turbine's own filtering — and
+recomputes `OrderPurityIndex` on each:
+
+**Measured: NA OPI 0.9621 → with the turbine element, 0.9539 (a drop of
+0.0082), at a nearly frequency-flat +3.87 dB of added transmission loss
+(100 Hz–2 kHz) from the resistive term.** A modest number from ordinary
+parameter choices (60 mm exhaust, 0.6× throat/duct area ratio, 0.09 kg/s), not
+tuned to produce a particular size of drop — the point gate clause 2 needs is
+that the sign is right and the mechanism is physical, not the magnitude.
+
+### 5.2 Compressor blade-pass, whoosh
+
+`WaveBench.Boost.Acoustics.TurboAcousticSources.CompressorBladePassFrequency`
+is exact arithmetic, f = (N/60)·B (Tyler, J. M. & Sofrin, T. G., "Axial Flow
+Compressor Noise Studies," SAE 620532, 1962 — the standard reference for
+rotor blade-passing tones). `BladePassHarmonics` adds the combined
+full+splitter-count tone a mixed-pitch wheel radiates, from the same source's
+spinning-mode counting.
+
+`WhooshLevel` is NOT cited to a turbo-specific source — plan §4.8 itself
+lists whoosh without one, acknowledging it as phenomenological. What IS real
+is the velocity-scaling law it is built on: Curle's dipole extension
+(Proc. R. Soc. Lond. A 231, 1955) of Lighthill's aeroacoustic theory
+(Proc. R. Soc. Lond. A 211, 1952), U⁶ rather than a free jet's U⁸, the closer
+analogy for turbulent flow past a solid blade/wall boundary. The incidence
+penalty away from design flow is an exposed, unfitted engineering constant.
+
+### 5.3 Surge flutter, derived not tuned
+
+`WaveBench.Boost.Unsteady.GreitzerSurgeModel` is new machinery, not a rename
+of `CompressorPointResult.SurgeMarginPercent` (which stays what it was: a
+static distance from the operating point to the map's surge line). This model
+answers the different question Greitzer's theory answers — once a point has
+crossed into surge, what does the resulting limit cycle look like:
+
+```
+B = U/(2·ω_H·L_c) = (U/2a)·√(V_p/(A_c·L_c))
+ω_H = 2π·f_H,  f_H = QuickEstimate.HelmholtzFrequency(a, A_c, V_p, L_c)   -- never re-derived
+```
+
+with the mild/deep transition at Greitzer's own published `B ≈ 0.8`
+(Greitzer, ASME J. Eng. Power 98(2), 1976 Part I). In deep surge the limit
+cycle sits close to the compression system's own Helmholtz frequency (Moore &
+Greitzer, ASME J. Eng. Gas Turbines Power 108(1), 1986) — so
+`SurgeFrequencyHz` is, literally, the same `QuickEstimate.HelmholtzFrequency`
+call the intake organ-pipe/Helmholtz estimates already use (§2.10),
+parameterised by the compression system's own plenum and duct instead. That
+is what plan §4.8 means by "predicted, not sampled; it falls out of the surge
+model": moving the plenum volume by 10× moves the predicted frequency by
+√10×, verified directly (`GreitzerSurgeModelTests`), and `SurgeFlutterSource`
+only shapes that number into an amplitude envelope — it carries no frequency
+of its own.
+
+**What is validated and what is not.** The B-parameter mild/deep
+classification is checked against Greitzer's own published qualitative trend
+(plan validation item #19) — a self-consistency check, needing no measured
+data, in the same family as the twin-scroll and cam-optimum checks. The exact
+envelope SHAPE `SurgeFlutterSource.ModulationEnvelope` produces (how sharply
+deep surge's trough is compressed) is an explicit engineering proxy for the
+relaxation-oscillation shape Moore & Greitzer describe, pending a recording
+to fit the waveform against — only the FREQUENCY is the gate-tested quantity.
+
+### 5.4 Wastegate and BOV noise
+
+`TurboAcousticSources.WastegateFlowNoiseLevel` and `.BlowOffEventLevel` use
+the same Curle-dipole velocity/flow-scaling shape as whoosh (§5.2), silent
+below their respective opening thresholds (`double.NegativeInfinity` — no
+diverted flow, no noise, not a small-but-nonzero number). `Wastegate.cs`'s
+own doc comment already named this: "the source of the gate's own noise in
+Phase 15." Every level-scale constant here is exposed and explicitly marked
+unfitted, per plan §4.8's own acknowledgement that these sources are
+phenomenological, not published-correlation-backed.
+
+### 5.5 Intake-path elevation
+
+Once a document is boosted, the intake side is a primary noise path, not an
+afterthought (plan §4.8) — it now gets the same kind of figure the exhaust
+side has had since Phase 20. `SoundWorkspace` gains an `Intake` tab and
+`IntakeAcousticProfile()`: a duct-only TMM transmission-loss sweep (the
+intake has no collector to give it order structure the way the exhaust does)
+with the compressor's blade-pass family marked on it from §5.2. Turbo wheel
+geometry (blade/splitter count, tip speed) is passed as explicit workspace
+state, not stored on `Turbocharger` — that schema carries no wheel geometry
+today, and adding it for one UI screen would be a bigger, riskier change than
+the estimate needs.

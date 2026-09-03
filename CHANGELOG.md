@@ -9,6 +9,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Phase 15, Stage A — forced-induction acoustics.** A turbine four-pole in
+  the exhaust TMM (area restriction plus a resistive work-extraction term),
+  compressor blade-pass frequency and the full+splitter combined-count tone,
+  whoosh and wastegate/BOV broadband levels, the Greitzer surge model (B
+  parameter, mild/deep classification, and a surge-flutter frequency read
+  directly off the same Helmholtz-resonance estimate the intake organ-pipe
+  figures already use), and an Intake tab in the Sound workspace.
+  **Gate clauses 2 and 3 met.** OPI on the M50 factory manifold's own
+  collector spectrum drops from 0.9621 (NA) to 0.9539 once filtered through
+  the turbine element — the turbine's resistive term dissipates the energy an
+  open tailpipe end would otherwise reflect back to reinforce the firing
+  order, which is the physical mechanism behind "why turbo cars sound flat."
+  The surge-flutter frequency is asserted equal to
+  `GreitzerSurgeModel.SurgeFrequencyHz` across several distinct plenum/duct
+  geometries — a tuned constant could not move with the physics the way this
+  does — and the B-parameter mild/deep classification matches Greitzer's own
+  published trend (closing plan validation item #19, which needed no measured
+  data). Gate clause 1 (transient spool within 15% of a measured case) is
+  unaffected by this stage; it stays the standing deferral CLAUDE.md already
+  records, pending Stage B.
+- Every empirical scaling here that plan §4.8 itself does not cite (whoosh,
+  wastegate and BOV level, the turbine's dissipation multiplier) is left as
+  an explicit, exposed, unfitted calibration constant rather than a number
+  with an invented source — the same discipline `ScrollPairing`'s twin-scroll
+  admission coefficient already uses. Only blade-pass frequency (Tyler &
+  Sofrin 1962) and the broadband velocity-scaling exponent (Curle 1955,
+  extending Lighthill 1952) carry a real citation.
+
 - **Phase 14 — forced-induction engine behaviour.** Fresh-charge tracking
   through the cylinder and both ports, scavenging pressure ratio sampled across
   every overlap window, blow-through and trapping efficiency per cylinder per

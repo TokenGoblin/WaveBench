@@ -2,6 +2,7 @@ using System.Globalization;
 using WaveBench.Acoustics;
 using WaveBench.Acoustics.Auralisation;
 using WaveBench.Acoustics.Metrics;
+using WaveBench.Boost.Acoustics;
 using WaveBench.ViewModels.Plotting;
 
 namespace WaveBench.ViewModels;
@@ -12,6 +13,7 @@ public enum SoundTab
     Timing,
     Spectrum,
     Silencing,
+    Intake,
     Audition,
     Compliance,
 }
@@ -331,6 +333,77 @@ public sealed class SoundWorkspace(ExhaustSoundDesign a, ExhaustSoundDesign b, U
 
     private static double Ceil(IReadOnlyList<double> values, double step) =>
         Math.Ceiling(values.Where(double.IsFinite).DefaultIfEmpty(0).Max() / step) * step;
+
+    // ---- Intake -------------------------------------------------------------
+
+    /// <summary>Intake duct geometry the TL plot is driven by.</summary>
+    public double IntakeDuctDiameterMm { get; set; } = 60.0;
+
+    public double IntakeDuctLengthMm { get; set; } = 400.0;
+
+    /// <summary>Compressor wheel state for the blade-pass markers, not stored on the document's Turbocharger.</summary>
+    public double TurboRpm { get; set; } = 150_000.0;
+
+    public int CompressorBladeCount { get; set; } = 6;
+
+    public int CompressorSplitterCount { get; set; } = 6;
+
+    /// <summary>
+    /// The intake side's own transmission-loss estimate, with the compressor's
+    /// blade-pass family marked on it (plan §4.8: "intake-path elevation" —
+    /// once a document is boosted, the intake chain is a primary noise path,
+    /// not an afterthought, and it earns the same figure exhaust already has).
+    ///
+    /// A duct-only estimate, deliberately: the intake side has no collector to
+    /// give it order structure the way the exhaust does, so what a listener
+    /// hears here is dominated by the compressor's own tones (blade-pass and
+    /// its harmonics) and whoosh, shaped by whatever the duct passes.
+    /// </summary>
+    public PlotModel IntakeAcousticProfile(double fromHz = 20, double toHz = 8000, int points = 512)
+    {
+        var area = Area(IntakeDuctDiameterMm);
+        var network = new AcousticNetwork(AcousticMedium.Air20C, area, area);
+        network.Elements.Add(new UniformDuctElement(IntakeDuctLengthMm / 1000.0, area));
+
+        var frequencies = new double[points];
+        for (var i = 0; i < points; i++)
+        {
+            frequencies[i] = fromHz + ((toHz - fromHz) * i / (points - 1.0));
+        }
+
+        var loss = network.TransmissionLossSweep(frequencies);
+
+        var bpf = TurboAcousticSources.CompressorBladePassFrequency(TurboRpm, CompressorBladeCount);
+        var harmonics = TurboAcousticSources.BladePassHarmonics(
+            TurboRpm, CompressorBladeCount, CompressorSplitterCount, harmonics: 3);
+
+        var markers = harmonics
+            .Where(h => h >= fromHz && h <= toHz)
+            .Distinct()
+            .OrderBy(h => h)
+            .Select(h => new PlotMarker(h, $"{h:F0} Hz", "Brush.Warning"))
+            .ToList();
+
+        return new PlotModel
+        {
+            Title = "Intake acoustic profile",
+            Subtitle = $"Ø{IntakeDuctDiameterMm:F0} × {IntakeDuctLengthMm:F0} mm duct · {TurboRpm:F0} rpm compressor "
+                       + "· linear-acoustic estimate",
+            XAxis = new PlotAxis("Frequency", fromHz, toHz, "Hz"),
+            YAxis = new PlotAxis("Transmission loss", 0, Math.Max(10, Ceil(loss, 5)), "dB"),
+            Series = [new PlotSeries("Duct TL", frequencies, loss, "Brush.Accent")],
+            Markers = markers,
+            Notes =
+            [
+                $"Compressor blade-pass fundamental at {bpf:F0} Hz ({CompressorBladeCount} blades, "
+                + $"{CompressorSplitterCount} splitters, {TurboRpm:F0} rpm) — marked on the duct response, not "
+                + "attenuated by it in this estimate.",
+                "Once a document is boosted, the intake side competes with the exhaust for what a listener "
+                + "actually hears — whoosh and blade-pass tones, not just header order structure.",
+                "Transfer-matrix estimate: plane-wave, no mean flow. A solved run adds both.",
+            ],
+        };
+    }
 
     // ---- Audition ---------------------------------------------------------
 

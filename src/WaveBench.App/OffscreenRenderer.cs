@@ -145,6 +145,10 @@ public static class OffscreenRenderer
         Settle(window);
         Capture(window, Path.Combine(outputDirectory, "15-sound-silencing.png"));
 
+        window.GoToSoundTab(SoundTab.Intake);
+        Settle(window);
+        Capture(window, Path.Combine(outputDirectory, "15b-sound-intake.png"));
+
         // The wizard mid-flow: Simple mode's Overview is the wizard (§8.6).
         window.GoToWizardStep(WizardStep.Goal);
         Settle(window);
