@@ -92,8 +92,18 @@ public sealed class ShellViewModel
 
     public Workspace Current { get; private set; } = Workspace.Overview;
 
-    /// <summary>True when the model has forced induction (drives Boost visibility).</summary>
-    public bool HasForcedInduction { get; set; }
+    /// <summary>
+    /// True when the model has forced induction — what makes the Boost
+    /// workspace appear (plan §8.3).
+    ///
+    /// <b>Derived from the document, never set on the shell.</b> The aspiration
+    /// is a field like any other: it is edited in Design → Engine, stamped with
+    /// provenance, undone and redone, and saved. A separate shell flag would be
+    /// a second answer to the same question, and the two would disagree the
+    /// first time a project was loaded from disk — the workspace would be
+    /// hidden on a turbocharged model until something thought to set the flag.
+    /// </summary>
+    public bool HasForcedInduction => Document.ForcedInduction.IsForced;
 
     /// <summary>True once at least one run has produced results (drives Results/Compare).</summary>
     public bool HasResults { get; set; }
@@ -120,7 +130,7 @@ public sealed class ShellViewModel
             HasForcedInduction ? null : "This model is naturally aspirated.",
             "Design → Engine → Aspiration, or the command palette: \"add forced induction\"")
         {
-            SubTabs = ["Compressor", "Turbine", "Control", "Charge Cooling", "Transient"],
+            SubTabs = BoostCatalogue.Tabs.Select(t => t.Title).ToList(),
         },
         new(Workspace.Sound, "Sound", "\U0001F50A", true, null, null)
         {

@@ -9,6 +9,68 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Phase 21 — Boost workspace (v0.9).** The forced-induction screens: the
+  compressor map with the engine's operating line, its surge and choke
+  margins, the restrictor's choke ceiling and an altitude/hot-day toggle; the
+  turbine A/R trade drawn as a front rather than a recommendation, with blade
+  speed ratio against engine speed; boost control showing what the turbo would
+  make against what it is held to; charge cooling with a repeat-run heat-soak
+  trace; a quasi-steady spool estimate with a sensitivity band; and auto-match
+  ranking the library with every candidate's trade-offs rather than a single
+  "best". Physics: docs/physics.md §7.
+  **Both gate clauses met.** Aspiration is now a document field
+  (`ForcedInduction.Aspiration`, edited in Design → Engine) and
+  `ShellViewModel.HasForcedInduction` is *derived* from it rather than being a
+  separate flag — so Boost appears and disappears with the selector, undo and
+  redo move it for free, and a saved turbocharged project comes back with the
+  workspace already there. The restrictor-upstream line is checked in the two
+  configurations a restricted car actually fails in: correctly sized (600 cc
+  four, 20 mm throat, 35 mm compressor) the inlet is sub-atmospheric at every
+  point, the flow pins at the throat's 0.0721 kg/s ceiling from 9000 rpm, and
+  the choke-margin warning fires at 1.1% before the line reaches the wall;
+  oversized with a small hot side (54 mm compressor, A/R 0.30) the line
+  crosses the surge line by up to 18.5% between 3750 and 12 000 rpm, with the
+  warning naming the span, the depth, what to change, and a cross-workspace
+  link to the plenum volume in Design → Manifold.
+- **The wastegate is in the steady loop, and it had to be.** A raw shaft
+  balance answers "where does this settle with nothing bled off", which for
+  any turbo not already at its limit is well above the target — so the map,
+  the margins, the charge temperature and the shaft-speed check were all being
+  read at a point the wastegate exists to prevent. `HoldToTarget` now finds
+  the shaft speed that makes exactly the target ratio, then the expansion
+  ratio at which the turbine makes exactly that speed's power requirement.
+  Both points are kept: the controlled one is what every figure is drawn from,
+  the gate-shut one is what the Control tab compares it against. The
+  expansion ratio falling when the gate opens is the half a boost gauge cannot
+  see, and both curves are drawn for that reason.
+- **A/R sweeps re-house the map by first-order capacity scaling** (Watson &
+  Janota 1982; Baines 2005) and leave the efficiency field alone, because
+  nothing here knows where a different housing moves the incidence angle. The
+  re-housed map's provenance records the scale factor and says so, and the
+  figure ranks housings in one family rather than predicting an absolute
+  number for a housing nobody measured. Fitted to no dataset.
+- **The shipped turbo library is analytic, by rule** (plan §4.7): five sizes
+  scaled from one closed-form surface by geometric similarity, each entry
+  declaring in its own source and licence that it was generated and is not a
+  product. The verification suite's `SyntheticTurbo` is deliberately not
+  shared with it — a verification anchor built from product code would agree
+  with whatever the product code does.
+- **Turbine inlet temperature and volumetric efficiency are taken from a
+  solved sweep when one exists**, and are stated assumptions when one does
+  not: VE as an editable slider defaulting to 0.95, TIT as a placeholder
+  inside Heywood's quoted wide-open-throttle range falling with enrichment.
+  Every figure names which of the two it is showing, the way the Sound
+  workspace already does.
+- The default speed range is derived from mean piston speed (20 m/s, the same
+  figure Design → Engine quotes) rather than fixed, because a fixed one stops
+  a 42.5 mm-stroke restricted four 6000 rpm short of its power peak — and an
+  operating line that stops short of the top end hides exactly the choke
+  margin the screen exists to show.
+- Design and Boost now share one field-editing path (`IEditableField`,
+  `FieldEditor`, `IFieldEditingSurface`) and one field-row renderer. Unit
+  conversion happens in exactly one place, which is the point: two
+  implementations are two boundaries that round differently.
+
 - **Phase 15, Stage A — forced-induction acoustics.** A turbine four-pole in
   the exhaust TMM (area restriction plus a resistive work-extraction term),
   compressor blade-pass frequency and the full+splitter combined-count tone,

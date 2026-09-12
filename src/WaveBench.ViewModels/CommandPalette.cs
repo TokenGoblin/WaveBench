@@ -43,11 +43,32 @@ public sealed class CommandPalette(ShellViewModel shell)
             commands.Add(new PaletteCommand(CommandKind.EditField, path, "Edit field", Path: path));
         }
 
+        // The discovery path for the hidden Boost workspace (plan §8.3). It
+        // carries the aspiration field's own path, so invoking it navigates to
+        // the field that reveals the workspace rather than to a screen the
+        // user then has to search.
         commands.Add(new PaletteCommand(
-            CommandKind.Action, "Add forced induction", "Reveals the Boost workspace", Target: Workspace.Design)
+            CommandKind.Action, "Add forced induction", "Reveals the Boost workspace",
+            Path: BoostCatalogue.AspirationPath, Target: Workspace.Design)
         {
-            Aliases = ["turbo", "supercharger", "boost", "FI"],
+            Aliases = ["turbo", "supercharger", "boost", "FI", "aspiration"],
         });
+
+        // Once the model IS boosted, its own fields join the palette: §8.11
+        // asks that Ctrl+K reach every field, and a field on a conditional
+        // workspace is exactly the one a user cannot find by looking.
+        if (shell.HasForcedInduction)
+        {
+            foreach (var field in BoostCatalogue.Fields)
+            {
+                commands.Add(new PaletteCommand(
+                    CommandKind.EditField, field.Label, "Boost", Path: field.Path, Target: Workspace.Boost)
+                {
+                    Aliases = field.Aliases,
+                });
+            }
+        }
+
         commands.Add(new PaletteCommand(CommandKind.Action, "Run sweep", "Queue an rpm sweep", Target: Workspace.Run));
         commands.Add(new PaletteCommand(CommandKind.Action, "Render audio", "Auralise the current model", Target: Workspace.Sound));
         commands.Add(new PaletteCommand(CommandKind.Action, "Toggle units", "Metric ⇄ Imperial"));

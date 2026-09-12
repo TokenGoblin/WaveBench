@@ -27,6 +27,12 @@ public class DesignWorkspaceTests(ITestOutputHelper output)
         // property nobody can set, so this walks the SCHEMA rather than a
         // hand-maintained list — adding a field to the document and
         // forgetting the UI fails here.
+        //
+        // Design does not own every block: the forced-induction hardware
+        // belongs to the Boost workspace (plan §8.4), which catalogues it the
+        // same way in BoostCatalogue. So the question this asks is "is this
+        // property reachable from SOME workspace", which is the invariant that
+        // actually matters — not "is it on the Design screen".
         var missing = new List<string>();
 
         void Walk(Type type, string prefix)
@@ -51,7 +57,7 @@ public class DesignWorkspaceTests(ITestOutputHelper output)
                     continue;
                 }
 
-                if (DesignCatalogue.Find(path) is null)
+                if (DesignCatalogue.Find(path) is null && BoostCatalogue.Find(path) is null)
                 {
                     missing.Add(path);
                 }

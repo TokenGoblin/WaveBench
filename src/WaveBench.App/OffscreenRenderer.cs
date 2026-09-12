@@ -67,6 +67,130 @@ public static class OffscreenRenderer
 
         CaptureManifold(outputDirectory);
         CaptureResults(outputDirectory);
+        CaptureBoost(outputDirectory);
+    }
+
+    /// <summary>
+    /// The Phase 21 Boost screens, on two models rather than one.
+    ///
+    /// A road turbo four shows the ordinary case; the restricted FSAE car
+    /// shows the one plan §4.6.4 calls the module's highest-value single
+    /// feature, and neither is a fair picture of the other. Both are
+    /// turbocharged from the start, because the workspace does not exist on a
+    /// naturally aspirated model — that is the point of it.
+    /// </summary>
+    private static void CaptureBoost(string outputDirectory)
+    {
+        var road = new WaveBench.Model.EngineModelDocument
+        {
+            Name = "Two-litre turbo four",
+            Engine = new WaveBench.Model.EngineSpec
+            {
+                BoreMm = 86, StrokeMm = 86, RodLengthMm = 145, CompressionRatio = 9.5, CylinderCount = 4,
+            },
+            IntakeValves = new WaveBench.Model.ValveTrainSpec
+            {
+                HeadDiameterMm = 33, Count = 2, MaxLiftMm = 10, OpenDeg = 350, CloseDeg = 580,
+            },
+            ExhaustValves = new WaveBench.Model.ValveTrainSpec
+            {
+                HeadDiameterMm = 28, Count = 2, MaxLiftMm = 10, OpenDeg = 140, CloseDeg = 370,
+            },
+            IntakeRunner = new WaveBench.Model.DuctSpec { LengthMm = 300, DiameterMm = 40 },
+            ExhaustRunner = new WaveBench.Model.DuctSpec { LengthMm = 400, DiameterMm = 38 },
+            Combustion = new WaveBench.Model.CombustionSpec { Fuel = "RON95", Lambda = 0.88 },
+            ForcedInduction = new WaveBench.Model.ForcedInductionSpec
+            {
+                Aspiration = WaveBench.Model.AspirationKinds.Turbocharged,
+                TargetBoostKPa = 110,
+            },
+        };
+
+        var window = new MainWindow(road, seed: false)
+        {
+            Width = 1360,
+            Height = 1180,
+            WindowStartupLocation = WindowStartupLocation.Manual,
+            Left = -10_000,
+            Top = -10_000,
+            ShowInTaskbar = false,
+        };
+
+        window.Show();
+
+        // Advanced, or the capture shows the three Simple-mode fields and
+        // none of the hardware the screen is about. Set rather than toggled:
+        // the mode is a shared user preference, so a second window toggling
+        // it would put the next capture back into Simple.
+        Advanced(window);
+
+        // The 62 mm, because auto-match ranks it first for this engine at this
+        // target: a 2-litre at 110 kPa draws close to 0.3 kg/s at the top of
+        // the range, which runs the 54 mm past its own choke line. Capturing
+        // the mismatch would be capturing the warning rather than the screen.
+        window.GoToBoostTab(BoostTab.Compressor, "Analytic 62 mm");
+        Settle(window);
+        Capture(window, Path.Combine(outputDirectory, "18-boost-compressor.png"));
+
+        window.GoToBoostTab(BoostTab.Turbine);
+        Settle(window);
+        Capture(window, Path.Combine(outputDirectory, "19-boost-turbine.png"));
+
+        window.GoToBoostTab(BoostTab.ChargeCooling);
+        Settle(window);
+        Capture(window, Path.Combine(outputDirectory, "20-boost-charge-cooling.png"));
+
+        window.GoToBoostTab(BoostTab.Transient);
+        Settle(window);
+        Capture(window, Path.Combine(outputDirectory, "21-boost-transient.png"));
+
+        window.Close();
+
+        // The restricted case, on its own model: a 600 cc four behind a 20 mm
+        // throat, which is a different screen in every respect that matters.
+        var restricted = new WaveBench.Model.EngineModelDocument
+        {
+            Name = "Restricted 600 cc four",
+            Engine = new WaveBench.Model.EngineSpec
+            {
+                BoreMm = 67, StrokeMm = 42.5, RodLengthMm = 90, CompressionRatio = 11.5, CylinderCount = 4,
+            },
+            IntakeValves = new WaveBench.Model.ValveTrainSpec
+            {
+                HeadDiameterMm = 23, Count = 2, MaxLiftMm = 8, OpenDeg = 350, CloseDeg = 570,
+            },
+            ExhaustValves = new WaveBench.Model.ValveTrainSpec
+            {
+                HeadDiameterMm = 20, Count = 2, MaxLiftMm = 8, OpenDeg = 150, CloseDeg = 370,
+            },
+            IntakeRunner = new WaveBench.Model.DuctSpec { LengthMm = 250, DiameterMm = 34 },
+            ExhaustRunner = new WaveBench.Model.DuctSpec { LengthMm = 450, DiameterMm = 32 },
+            Combustion = new WaveBench.Model.CombustionSpec { Fuel = "RON95", Lambda = 0.85 },
+            ForcedInduction = new WaveBench.Model.ForcedInductionSpec
+            {
+                Aspiration = WaveBench.Model.AspirationKinds.Turbocharged,
+                TargetBoostKPa = 120,
+                RestrictorFitted = true,
+                RestrictorThroatMm = 20,
+            },
+        };
+
+        var fsae = new MainWindow(restricted, seed: false)
+        {
+            Width = 1360,
+            Height = 1180,
+            WindowStartupLocation = WindowStartupLocation.Manual,
+            Left = -10_000,
+            Top = -10_000,
+            ShowInTaskbar = false,
+        };
+
+        fsae.Show();
+        Advanced(fsae);
+        fsae.GoToBoostTab(BoostTab.Compressor, "Analytic 35 mm");
+        Settle(fsae);
+        Capture(fsae, Path.Combine(outputDirectory, "22-boost-restrictor.png"));
+        fsae.Close();
     }
 
     /// <summary>
@@ -216,6 +340,22 @@ public static class OffscreenRenderer
         Capture(window, Path.Combine(outputDirectory, "08-manifold-zoomed-out.png"));
 
         window.Close();
+    }
+
+    /// <summary>
+    /// Put a window into Advanced mode, whatever it is in now.
+    ///
+    /// The mode is a shared user preference, so a captures run that toggles it
+    /// per window flips it back and forth: the second window's toggle undid
+    /// the first's, and the capture came out in Simple mode showing three
+    /// fields of a screen that has nineteen.
+    /// </summary>
+    private static void Advanced(MainWindow window)
+    {
+        if (App.Preferences.Mode != UiMode.Advanced)
+        {
+            window.ToggleMode();
+        }
     }
 
     /// <summary>Let layout, bindings and the chart's SizeChanged handler complete.</summary>

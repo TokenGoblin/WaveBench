@@ -173,6 +173,29 @@ public partial class MainWindow : Window
         Refresh();
     }
 
+    /// <summary>
+    /// Navigate to one Boost sub-tab without a mouse. Sets the aspiration
+    /// first if the model is still naturally aspirated: the workspace does not
+    /// exist until it is, and an offscreen capture that silently landed
+    /// somewhere else would be a screenshot of the wrong screen.
+    /// </summary>
+    public void GoToBoostTab(BoostTab tab, string? turboName = null)
+    {
+        if (!_shell.HasForcedInduction)
+        {
+            _session.EditByUser("ForcedInduction.Aspiration", AspirationKinds.Turbocharged);
+        }
+
+        if (turboName is not null)
+        {
+            _session.EditByUser("ForcedInduction.TurboName", turboName);
+        }
+
+        _shell.Navigate(Workspace.Boost);
+        WorkspaceContent.SelectBoostTab(_shell, _session, tab);
+        Refresh();
+    }
+
     /// <summary>Navigate to one Sound sub-tab without a mouse.</summary>
     public void GoToSoundTab(SoundTab tab)
     {

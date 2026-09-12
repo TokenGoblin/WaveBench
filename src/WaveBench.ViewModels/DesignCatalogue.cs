@@ -66,7 +66,7 @@ public sealed record DesignField(
     double? Minimum = null,
     double? Maximum = null,
     IReadOnlyList<string>? Choices = null,
-    string? Help = null);
+    string? Help = null) : IEditableField;
 
 /// <summary>
 /// Every field of <see cref="EngineModelDocument"/> that the Design workspace
@@ -130,6 +130,16 @@ public static class DesignCatalogue
         new("Combustion.WallTemperatureK", "Wall temperature", DesignTab.Engine, FieldKind.Number, Quantity.Temperature, "K",
             false, 300, 700,
             Help: "Area-averaged combustion-chamber wall temperature; a fixed input until the thermal network lands."),
+
+        // The aspiration selector (plan §8.4 "Design → Engine"). This one
+        // field is what reveals the Boost workspace — plan §8.3 asks that
+        // "add forced induction" live here and in the command palette, not
+        // only in the wizard. Everything downstream of the choice — turbo,
+        // wastegate, cooler, restrictor — belongs to the Boost workspace and
+        // is catalogued in BoostCatalogue.
+        new("ForcedInduction.Aspiration", "Aspiration", DesignTab.Engine, FieldKind.Choice, Quantity.None, "", false,
+            Choices: AspirationKinds.All,
+            Help: "Choosing anything but naturally aspirated reveals the Boost workspace and its five screens."),
 
         // ---- Head & Cam (plan §8.4 "Design → Head & Cam") ------------------
         new("IntakeValves.HeadDiameterMm", "Intake valve head Ø", DesignTab.HeadAndCam, FieldKind.Number, Quantity.Length, "mm",

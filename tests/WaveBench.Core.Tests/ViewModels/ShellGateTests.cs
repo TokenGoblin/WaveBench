@@ -200,8 +200,11 @@ public class ShellGateTests(ITestOutputHelper output)
         palette.Search("turbo").Should().Contain(c => c.Title == "Add forced induction",
             "aliases make the feature findable by the word a user would actually type");
 
-        // Add a compressor and it appears immediately.
-        shell.HasForcedInduction = true;
+        // Add a compressor and it appears immediately. The aspiration is a
+        // document field, so this is the same edit the selector in
+        // Design → Engine makes — there is no shell flag to get out of step
+        // with the model.
+        shell.Document.ForcedInduction.Aspiration = AspirationKinds.Turbocharged;
         shell.Workspaces.Single(w => w.Workspace == Workspace.Boost).Visible.Should().BeTrue();
         shell.Navigate(Workspace.Boost).Should().BeTrue();
         shell.VisibleWorkspaces.Should().Contain(w => w.Workspace == Workspace.Boost);
@@ -408,7 +411,7 @@ public class ShellGateTests(ITestOutputHelper output)
     {
         // §8.3: a hidden workspace must never be merely absent.
         var shell = new ShellViewModel(new ProjectSession(Model()));
-        shell.HasForcedInduction = false;
+        shell.HasForcedInduction.Should().BeFalse("the model is naturally aspirated");
         shell.HasResults = false;
 
         var hidden = shell.Workspaces.Where(w => !w.Visible).ToList();

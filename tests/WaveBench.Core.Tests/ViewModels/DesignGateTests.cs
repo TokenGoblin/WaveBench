@@ -66,6 +66,7 @@ public class DesignGateTests(ITestOutputHelper output)
             ("Engine.CompressionRatio", "11.8"),
             ("Engine.CylinderCount", "4"),
             ("Combustion.WallTemperatureK", "160"),          // 160 °C
+            ("ForcedInduction.Aspiration", "Naturally aspirated"),
 
             ("IntakeValves.HeadDiameterMm", "32"),
             ("IntakeValves.ThroatDiameterMm", "28"),

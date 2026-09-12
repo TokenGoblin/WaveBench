@@ -12,7 +12,7 @@ namespace WaveBench.ViewModels;
 /// <param name="DisplayUnit">The unit that value is in.</param>
 /// <param name="Provenance">Where the value came from (§8.5 badge).</param>
 public sealed record FieldView(
-    DesignField Field,
+    IEditableField Field,
     string Display,
     string DisplayUnit,
     ProvenanceEntry Provenance);
@@ -46,10 +46,18 @@ public sealed record DerivedReadout(string Label, string Value, string? Note = n
 /// always holding the SI-ish unit its property name declares.
 /// </summary>
 public sealed class DesignWorkspace(ProjectSession session, UserPreferences? preferences = null)
+    : IFieldEditingSurface
 {
     private readonly ProjectSession _session = session;
 
     public UserPreferences Preferences { get; } = preferences ?? new UserPreferences();
+
+    /// <summary>
+    /// The shared parse/convert/write path (see <see cref="FieldEditor"/>).
+    /// Boost edits document fields too, and two copies of this logic would be
+    /// two unit boundaries that round differently.
+    /// </summary>
+    private FieldEditor Editor => new(_session, Preferences);
 
     public EngineModelDocument Document => _session.Document;
 
@@ -86,12 +94,7 @@ public sealed class DesignWorkspace(ProjectSession session, UserPreferences? pre
             .Select(View)
             .ToList();
 
-    public FieldView View(DesignField field)
-    {
-        var raw = ModelPath.GetOrDefault(Document, field.Path);
-        var unit = DisplayUnit(field);
-        return new FieldView(field, Format(field, raw), unit, _session.Provenance[field.Path]);
-    }
+    public FieldView View(DesignField field) => Editor.View(field);
 
     public FieldView View(string path) =>
         View(DesignCatalogue.Find(path) ?? throw new ArgumentException($"No design field '{path}'.", nameof(path)));
@@ -119,94 +122,9 @@ public sealed class DesignWorkspace(ProjectSession session, UserPreferences? pre
     private EditOutcome Apply(string path, string text)
     {
         var field = DesignCatalogue.Find(path);
-        if (field is null)
-        {
-            return EditOutcome.Reject($"'{path}' is not an editable design field.");
-        }
-
-        object? value;
-        switch (field.Kind)
-        {
-            case FieldKind.Text:
-                if (string.IsNullOrWhiteSpace(text))
-                {
-                    return EditOutcome.Reject("This cannot be empty.");
-                }
-
-                value = text.Trim();
-                break;
-
-            case FieldKind.Choice:
-                var choices = field.Choices ?? [];
-                var typedChoice = text.Trim();
-
-                // Exact first, then a UNIQUE substring — the fuel library is
-                // resolved by containment everywhere else in the codebase, so
-                // "E85" has to reach "Ethanol E85" here or the field rejects
-                // the very value the templates ship with. Ambiguous
-                // abbreviations are refused rather than guessed at.
-                var match = choices.FirstOrDefault(c => string.Equals(c, typedChoice, StringComparison.OrdinalIgnoreCase));
-                if (match is null)
-                {
-                    var partial = choices
-                        .Where(c => c.Contains(typedChoice, StringComparison.OrdinalIgnoreCase))
-                        .ToList();
-                    match = partial.Count == 1 ? partial[0] : null;
-                    if (match is null && partial.Count > 1)
-                    {
-                        return EditOutcome.Reject($"'{typedChoice}' matches {string.Join(", ", partial)} — be more specific.");
-                    }
-                }
-
-                if (match is null)
-                {
-                    return EditOutcome.Reject($"Must be one of: {string.Join(", ", choices)}.");
-                }
-
-                // Store the canonical name so the document is unambiguous even
-                // though a substring was typed.
-                value = match;
-                break;
-
-            case FieldKind.Toggle:
-                if (!bool.TryParse(text.Trim(), out var flag))
-                {
-                    return EditOutcome.Reject("Must be true or false.");
-                }
-
-                value = flag;
-                break;
-
-            case FieldKind.Integer:
-            case FieldKind.Number:
-            default:
-                if (!double.TryParse(text.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out var typed))
-                {
-                    return EditOutcome.Reject("Not a number.");
-                }
-
-                var model = ToModel(field, typed);
-                if (field.Minimum is { } min && model < min)
-                {
-                    return EditOutcome.Reject($"Below the plausible minimum of {Format(field, min)} {DisplayUnit(field)}.");
-                }
-
-                if (field.Maximum is { } max && model > max)
-                {
-                    return EditOutcome.Reject($"Above the plausible maximum of {Format(field, max)} {DisplayUnit(field)}.");
-                }
-
-                value = field.Kind == FieldKind.Integer ? (int)Math.Round(model) : model;
-                break;
-        }
-
-        if (!ModelPath.CanWrite(Document, field.Path, value, out var reason))
-        {
-            return EditOutcome.Reject(reason ?? "This value cannot be written.");
-        }
-
-        _session.EditByUser(field.Path, value);
-        return EditOutcome.Ok;
+        return field is null
+            ? EditOutcome.Reject($"'{path}' is not an editable design field.")
+            : Editor.Apply(field, text);
     }
 
     /// <summary>Model issues from the document's own validator, for this tab's fields.</summary>
@@ -395,83 +313,17 @@ public sealed class DesignWorkspace(ProjectSession session, UserPreferences? pre
     }
 
     // ---- Units --------------------------------------------------------------
+    //
+    // Conversion lives in FieldEditor, which Boost shares. These stay as the
+    // workspace's own vocabulary — the tests and the view call them — but
+    // they must never grow a second implementation: one boundary, or the
+    // same number reads differently on two screens.
 
-    public string DisplayUnit(DesignField field) => field.Quantity switch
-    {
-        Quantity.Length => Units == UnitSystem.Imperial ? "in" : "mm",
-        Quantity.Pressure => Units == UnitSystem.Imperial ? "psi" : "kPa",
-        Quantity.Temperature => Units == UnitSystem.Imperial ? "°F" : "°C",
-        Quantity.Angle => "°",
-        _ => field.ModelUnit,
-    };
+    public string DisplayUnit(DesignField field) => Editor.DisplayUnit(field);
 
     /// <summary>Model units → display units.</summary>
-    public double ToDisplay(DesignField field, double modelValue) => field.Quantity switch
-    {
-        Quantity.Length => Units == UnitSystem.Imperial ? modelValue / 25.4 : modelValue,
-        Quantity.Pressure => Units == UnitSystem.Imperial ? modelValue * 0.145037737730209 : modelValue,
-        Quantity.Temperature => Units == UnitSystem.Imperial
-            ? ((modelValue - 273.15) * 9.0 / 5.0) + 32.0
-            : modelValue - 273.15,
-        _ => modelValue,
-    };
+    public double ToDisplay(DesignField field, double modelValue) => Editor.ToDisplay(field, modelValue);
 
     /// <summary>Display units → model units. Exactly inverts <see cref="ToDisplay"/>.</summary>
-    public double ToModel(DesignField field, double displayValue) => field.Quantity switch
-    {
-        Quantity.Length => Units == UnitSystem.Imperial ? displayValue * 25.4 : displayValue,
-        Quantity.Pressure => Units == UnitSystem.Imperial ? displayValue / 0.145037737730209 : displayValue,
-        Quantity.Temperature => Units == UnitSystem.Imperial
-            ? ((displayValue - 32.0) * 5.0 / 9.0) + 273.15
-            : displayValue + 273.15,
-        _ => displayValue,
-    };
-
-    private string Format(DesignField field, object? raw)
-    {
-        switch (raw)
-        {
-            case null:
-                return "—";
-            case bool b:
-                return b ? "true" : "false";
-            case string s:
-                return s;
-            case int i when field.Quantity == Quantity.None:
-                return i.ToString(CultureInfo.InvariantCulture);
-        }
-
-        var value = Convert.ToDouble(raw, CultureInfo.InvariantCulture);
-        return Format(field, value);
-    }
-
-    /// <summary>
-    /// Decimal places for a field, chosen by what the quantity needs rather
-    /// than by how big the number happens to be — a magnitude rule prints
-    /// "86.000" next to "107.0" in the same column, which reads as though the
-    /// two were measured differently.
-    /// </summary>
-    private int Decimals(DesignField field) => field.Kind == FieldKind.Integer ? 0 : field.Quantity switch
-    {
-        Quantity.Length => Units == UnitSystem.Imperial ? 3 : 2,
-        Quantity.Pressure => Units == UnitSystem.Imperial ? 2 : 1,
-        Quantity.Temperature => 1,
-        Quantity.Angle => 1,
-        _ => 3,
-    };
-
-    private string Format(DesignField field, double modelValue)
-    {
-        var shown = ToDisplay(field, modelValue);
-        var text = shown.ToString("F" + Decimals(field), CultureInfo.InvariantCulture);
-
-        // Trim the noise: "86.00" reads as a measurement to two decimals when
-        // it is just 86. Keeps a real fractional part intact.
-        if (text.Contains('.'))
-        {
-            text = text.TrimEnd('0').TrimEnd('.');
-        }
-
-        return text.Length == 0 || text == "-" ? "0" : text;
-    }
+    public double ToModel(DesignField field, double displayValue) => Editor.ToModel(field, displayValue);
 }

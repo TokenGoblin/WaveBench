@@ -8,7 +8,7 @@ hard acceptance gate (Part 12). Never let a session span two phases.
 
 ## START HERE — where the project stands
 
-**22 of 26 phases complete. 867 tests green, none skipped. CI green on main.**
+**23 of 26 phases complete. 909 tests green, none skipped. CI green on main.**
 
 | Phase | State | Notes |
 |---|---|---|
@@ -19,14 +19,16 @@ hard acceptance gate (Part 12). Never let a session span two phases.
 | 14 | done | forced-induction engine behaviour — docs/physics.md §5 |
 | **15** | **PARTIAL** | transient + FI acoustics · **v0.6** — gate clause 1 open, see below |
 | 16-20 | done | shell, Design, Manifold canvas, Results, Sound |
-| **21** | **NEXT** | Boost workspace · **v0.9** |
-| **22** | to do | Optimisation (largest remaining phase) |
+| 21 | done | Boost workspace · **v0.9** — docs/physics.md §7 |
+| **22** | **NEXT** | Optimisation (largest remaining phase) |
 | 23 | done | Simple mode and the wizard |
 | **24** | to do | Learn layer and guardrails |
 | **25** | to do | Reporting, docs, packaging · **v1.0** |
 
-**PHASE ORDER IS USER-REORDERED and 15 is next by that ordering.** See the note
-further down; do not silently revert to plan order.
+**PHASE ORDER WAS USER-REORDERED.** See the note further down for why; the
+remaining phases (22, 24, 25) are back in plan order, so nothing is pending on
+the reordering except Phase 11's psychoacoustic metrics and Phase 15's gate
+clause 1, both listed below.
 
 ### What is left, in the order the user chose
 
@@ -45,14 +47,12 @@ further down; do not silently revert to plan order.
    no-carry-over control) is what CI actually checks in its place. Close this
    only if a suitable licensed dataset turns up — see the standing deferral
    below (validation case 20).
-2. **Phase 21 — Boost workspace (v0.9).** All the physics behind it already
-   exists and is tested; it has no UI at all yet.
-3. **Phase 22 — Optimisation.** DOE, CMA-ES, NSGA-II, Bayesian, surrogate inner
+2. **Phase 22 — Optimisation.** DOE, CMA-ES, NSGA-II, Bayesian, surrogate inner
    loop, Pareto explorer. The biggest single phase remaining.
-4. **Phase 24 — Learn layer.** Breadth, not depth: "why" text on every field,
+3. **Phase 24 — Learn layer.** Breadth, not depth: "why" text on every field,
    "Show me" sweeps, Concepts panel, tours, guardrails.
-5. **Phase 25 — Reporting, docs, release (v1.0).**
-6. **Phase 11's four psychoacoustic metrics** — ISO 532-3, ECMA-418-2,
+4. **Phase 25 — Reporting, docs, release (v1.0).**
+5. **Phase 11's four psychoacoustic metrics** — ISO 532-3, ECMA-418-2,
    fluctuation strength, DIN 45681. Deferred for a REASON, not skipped: each
    needs verification against published reference signals and none are
    redistributable. This is the only backwards gap and it blocks the v0.4 tag
@@ -114,6 +114,12 @@ test suite. `SyntheticTurbo` is an analytic surface, which is also the better
 verification anchor - a test can ask what the answer SHOULD be instead of
 comparing two readings of the same picture.
 
+The SHIPPED library (`TurboLibrary`, five sizes, what the Boost workspace
+draws) is analytic for the same reason, and every entry says so in its own
+`Source` and `Licence`. It is deliberately NOT shared with `SyntheticTurbo`:
+a verification anchor built from product code would agree with whatever the
+product code happens to do.
+
 **A map's reference conditions are required and never defaulted.**
 `MapReference` has no default and `CompressorMap.Load` refuses a file without
 one. Do not "helpfully" fall back to a standard day: the two common gas-stand
@@ -123,6 +129,40 @@ pressure ratio, and the error is invisible in the answer.
 **Simple mode's Overview IS the wizard**; Advanced mode's Overview is the
 summary. Same document under both, so the toggle is navigation and never a
 conversion.
+
+**A CONDITIONAL WORKSPACE'S CONDITION IS A DOCUMENT FIELD, never a shell
+flag.** `ShellViewModel.HasForcedInduction` is derived from
+`ForcedInduction.Aspiration`, which is an ordinary field edited in Design →
+Engine. That single choice makes undo/redo, provenance, save/load and the
+command palette work with no extra wiring — and it removes the failure a flag
+would guarantee: a turbocharged project loaded from disk showing no Boost
+workspace until something remembered to set the flag.
+
+**`ShaftBalance.Match` is the GATE-SHUT answer. The engine does not run
+there.** It finds where the shaft settles with nothing bled off, which for any
+turbo below its own limit is well above the boost target. Drawing that on the
+compressor map puts the operating line, both margins, the charge temperature
+and the shaft-speed check at the exact condition the wastegate exists to
+prevent. `BoostWorkspace.HoldToTarget` applies the gate — solve for the speed
+that makes the target ratio, then for the expansion ratio giving exactly that
+speed's power — and keeps both points: controlled for every figure, wide-open
+only for the Control tab, where the difference IS the setup decision.
+docs/physics.md §7.2.
+
+LESSON: this was found by LOOKING at the rendered screen, not by a test. Every
+test passed; the numbers were all finite, in range and self-consistent. What a
+screenshot showed was a 2-litre running 60 kPa over its own target with the
+shaft past its rated speed — obviously wrong to anyone who has matched a turbo,
+and invisible to an assertion that only asks whether the arithmetic closed.
+Render the screen before declaring a UI phase done.
+
+**Surge on a steady wide-open line needs BOTH halves of the mistake.** An
+oversized compressor alone never surges here, because the steady shaft balance
+is self-limiting: the shaft only turns as fast as the exhaust drives it, so an
+oversized wheel simply fails to spool. It takes an oversized compressor AND a
+small turbine housing — the shaft driven hard against a mass flow the
+restrictor has already capped. Do not "fix" a surge test that will not surge
+by loosening the threshold; find the configuration that genuinely does it.
 
 **Why the phase order was changed** (the order itself is in START HERE above).
 The user asked for 19 -> 20 -> 23 first, then the forced-induction block, to get
@@ -151,6 +191,14 @@ validates. A reflection test walks the document schema and fails if any
 editable property is unreachable from the UI, so the Phase 17 gate cannot rot.
 `DesignWorkspace` holds all behaviour; `WorkspaceContent` only builds controls.
 Unit conversion happens ONLY at that boundary.
+
+**Boost owns the forced-induction fields the same way** (`BoostCatalogue`), and
+the schema walk accepts EITHER catalogue - the invariant is "reachable from
+some workspace", not "on the Design screen". Both screens share one
+`FieldEditor` (parse, convert, validate, write through the session) and one
+row renderer (`WorkspaceContent.AddFieldRow`, taking `IFieldEditingSurface`),
+so there is still exactly one unit boundary. A second copy would be a second
+boundary that rounds differently.
 
 **UI framework:** WPF, not WinUI 3 - no Windows App SDK workload here and
 unpackaged WinUI needs its runtime present. The plan sanctions WPF as the

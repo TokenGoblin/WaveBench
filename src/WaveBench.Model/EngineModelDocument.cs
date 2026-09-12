@@ -41,6 +41,17 @@ public sealed record EngineModelDocument
 
     public CombustionSpec? Combustion { get; set; }
 
+    /// <summary>
+    /// Aspiration and everything that hangs off it (plan §4). Always present
+    /// and defaulted to naturally aspirated rather than nullable: the
+    /// aspiration selector is a FIELD on Design → Engine (plan §8.4), and a
+    /// field whose "unset" state is a missing parent block cannot be edited,
+    /// undone or provenance-stamped the way every other field is. The Boost
+    /// workspace's visibility keys off <see cref="ForcedInductionSpec.IsForced"/>,
+    /// not off the block's existence (plan §8.3).
+    /// </summary>
+    public ForcedInductionSpec ForcedInduction { get; set; } = new();
+
     public PipeThermalSpec PipeThermal { get; set; } = new();
 
     public SolverSpec Solver { get; set; } = new();
@@ -125,6 +136,60 @@ public sealed record EngineModelDocument
         if (Ambient.PressureKPa is < 50 or > 120)
         {
             Warn("ambient.pressureKPa", "Ambient pressure outside 50–120 kPa — high-altitude or boosted intent?");
+        }
+
+        var fi = ForcedInduction;
+
+        if (!AspirationKinds.All.Contains(fi.Aspiration, StringComparer.OrdinalIgnoreCase))
+        {
+            Error("forcedInduction.aspiration",
+                $"Aspiration must be one of: {string.Join(", ", AspirationKinds.All)}.");
+        }
+
+        if (fi.IsForced)
+        {
+            if (fi.TargetBoostKPa is <= 0 or > 400)
+            {
+                Error("forcedInduction.targetBoostKPa", "Boost target must be in (0, 400] kPa gauge.");
+            }
+
+            if (fi.CoolerEffectiveness is < 0 or > 1)
+            {
+                Error("forcedInduction.coolerEffectiveness", "Cooler effectiveness must be in [0, 1].");
+            }
+
+            if (fi.TurbineAreaRatio <= 0)
+            {
+                Error("forcedInduction.turbineAreaRatio", "Turbine A/R must be positive.");
+            }
+
+            if (string.IsNullOrWhiteSpace(fi.TurboName))
+            {
+                Warn("forcedInduction.turboName",
+                    "No turbo chosen: the Boost workspace cannot draw an operating line without one.");
+            }
+
+            // Boost with no charge cooling is legal and common on a
+            // low-boost or alcohol-fuelled engine — but it is a choice, and
+            // the intake temperature it implies is the reason a knock margin
+            // disappears, so it is stated rather than assumed.
+            if (string.Equals(fi.ChargeCooler, ChargeCoolerKinds.None, StringComparison.OrdinalIgnoreCase)
+                && fi.TargetBoostKPa > 60.0)
+            {
+                Warn("forcedInduction.chargeCooler",
+                    $"{fi.TargetBoostKPa:F0} kPa of boost with no charge cooling — check the knock margin.");
+            }
+
+            if (fi.RestrictorFitted && fi.RestrictorThroatMm is <= 0 or > 80)
+            {
+                Error("forcedInduction.restrictorThroatMm", "Restrictor throat must be in (0, 80] mm.");
+            }
+
+            if (fi.TransientUncertaintyPercent is < 0 or > 100)
+            {
+                Error("forcedInduction.transientUncertaintyPercent",
+                    "The transient uncertainty band must be in [0, 100]%.");
+            }
         }
 
         if (ExhaustManifold is { } manifold)
@@ -315,6 +380,129 @@ public sealed record PipeThermalSpec
     /// its own temperature is not a converged operating point.
     /// </summary>
     public double WallConvergenceK { get; set; } = 0.5;
+}
+
+/// <summary>
+/// Aspiration and the forced-induction hardware (plan §4).
+///
+/// <b>Stored as names, not as maps.</b> <see cref="TurboName"/> points into
+/// the turbo library rather than embedding a compressor map in the project
+/// file: plan §4.7 forbids redistributing manufacturer maps, and a project
+/// that carried one would carry that problem with it wherever it was shared.
+/// The library entry records its own source and licence.
+/// </summary>
+public sealed record ForcedInductionSpec
+{
+    /// <summary>Naturally aspirated (the default), turbocharged or supercharged.</summary>
+    public string Aspiration { get; set; } = AspirationKinds.NaturallyAspirated;
+
+    /// <summary>True once the model has a compressor — what reveals the Boost workspace (plan §8.3).</summary>
+    [JsonIgnore]
+    public bool IsForced => !string.Equals(
+        Aspiration, AspirationKinds.NaturallyAspirated, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Library entry name. Empty means "not chosen yet", which the Boost workspace says out loud.</summary>
+    public string TurboName { get; set; } = "";
+
+    /// <summary>Boost target, kPa GAUGE — the number a builder actually quotes.</summary>
+    public double TargetBoostKPa { get; set; } = 100.0;
+
+    /// <summary>
+    /// Turbine volute area ratio, m. Separate from the map's own
+    /// <c>AreaRatio</c> because choosing an A/R is the decision plan §4.7's
+    /// sweep exists to inform: the map is the measurement, this is the
+    /// housing the user is considering putting on it.
+    /// </summary>
+    public double TurbineAreaRatio { get; set; } = 0.64;
+
+    /// <summary>Pressure downstream of the turbine, kPa absolute — ambient plus whatever the tailpipe adds.</summary>
+    public double ExhaustBackPressureKPa { get; set; } = 101.325;
+
+    /// <summary>Wastegate spring or closed-loop control.</summary>
+    public string BoostControl { get; set; } = BoostControlModes.WastegateSpring;
+
+    /// <summary>Gauge pressure at which the wastegate spring starts to open, kPa.</summary>
+    public double WastegateSpringKPa { get; set; } = 70.0;
+
+    /// <summary>Wastegate port diameter, mm.</summary>
+    public double WastegateDiameterMm { get; set; } = 38.0;
+
+    /// <summary>Internal (in the turbine housing) or external (off the manifold).</summary>
+    public string WastegatePlacement { get; set; } = "Internal";
+
+    /// <summary>Gauge differential at which the blow-off valve cracks, kPa.</summary>
+    public double BlowOffCrackingKPa { get; set; } = 30.0;
+
+    /// <summary>Recirculating (back to the compressor inlet) rather than venting to atmosphere.</summary>
+    public bool BlowOffRecirculates { get; set; } = true;
+
+    /// <summary>None, air-to-air or air-to-water.</summary>
+    public string ChargeCooler { get; set; } = ChargeCoolerKinds.AirToAir;
+
+    /// <summary>Cooler effectiveness at its rated flow, 0–1.</summary>
+    public double CoolerEffectiveness { get; set; } = 0.75;
+
+    /// <summary>Core pressure drop at rated flow, kPa. Boost measured before the core is boost the engine never sees.</summary>
+    public double CoolerPressureDropKPa { get; set; } = 8.0;
+
+    /// <summary>Coolant-side temperature, K — ambient air for air-to-air.</summary>
+    public double CoolantTemperatureK { get; set; } = 298.15;
+
+    /// <summary>An intake restrictor upstream of the compressor (plan §4.6.4, the FSAE case).</summary>
+    public bool RestrictorFitted { get; set; }
+
+    /// <summary>Restrictor throat diameter, mm. FSAE petrol is 20 mm, E85 19 mm.</summary>
+    public double RestrictorThroatMm { get; set; } = 20.0;
+
+    /// <summary>Throat discharge coefficient; 0.95–0.98 for a proper venturi.</summary>
+    public double RestrictorDischargeCoefficient { get; set; } = 0.96;
+
+    /// <summary>Fraction of the dynamic head the diffuser recovers; 0.8 for a shallow cone.</summary>
+    public double RestrictorDiffuserRecovery { get; set; } = 0.80;
+
+    /// <summary>
+    /// How far shaft inertia and bearing friction are allowed to move for the
+    /// transient sensitivity band, percent (plan Part 14 gotcha #25: transient
+    /// results depend on states users rarely know accurately, so report a band
+    /// rather than a single number). This is the uncertainty ON THE INPUTS —
+    /// the band it produces is whatever the physics makes of it, never an
+    /// invented ± on the answer.
+    /// </summary>
+    public double TransientUncertaintyPercent { get; set; } = 25.0;
+}
+
+/// <summary>The aspiration choices, spelled once so a selector and a check cannot disagree.</summary>
+public static class AspirationKinds
+{
+    public const string NaturallyAspirated = "Naturally aspirated";
+
+    public const string Turbocharged = "Turbocharged";
+
+    public const string Supercharged = "Supercharged";
+
+    public static IReadOnlyList<string> All { get; } = [NaturallyAspirated, Turbocharged, Supercharged];
+}
+
+/// <summary>Boost-control strategies (plan §4.5).</summary>
+public static class BoostControlModes
+{
+    public const string WastegateSpring = "Wastegate spring";
+
+    public const string ClosedLoop = "Closed-loop to target";
+
+    public static IReadOnlyList<string> All { get; } = [WastegateSpring, ClosedLoop];
+}
+
+/// <summary>Charge-cooling choices (plan §4.4).</summary>
+public static class ChargeCoolerKinds
+{
+    public const string None = "None";
+
+    public const string AirToAir = "Air to air";
+
+    public const string AirToWater = "Air to water";
+
+    public static IReadOnlyList<string> All { get; } = [None, AirToAir, AirToWater];
 }
 
 public sealed record SolverSpec

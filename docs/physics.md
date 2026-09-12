@@ -1392,3 +1392,226 @@ stage. It is not a substitute for validation case 20; it is what is checkable
 without one. If a suitable measured dataset is ever found or licensed,
 validation case 20 and gate clause 1 can be closed without touching this
 section's machinery — only `WaveBench.Validation` would gain a new case.
+
+## 7. The Boost workspace's quasi-steady model (Phase 21)
+
+Phases 12–15 built the turbomachinery, the steady shaft balance, the coupled
+unsteady solve and the transient driver. The Boost workspace is the screen
+those are read from, and it needs answers *while a slider is moving* — which
+none of the solved paths can give. §7 is the model that fills that gap, and
+every clause of it is an estimate with a stated boundary rather than a cheaper
+version of the solve.
+
+`WaveBench.ViewModels.BoostWorkspace` states its own fidelity on every figure
+(`BoostFidelity.Instant` or `.Solved`), for the same reason the Sound
+workspace does: an estimate presented as a solve is worse than no estimate.
+
+### 7.1 Closing the engine/turbo loop by iteration
+
+The engine's air flow depends on manifold density, which depends on boost,
+which depends on the compressor's efficiency and speed, which depend on the
+flow. That loop has to be closed somewhere. The solved path closes it with gas
+dynamics; this one closes it by iterating a quasi-steady balance three times:
+
+1. Solve the restrictor (if fitted) at the current flow estimate, giving the
+   compressor inlet condition.
+2. Take the pressure ratio the manifold target plus the charge-cooler drop
+   requires from that inlet.
+3. Take the aerodynamic outlet temperature from that ratio and the current
+   efficiency estimate, then the cooler's effectiveness, giving manifold
+   temperature and hence density.
+4. Air flow from `VE · V_d · (N/120) · ρ` — four-stroke, one induction per two
+   revolutions — clamped at the restrictor's choked flow.
+5. Balance the shaft against that flow (`ShaftBalance.Match`), then apply the
+   wastegate (§7.2). Take the resulting efficiency and delivered boost into
+   the next pass.
+
+Three passes close it to well inside the uncertainty on the volumetric
+efficiency the first pass starts from, which is the dominant error term by a
+wide margin whenever the workspace is in `Instant` fidelity. What the loop
+contains no part of is wave action: manifold filling, pulse energy at the
+turbine and the scavenging window are §4's business, and they are why this is
+a screen for choosing what to solve rather than a substitute for solving it.
+
+**Volumetric efficiency and turbine inlet temperature come from a solved sweep
+when one exists.** `BoostWorkspace.Run` holds the same `RunResult` the Results
+workspace does; with it, `VolumetricEfficiencyAt` and
+`TurbineInletTemperatureAt` interpolate the measured sweep and the fidelity
+note changes to say so. Without one:
+
+- **Volumetric efficiency is a single editable assumption** (default 0.95),
+  named as an assumption in every figure's subtitle. It is exposed as a slider
+  rather than buried because it is the largest single error in everything on
+  the screen, and a user who knows their engine breathes at 0.85 should be
+  able to say so.
+- **Turbine inlet temperature is a placeholder inside the range Heywood quotes
+  for a spark-ignition engine at wide-open throttle** (roughly 900–1050 °C),
+  rising with speed and falling with enrichment at about 25 K per 0.01 λ below
+  stoichiometric. It is not a prediction and is not fitted to anything; it
+  exists so the turbine side has a number at all before a run, and it is
+  replaced the moment one completes.
+
+### 7.2 The wastegate belongs in the steady loop
+
+`ShaftBalance.Match` answers "where does the shaft settle with nothing bled
+off". For any turbo that is not already at its own limit, that is well above
+the boost the user asked for — so drawing *that* point on the compressor map
+puts the operating line, the surge and choke margins, the charge temperature
+and the shaft-speed check at a condition the wastegate exists to prevent. The
+engine never runs there.
+
+`BoostWorkspace.HoldToTarget` applies the gate at the steady level. Where the
+wide-open balance exceeds the target it:
+
+1. finds the shaft speed that makes exactly the target pressure ratio at this
+   flow (`CompressorModel.SpeedFor`, a bisection on a monotone relation), then
+2. finds the expansion ratio at which the turbine produces exactly that
+   speed's power requirement — compressor power plus bearing loss — by
+   bisecting between no expansion and the wide-open ratio.
+
+That is what a gate physically does: bleed exhaust around the rotor until the
+turbine makes only the power the compressor needs. Both results are kept.
+`BoostOperatingPoint.Match` is the controlled point and is what every figure
+except one is drawn from; `.WideOpen` is the gate-shut balance and is used
+only by the Control tab, where the difference between the two IS the setup
+decision — how much the gate has to pass, and whether it has the area to do
+it.
+
+**The expansion ratio falling is the half a boost gauge cannot see.** Opening
+the gate lowers boost *and* gives the engine its back-pressure back, which is
+why a turbo held well below its limit pumps better than its pressure ratio
+suggests. Both curves are drawn on the Control tab for exactly that reason.
+Where the turbo cannot reach the target, the controlled and wide-open points
+are the same object: a shortfall is not something a gate can fix, and
+returning a held point there would be inventing boost.
+
+A note on what is NOT claimed: this is a steady statement of what the gate
+must achieve, not a model of the gate itself. Whether a given port diameter
+can pass the diverted flow, what the actuator does on the way to the setpoint,
+and the overshoot a closed loop produces are `Wastegate`, `PneumaticActuator`
+and `BoostController` (Phase 14, §5), and they are transient questions.
+
+### 7.3 A/R as a first-order capacity scaling
+
+Plan §4.7 asks for an A/R sweep producing the boost-onset-versus-peak-power
+front. A sweep needs a turbine map per housing, and there is only ever one
+measured map.
+
+`TurboLibrary.Rehoused` scales the map's corrected flows by the A/R ratio and
+leaves the efficiency field alone. To first order a radial turbine's
+swallowing capacity is proportional to the volute's A/R — a bigger volute
+passes more flow at a given expansion ratio, which is why a large A/R spools
+late and holds the top end (Watson & Janota, *Turbocharging the Internal
+Combustion Engine*, 1982, ch. 3; Baines, *Fundamentals of Turbocharging*,
+2005).
+
+**It is not a re-map, and it is labelled as not being one everywhere it
+appears.** A different housing moves the incidence angle and therefore the
+efficiency peak too, and nothing here knows where to. The re-housed map's
+`Provenance` records the scale factor and says "first-order A/R scaling;
+efficiency field unchanged", the A/R sweep's own notes say the same, and the
+figure ranks housings within one family rather than predicting an absolute
+number for a housing nobody measured. Fitted to no dataset — the same standing
+this project gives the twin-scroll partial-admission coefficient.
+
+### 7.4 The quasi-steady spool estimate and its band
+
+The Transient tab's figure integrates
+
+```
+J·ω·dω/dt = P_turbine·η_mech − P_compressor − P_friction
+```
+
+forward from a low shaft speed at a fixed engine speed, recomputing the
+engine's air demand at each step from the boost the compressor is making at
+that instant, with the wastegate capping delivery at the target. That is the
+standard first-order spool calculation, it runs in milliseconds, and it gets
+the *shape* of a spool and the *ordering* between two turbos right.
+
+What it leaves out is stated on the figure: no manifold filling, no pulse
+energy at the turbine, no wastegate dynamics, no gas dynamics at all. It will
+be optimistic about the first tenth of a second, which is where filling a
+plenum is most of the delay. The coupled answer is `TransientDriver` (§6), and
+a reported time-to-torque should come from that.
+
+**The band is physics, not a percentage.** Part 14 gotcha #25 requires a
+sensitivity band because inertia and bearing friction are rarely known
+accurately. The two bounding curves are the *same integration* with shaft
+inertia and bearing friction moved to the ends of the uncertainty the document
+declares (`ForcedInduction.TransientUncertaintyPercent`, default ±25%).
+Whatever spread that produces is what is drawn — and a declared uncertainty of
+zero collapses the band to a single line, which is the honest response to "I
+know these numbers exactly". This is the same principle
+`TimeToTorqueResult.Evaluate` applies to the coupled driver, at a cheaper
+level of model.
+
+### 7.5 The shipped turbo library is analytic, by rule
+
+Plan §4.7: *"Ship no manufacturer maps without written permission."*
+`WaveBench.ViewModels.TurboLibrary` ships five sizes — 35, 46, 54, 62 and
+71 mm inducer — as closed-form surfaces, scaled from one reference by
+geometric similarity: flow with inducer area, speed with 1/D so tip speed and
+therefore pressure ratio are preserved, rotating inertia with D⁵. Every entry
+declares in its own `Source` and `Licence` that it was generated analytically
+and is not a product, and the Boost workspace repeats that on screen wherever
+no turbo is chosen. They are representative, not any real unit.
+
+The real library is the user's: `TurboDatabase` loads contributed entries with
+their own provenance, and the map digitiser turns a datasheet image into one.
+The shipped set exists so the workspace has something to draw before that
+happens.
+
+The verification suite's `SyntheticTurbo` is deliberately **not** shared with
+this. A verification anchor built from product code would agree with whatever
+the product code does; the two are independent on purpose.
+
+### 7.6 The speed range is derived, not fixed
+
+A fixed default rpm range is wrong for everything. `BoostWorkspace` defaults
+its top speed to where mean piston speed reaches 20 m/s — `N = 600/S` with the
+stroke in metres, the same figure Design → Engine quotes as the end of
+sustained road practice — rounded to 250 rpm and clamped to 4000–16 000. A
+2-litre four with an 86 mm stroke gets 7000 rpm; a 42.5 mm-stroke restricted
+four gets 14 000. This matters more than it sounds: an operating line that
+stops short of the engine's top end hides exactly the choke margin the screen
+exists to show.
+
+### 7.7 What the Phase 21 gate checks
+
+The gate is *"the Boost workspace appears and disappears correctly with
+aspiration changes; the restrictor-upstream operating line renders correctly
+with surge and choke warnings"*, and both clauses are driven through the entry
+points a keystroke reaches rather than by constructing state directly
+(`BoostWorkspaceTests`).
+
+**Clause 1.** Aspiration is a document field edited in Design → Engine, and
+`ShellViewModel.HasForcedInduction` is derived from it rather than being a
+separate flag. The test drives `DesignWorkspace.Edit` through turbocharged,
+supercharged and back to naturally aspirated, asserting visibility and
+navigability each way; that undo and redo move it too (which they do for free,
+because it is the document); and that a saved turbocharged project comes back
+with the workspace already present — the failure a shell flag would have
+produced silently.
+
+**Clause 2.** The two ways a restricted car goes wrong need two
+configurations, because one match cannot be in both kinds of trouble at once.
+
+- *Correctly sized* (600 cc four, 20 mm throat, 35 mm compressor): the
+  compressor inlet is sub-atmospheric at every point; no point exceeds the
+  throat's choked flow; the points flagged choked are exactly those sitting at
+  the ceiling, with flow pinned; the chart carries the map, the surge line,
+  the choke line, the operating line and a marker at the choke ceiling; and
+  the choke-margin warning fires at 1.1% before the line reaches the wall.
+- *Oversized compressor with a small hot side* (54 mm compressor, A/R 0.30):
+  this is the surge trajectory plan §4.6.4 describes, and it takes both halves
+  to produce. An oversized compressor alone simply never spools — the steady
+  shaft balance only turns as fast as the exhaust drives it, so it is
+  self-limiting. Put a small housing behind it and the shaft is driven hard
+  against a mass flow the throat has already capped: pressure ratio rises
+  against fixed flow and the line crosses the surge line by up to 18.5%
+  between 3750 and 12 000 rpm. The warning names the span, the depth, what to
+  change, and links to the plenum volume in Design → Manifold.
+
+Every warning on this screen carries a citation, and the surge warnings carry
+a cross-workspace link to the field causing them (plan §8.3). A warning
+without a source is an opinion.

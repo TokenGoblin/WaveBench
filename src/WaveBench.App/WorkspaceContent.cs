@@ -63,6 +63,29 @@ public static class WorkspaceContent
     public static void SelectSoundTab(ProjectSession session, SoundTab tab) =>
         SoundFor(session).SelectedTab = tab;
 
+    /// <summary>
+    /// One Boost workspace per session, so the selected tab, the ambient
+    /// choice and the speed range survive the re-render every control triggers.
+    /// </summary>
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ProjectSession, BoostWorkspace>
+        BoostWorkspaces = [];
+
+    private static BoostWorkspace BoostFor(ShellViewModel shell, ProjectSession session)
+    {
+        var workspace = BoostWorkspaces.GetValue(session, s => new BoostWorkspace(s, shell.Preferences));
+
+        // The figures read volumetric efficiency and exhaust temperature from
+        // a solved sweep when one exists, so a run completed since the last
+        // visit must reach the workspace — otherwise the screen keeps quoting
+        // an assumed VE next to results that measured the real one.
+        workspace.Run = LatestResults?.Run;
+        return workspace;
+    }
+
+    /// <summary>Drive the Boost sub-tab without a mouse — used by the offscreen renderer.</summary>
+    public static void SelectBoostTab(ShellViewModel shell, ProjectSession session, BoostTab tab) =>
+        BoostFor(shell, session).SelectedTab = tab;
+
     public static void Render(Panel host, ShellViewModel shell, ProjectSession session)
     {
         host.Children.Clear();
@@ -90,6 +113,9 @@ public static class WorkspaceContent
                 break;
             case Workspace.Sound:
                 SoundContent.Render(host, shell, session, SoundFor(session));
+                break;
+            case Workspace.Boost:
+                BoostContent.Render(host, shell, session, BoostFor(shell, session));
                 break;
             default:
                 RenderPlaceholder(host, shell);
@@ -271,7 +297,7 @@ public static class WorkspaceContent
             for (var i = 0; i < fields.Count; i++)
             {
                 grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-                AddFieldRow(grid, i, fields[i], workspace, host, shell, session);
+                AddFieldRow(grid, i, fields[i], workspace, () => Render(host, shell, session));
             }
 
             host.Children.Add(Card(grid));
@@ -339,9 +365,26 @@ public static class WorkspaceContent
         return strip;
     }
 
-    private static void AddFieldRow(
-        Grid grid, int row, FieldView view, DesignWorkspace workspace,
-        Panel host, ShellViewModel shell, ProjectSession session)
+    /// <summary>
+    /// One labelled, unit-converted, provenance-badged, inline-validated field
+    /// row.
+    ///
+    /// Takes an <see cref="IFieldEditingSurface"/> rather than a concrete
+    /// workspace so Design and Boost draw their fields through this one method.
+    /// Both catalogue their fields as data for the same reason; two renderers
+    /// would be two places for a field to be drawn slightly differently.
+    /// </summary>
+    /// <param name="grid">The form grid; five columns, one row per field.</param>
+    /// <param name="row">Which row to fill.</param>
+    /// <param name="view">The field's value, unit and badge as they stand.</param>
+    /// <param name="surface">The workspace the edit is applied through.</param>
+    /// <param name="refresh">
+    /// The full rebuild. Safe from a text box or a combo — both commit after
+    /// the interaction is over — and NOT safe from anything that fires under a
+    /// held pointer; see <c>ContentHostTests</c>.
+    /// </param>
+    internal static void AddFieldRow(
+        Grid grid, int row, FieldView view, IFieldEditingSurface surface, Action refresh)
     {
         var field = view.Field;
 
@@ -356,7 +399,7 @@ public static class WorkspaceContent
         Grid.SetColumn(label, 0);
         grid.Children.Add(label);
 
-        var editor = Editor(view, workspace, host, shell, session);
+        var editor = Editor(view, surface, refresh);
         Grid.SetRow(editor, row);
         Grid.SetColumn(editor, 1);
 
@@ -386,7 +429,7 @@ public static class WorkspaceContent
         Grid.SetColumn(badge, 3);
         grid.Children.Add(badge);
 
-        if (workspace.Rejections.TryGetValue(field.Path, out var reason))
+        if (surface.Rejections.TryGetValue(field.Path, out var reason))
         {
             var error = Styled(new TextBlock
             {
@@ -402,8 +445,7 @@ public static class WorkspaceContent
         }
     }
 
-    private static FrameworkElement Editor(
-        FieldView view, DesignWorkspace workspace, Panel host, ShellViewModel shell, ProjectSession session)
+    private static FrameworkElement Editor(FieldView view, IFieldEditingSurface surface, Action refresh)
     {
         var field = view.Field;
 
@@ -421,8 +463,8 @@ public static class WorkspaceContent
                 return;
             }
 
-            workspace.Edit(field.Path, text);
-            Render(host, shell, session);
+            surface.Edit(field.Path, text);
+            refresh();
         }
 
         switch (field.Kind)
@@ -972,7 +1014,7 @@ public static class WorkspaceContent
         return panel;
     }
 
-    private static UIElement DerivedCard(IReadOnlyList<DerivedReadout> readouts)
+    internal static UIElement DerivedCard(IReadOnlyList<DerivedReadout> readouts)
     {
         var panel = new StackPanel();
         panel.Children.Add(Styled(new TextBlock
@@ -1033,7 +1075,7 @@ public static class WorkspaceContent
         return Card(panel);
     }
 
-    private static UIElement IssuesCard(IReadOnlyList<ModelIssue> issues)
+    internal static UIElement IssuesCard(IReadOnlyList<ModelIssue> issues)
     {
         var panel = new StackPanel();
         panel.Children.Add(Styled(new TextBlock
@@ -1059,7 +1101,7 @@ public static class WorkspaceContent
     }
 
     /// <summary>A provenance badge: colour, label AND glyph, so colour is never load-bearing (§8.11).</summary>
-    private static UIElement Badge(ProvenanceEntry entry)
+    internal static UIElement Badge(ProvenanceEntry entry)
     {
         var (_, label, glyph) = DesignTokens.BadgeStyle(entry.Origin);
         var brushKey = entry.Origin switch
@@ -1146,7 +1188,7 @@ public static class WorkspaceContent
 
     // ---- Small builders --------------------------------------------------
 
-    private static UIElement Heading(string title, string subtitle)
+    internal static UIElement Heading(string title, string subtitle)
     {
         var panel = new StackPanel { Margin = new Thickness(0, 0, 0, 16) };
         panel.Children.Add(Styled(new TextBlock { Text = title }, "Text.Title"));
@@ -1154,7 +1196,7 @@ public static class WorkspaceContent
         return panel;
     }
 
-    private static Border Card(UIElement child) => new()
+    internal static Border Card(UIElement child) => new()
     {
         Child = child,
         Background = (Brush)Application.Current.Resources["Brush.Surface"],
@@ -1165,7 +1207,7 @@ public static class WorkspaceContent
         Margin = new Thickness(0, 0, 0, 16),
     };
 
-    private static UIElement Tile(string label, string value, string unit)
+    internal static UIElement Tile(string label, string value, string unit)
     {
         var panel = new StackPanel();
         panel.Children.Add(Styled(new TextBlock { Text = label }, "Text.Caption"));
@@ -1202,10 +1244,10 @@ public static class WorkspaceContent
         return panel;
     }
 
-    private static UIElement Note(string text) => Card(Styled(
+    internal static UIElement Note(string text) => Card(Styled(
         new TextBlock { Text = text, TextWrapping = TextWrapping.Wrap }, "Text.Secondary"));
 
-    private static TextBlock Styled(TextBlock block, string styleKey, bool bold = false)
+    internal static TextBlock Styled(TextBlock block, string styleKey, bool bold = false)
     {
         block.Style = (Style)Application.Current.Resources[styleKey];
         if (bold)
