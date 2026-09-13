@@ -47,19 +47,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     comments that carry them.
   - **README rewritten** with a validation gallery that states what is NOT
     validated. A gallery of only the successes is advertising.
-  - **MSIX packaging** — `packaging/` carries the manifest, a build script and
-    a generated logo set. The mark is a damped pressure wave down a duct,
+  - **An MSI is the installer that ships**, built with WiX. An MSIX will not
+    install without a signature Windows already trusts, so it is unusable
+    until somebody holds a code-signing certificate; an MSI installs unsigned,
+    with the user deciding at a SmartScreen prompt. Per-user into
+    `%LocalAppData%\Programs\WaveBench`, so no elevation — an *unsigned*
+    installer asking for administrator rights is exactly the prompt a careful
+    user should refuse.
+  - The installer carries **both** `WaveBench.App.exe` and `wavebench.exe`.
+    The user guide documents `wavebench sweep`, `wavebench report` and the rest
+    throughout, and an installer delivering only the GUI would make every one
+    of those a lie for anybody who installed rather than built from source.
+  - Verified end to end rather than assumed: installs with exit code 0 and no
+    elevation, 59 files, the installed `wavebench.exe` solves an operating
+    point, and uninstall leaves no folder, no shortcut, no file association and
+    no registry key behind.
+  - **MSIX packaging** is kept and builds with `-Format Msix`, ready for the
+    day there is a certificate. `packaging/` carries the manifest, the build
+    script and a generated logo set. The mark is a damped pressure wave down a duct,
     produced by a script so a new tile size is a dictionary entry rather than
     an image somebody traces. The manifest declares `runFullTrust` and nothing
     else: WaveBench makes no network calls at runtime, and a package that asks
     for `internetClient` "just in case" has given away the first claim on the
     front of the README.
   - **Signing is the maintainer's step, not the repository's.** The script
-    signs when given a certificate and reads the publisher subject from it, so
-    the manifest and the certificate cannot disagree — the failure Windows
-    reports without saying which of the two is wrong. A code-signing key does
-    not belong in a public repository, so v1.0 ships here unsigned and is
-    signed at release.
+    signs when given a certificate, timestamps against an RFC 3161 server, and
+    then VERIFIES what it signed — signing something and never checking it
+    verifies is how a broken release gets published. Without a timestamp a
+    signature stops validating the day the certificate expires, which for a
+    released artefact is the difference between signing it and not. For the
+    MSIX it reads the publisher subject from the certificate, so the manifest
+    and the certificate cannot disagree — the failure Windows reports without
+    saying which of the two is wrong.
+  - Signing is documented as `.pfx`-only. Publicly trusted code-signing
+    certificates now live on hardware tokens and cannot be exported to one, so
+    that path needs `signtool /sha1` instead of `/f`. It is written down as a
+    known limitation rather than implemented blind against a flow nobody here
+    can run.
 
 ### Fixed
 

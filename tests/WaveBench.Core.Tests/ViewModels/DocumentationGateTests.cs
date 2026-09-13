@@ -47,6 +47,8 @@ public class DocumentationGateTests(ITestOutputHelper output)
             Path.Combine("docs", "numerics.md"),
             Path.Combine("packaging", "README.md"),
             Path.Combine("packaging", "AppxManifest.xml"),
+            Path.Combine("packaging", "WaveBench.wxs"),
+            Path.Combine("packaging", "Package.ps1"),
         ];
 
         foreach (var path in required)

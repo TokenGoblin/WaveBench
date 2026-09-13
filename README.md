@@ -170,6 +170,16 @@ project can receive.
 
 ---
 
+## Installing
+
+The release is a per-user **MSI**: it installs into
+`%LocalAppData%\Programs\WaveBench` without elevation, adds a Start Menu entry,
+and carries both the desktop app and the `wavebench` CLI. It is not signed —
+Windows will name an unknown publisher at a SmartScreen prompt and let you
+decide. Uninstall removes everything it added.
+
+To build the installer yourself, see [`packaging/`](packaging/README.md).
+
 ## Building
 
 ```

@@ -1,0 +1,116 @@
+<?xml version="1.0" encoding="utf-8"?>
+
+<!--
+  Windows Installer package for the WaveBench desktop app.
+
+  WHY AN MSI ALONGSIDE THE MSIX: an MSIX will not install without a signature
+  Windows already trusts, so it is unusable until somebody holds a code-signing
+  certificate. An MSI installs unsigned - the user sees a SmartScreen prompt
+  and decides - which makes it the format that actually ships today.
+
+  PER-USER by design (Scope="perUser", installed under LocalAppData). A
+  per-machine install needs elevation, and an UNSIGNED installer asking for
+  administrator rights is exactly the prompt a careful user should refuse.
+  Nothing here needs to write outside the user's own profile.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+
+  <Package
+    Name="WaveBench"
+    Manufacturer="TokenGoblin"
+    Version="$(var.Version)"
+    UpgradeCode="60AB5A70-EFF2-45AD-8A7E-BDBF9303E539"
+    Scope="perUser"
+    Compressed="yes"
+    Language="2057">
+
+    <SummaryInformation
+      Description="1D engine gas-dynamics, acoustics and forced-induction design suite."
+      Manufacturer="TokenGoblin" />
+
+    <!--
+      Upgrades replace in place rather than accumulating side-by-side copies.
+      Downgrades are refused with a message that says what happened, instead of
+      the installer's own default, which does not.
+    -->
+    <MajorUpgrade
+      AllowSameVersionUpgrades="yes"
+      DowngradeErrorMessage="A newer version of WaveBench is already installed. Uninstall it first if you mean to go back." />
+
+    <MediaTemplate EmbedCab="yes" />
+
+    <Feature Id="Main" Title="WaveBench" Level="1">
+      <ComponentGroupRef Id="ApplicationFiles" />
+      <ComponentRef Id="StartMenuShortcut" />
+      <ComponentRef Id="ModelFileAssociation" />
+    </Feature>
+
+    <!-- The licence the user is agreeing to is the one in the repository. -->
+    <WixVariable Id="WixUILicenseRtf" Value="$(var.LicenseRtf)" />
+    <ui:WixUI xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui" Id="WixUI_InstallDir" InstallDirectory="INSTALLFOLDER" />
+  </Package>
+
+  <Fragment>
+    <!--
+      %LocalAppData%\Programs\WaveBench - where a per-user application belongs,
+      and writable without elevation.
+    -->
+    <StandardDirectory Id="LocalAppDataFolder">
+      <Directory Id="ProgramsFolder" Name="Programs">
+        <Directory Id="INSTALLFOLDER" Name="WaveBench" />
+      </Directory>
+    </StandardDirectory>
+
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="ShortcutFolder" Name="WaveBench" />
+    </StandardDirectory>
+  </Fragment>
+
+  <Fragment>
+    <!--
+      Harvested from the publish output rather than listed by hand. The app is
+      a hundred-odd files and a hand-written manifest of them is a list that
+      goes stale the first time a dependency changes.
+    -->
+    <ComponentGroup Id="ApplicationFiles" Directory="INSTALLFOLDER">
+      <Files Include="$(var.PublishDir)\**" />
+    </ComponentGroup>
+  </Fragment>
+
+  <Fragment>
+    <Component Id="StartMenuShortcut" Directory="ShortcutFolder"
+               Guid="CA06CD24-F06A-4976-8DE8-0439C2506DBC">
+      <Shortcut Id="WaveBenchShortcut"
+                Name="WaveBench"
+                Description="1D engine gas-dynamics, acoustics and forced-induction design suite."
+                Target="[INSTALLFOLDER]WaveBench.App.exe"
+                WorkingDirectory="INSTALLFOLDER" />
+
+      <RemoveFolder Id="RemoveShortcutFolder" Directory="ShortcutFolder" On="uninstall" />
+
+      <!--
+        A per-user component needs a per-user key path, or the installer has
+        nothing to test for "is this still installed".
+      -->
+      <RegistryValue Root="HKCU" Key="Software\TokenGoblin\WaveBench"
+                     Name="installed" Type="integer" Value="1" KeyPath="yes" />
+    </Component>
+  </Fragment>
+
+  <Fragment>
+    <!--
+      Model files open in WaveBench. Registered under HKCU so it goes in and
+      out with the per-user install and leaves nothing behind.
+    -->
+    <Component Id="ModelFileAssociation" Directory="INSTALLFOLDER"
+               Guid="43E5F581-4E25-45CF-900F-6022FA40C7DC">
+      <RegistryValue Root="HKCU" Key="Software\Classes\.wavebench"
+                     Value="TokenGoblin.WaveBench.Model" Type="string" KeyPath="yes" />
+      <RegistryValue Root="HKCU" Key="Software\Classes\TokenGoblin.WaveBench.Model"
+                     Value="WaveBench engine model" Type="string" />
+      <RegistryValue Root="HKCU" Key="Software\Classes\TokenGoblin.WaveBench.Model\shell\open\command"
+                     Value="&quot;[INSTALLFOLDER]WaveBench.App.exe&quot; &quot;%1&quot;" Type="string" />
+    </Component>
+  </Fragment>
+
+</Wix>
