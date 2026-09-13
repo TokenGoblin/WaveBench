@@ -9,6 +9,118 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Phase 24 complete — the learn layer and the guardrails (§8.9, §8.10).**
+  - **Why-text and a typical range on every editable field.** All 69 fields
+    across the Design and Boost catalogues now carry a sentence saying what
+    moving the field does, and every numeric one carries a `TypicalRange`.
+    Three tests walk the catalogues so the coverage cannot rot: one for the
+    why-text, one for the range, and one asserting each range sits INSIDE the
+    plausibility bounds and is strictly narrower than them.
+  - The typical range is deliberately not a tighter bound. Bore accepts
+    20–200 mm because somebody really might be modelling a model-aircraft
+    engine; it is *typically* 65–105 mm. The bounds decide what is legal, the
+    range says what is ordinary — and only the second can tell a beginner that
+    140 mm means they have mistyped something. Plan §8.10 asks for a **warning,
+    never a hard block**, and that is what it is: a value outside the range is
+    accepted, written, and annotated beside the field.
+  - The range is stored in model units and rendered in the user's, so a sweep
+    described as "typically 150–600 mm" reads in inches for someone working in
+    inches. Formatting lives on `FieldEditor` — the one unit boundary — rather
+    than on the range.
+  - **"Show me" — the parametric sweep** (§8.9's *"the single best teaching
+    feature in the application"*). Sweeps ONE field across its typical range
+    with everything else held at this model's own value, solves every point,
+    and draws two figures plus a narration written from the numbers that just
+    came back. Available on every numeric field that enters the steady solve;
+    the four that do not are listed by name with the reason, and a test fails
+    if a numeric field is neither swept nor explained.
+  - It solves; it does not estimate. What makes it cheap is the surrogate
+    fidelity the optimiser already uses — a coarser mesh and a shorter cycle
+    budget — not a different model. `SweepEvaluator.Coarsen` became public so
+    there is one definition of what surrogate fidelity means rather than two.
+  - **Parallel across the whole (value, speed) grid, not value by value.**
+    Solving each value in turn keeps only as many threads busy as there are
+    operating points, however many cores the machine has: 17 s for twelve
+    surrogate solves, measured. Flattening the grid took the same twelve to
+    **6.6 s**, with every figure identical to the last digit — the solves are
+    independent and deterministic, so where they run cannot change an answer.
+  - The figure plots torque at both ends of the speed range as well as the
+    peak. Peak alone hides what a tuning parameter actually does, which is move
+    torque rather than make it: on the shipped single, lengthening the intake
+    runner from 150 to 600 mm lifts peak torque 47.2 → 51.5 N·m while the
+    bottom end goes from 124% of the top end to **202%** of it. `rpm at peak`
+    is reported but documented as quantised — with five operating points it can
+    only take five values, so it shows a big shift and cannot resolve a small
+    one.
+  - **Every design warning now carries a resolvable link** (the gate's third
+    clause). `DesignWarning.CrossLink` was a sentence — `"Design → Manifold
+    (plenum volume)"` — which reads correctly, cannot be clicked, cannot be
+    checked, and goes stale the moment a tab is renamed. It is now a
+    `WarningLink` naming a field path, a canvas node or a workspace sub-tab,
+    with the display text DERIVED from the catalogue. Clicking one navigates.
+    A test collects every warning the application can raise, from documents
+    built to provoke them, and fails if any has nowhere to send the user or
+    names a destination that does not exist.
+  - **Concepts panel** (§8.9): ten explainers including all six the plan names,
+    each linked from the fields it governs and carrying its citation and the
+    figure that shows it. A test asserts every field a concept claims to
+    explain is a real field and every figure it points at is a real sub-tab.
+  - **Guided tours** for Design, Boost, Results, Optimise and Sound —
+    skippable and re-runnable, which between them mean the state cannot be a
+    "seen it" flag. Each step reuses the same `WarningLink` addressing, so a
+    tour step cannot point somewhere a warning could not, and navigating away
+    ends the tour rather than narrating one screen over another.
+  - **Generic-defaults banner** (§8.10). One line above every workspace naming
+    the largest error source in the model, expandable to all of them, each with
+    a remedy and somewhere to go. On the shipped sample it reads *"Discharge
+    coefficients are generic — likely the largest error here, and 6 other
+    caveats."*
+  - **Global search** (§8.11). The palette carried the Simple-mode field subset,
+    which made it a shortcut to the fields already on screen and no help for the
+    ones that are not; it now reaches every Design field, plus every concept and
+    every "Show me" sweep. Concepts are findable by what they govern — somebody
+    puzzled by their runner length types "runner", not "Helmholtz".
+
+### Fixed
+
+- **The generic-defaults banner suppressed its own largest caveat.** The
+  discharge-coefficient warning was conditioned on "anything under the valve
+  block was imported", and the shipped sample imports a measured CAM file — so
+  the biggest caveat in the tool disappeared on the strength of evidence about
+  a different quantity. Judged on the lift paths now, and the C_d caveat is
+  unconditional because the document has nowhere to put measured flow data yet.
+  A caveat that switches itself off for the wrong reason is worse than one that
+  never appears.
+- **Every "Show me" series rendered in the same grey.** The plots named
+  `Brush.Series1`–`Brush.Series6`, which look exactly like real tokens and are
+  defined nowhere, so every series fell back to one colour. No test could see
+  it: a view model names a colour TOKEN and never resolves it, and the resource
+  scan only looked at the app. `XamlTokenTests` now resolves the tokens named in
+  `WaveBench.ViewModels` too — 253 references against 68 definitions.
+- **The palette answered "wastegate" with a turbine explainer.** Subsequence
+  matching is what lets "FI" find "forced induction" and is only safe on short
+  strings; run over a two-line summary, the letters of almost any query appear
+  in order somewhere. Names and aliases keep subsequence matching, prose is
+  substring-only.
+- A "Show me" study opened from a runner field rendered BELOW the manifold
+  canvas, which is most of a screen tall — correct, invisible, and
+  indistinguishable from a button that does nothing. The learn panels now sit
+  directly under the sub-tabs.
+- A guided tour step naming a field did not navigate to it, so the Design tour
+  opened narrating "start with the cylinder" over whatever tab happened to be
+  showing — the manifold canvas, as it turned out.
+- Waiting on a "Show me" sweep from the UI thread deadlocked against its own
+  completion: the worker marshalled its redraw with `Dispatcher.Invoke`, which
+  blocks until the UI thread runs it. Posted now.
+- Four learn chips on one field row pushed the §8.10 "this value is unusual"
+  note off the right edge — a teaching affordance crowding out a warning. One
+  "Explain" chip; the rest are in the tooltip and the palette.
+- Axis padding was a fraction of the VALUE rather than of the span, so torque
+  running 47–52 N·m got an axis of 42–57 and the variation the figure exists to
+  show occupied a third of its height.
+
+### Added
+
 - **Phase 22 complete — local refinement and the §9.7 presets.** Every §9.4
   algorithm and both §9.7 presets are now built.
   - **Nelder–Mead and Powell**, as polishers rather than searches. A global

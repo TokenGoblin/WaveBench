@@ -1727,7 +1727,8 @@ public sealed class BoostWorkspace : IFieldEditingSurface
             warnings.Add(new(null,
                 "No turbocharger is selected, so there is no map to draw an operating line on.",
                 "Choose one on the Compressor tab, or let auto-match rank the library against this engine.",
-                "plan §4.7"));
+                "plan §4.7",
+                [WarningLink.Field("ForcedInduction.TurboName")]));
             return warnings;
         }
 
@@ -1747,7 +1748,10 @@ public sealed class BoostWorkspace : IFieldEditingSurface
                 "A larger plenum between compressor and throttle moves the surge classification; a smaller "
                 + "compressor moves the line itself.",
                 "plan §4.6.2",
-                "Design → Manifold (plenum volume)"));
+                [
+                    WarningLink.Plot(Workspace.Design, "Manifold", "plenum volume, on the canvas"),
+                    WarningLink.Field("ForcedInduction.TurboName", "a smaller compressor"),
+                ]));
         }
         else
         {
@@ -1758,7 +1762,10 @@ public sealed class BoostWorkspace : IFieldEditingSurface
                     $"Surge margin falls to {worst:F1}%, below the 10% usually required.",
                     "Acceptable on a dyno pull, marginal on a road car that meets the same point in traffic.",
                     "plan §4.2",
-                    "Design → Manifold (plenum volume)"));
+                    [
+                        WarningLink.Plot(Workspace.Design, "Manifold", "plenum volume, on the canvas"),
+                        WarningLink.Plot(Workspace.Boost, "Compressor", "the margin chart"),
+                    ]));
             }
         }
 
@@ -1769,7 +1776,8 @@ public sealed class BoostWorkspace : IFieldEditingSurface
                 $"The compressor runs past its choke line above {choking.Min(p => p.EngineRpm):F0} rpm.",
                 "Past choke the wheel cannot pass more air however fast it turns — this is a compressor "
                 + "sizing decision, not a boost-control one.",
-                "plan §4.2"));
+                "plan §4.2",
+                [WarningLink.Field("ForcedInduction.TurboName", "a larger compressor")]));
         }
         else
         {
@@ -1787,7 +1795,10 @@ public sealed class BoostWorkspace : IFieldEditingSurface
                     "Efficiency is already dropping toward the choke line, so the top end costs more charge "
                     + "temperature than the map's peak suggests. A larger compressor moves it; more boost does not.",
                     "plan §4.2",
-                    "Boost → Charge Cooling"));
+                    [
+                        WarningLink.Field("ForcedInduction.TurboName", "a larger compressor"),
+                        WarningLink.Plot(Workspace.Boost, "Charge Cooling", "what the extra charge temperature costs"),
+                    ]));
             }
         }
 
@@ -1799,7 +1810,10 @@ public sealed class BoostWorkspace : IFieldEditingSurface
                 "A larger turbine housing lowers it at the cost of later onset — the A/R sweep draws that "
                 + "trade directly.",
                 "plan §4.6.3",
-                "Boost → Turbine (A/R sweep)"));
+                [
+                    WarningLink.Field("ForcedInduction.TurbineAreaRatio"),
+                    WarningLink.Plot(Workspace.Boost, "Turbine", "the A/R sweep draws the trade"),
+                ]));
         }
 
         if (Turbo.MaxTurbineInletK is { } maxTit)
@@ -1812,7 +1826,10 @@ public sealed class BoostWorkspace : IFieldEditingSurface
                     "Enrichment is the usual answer and it costs fuel economy and power; a larger turbine or "
                     + "less boost are the others.",
                     "plan §4.3",
-                    "Design → Fuel & Combustion (λ)"));
+                    [
+                        WarningLink.Field("Combustion.Lambda", "enrichment"),
+                        WarningLink.Field("ForcedInduction.TargetBoostKPa", "less boost"),
+                    ]));
             }
         }
 
@@ -1824,7 +1841,11 @@ public sealed class BoostWorkspace : IFieldEditingSurface
                 warnings.Add(new(null,
                     $"Peak shaft speed {peak:F0} rpm exceeds the rated {maxSpeed:F0} rpm.",
                     "The map's own limit, not a modelling one.",
-                    "plan §4.2"));
+                    "plan §4.2",
+                    [
+                        WarningLink.Field("ForcedInduction.TurboName", "a turbo rated for it"),
+                        WarningLink.Field("ForcedInduction.TargetBoostKPa", "or less boost"),
+                    ]));
             }
         }
 
@@ -1833,7 +1854,11 @@ public sealed class BoostWorkspace : IFieldEditingSurface
             warnings.Add(new(null,
                 "The shaft does not balance anywhere in the searched speed range at one or more points.",
                 "The turbine cannot drive this compressor against this demand — a mismatch, not a tuning problem.",
-                "plan §4.1"));
+                "plan §4.1",
+                [
+                    WarningLink.Field("ForcedInduction.TurboName"),
+                    WarningLink.Field("ForcedInduction.TurbineAreaRatio"),
+                ]));
         }
 
         if (!ShowingDocumentAmbient)
@@ -1841,9 +1866,12 @@ public sealed class BoostWorkspace : IFieldEditingSurface
             warnings.Add(new(null,
                 $"These figures are drawn at {Ambient.Label}, not at this model's own ambient.",
                 "The altitude and hot-day views are a check on the match, not a change to the design. The "
-                + "model's ambient is edited in Design → Fuel & Combustion.",
+                + "model's own ambient is a field, not a view setting.",
                 "plan §4.7",
-                "Design → Fuel & Combustion (ambient)"));
+                [
+                    WarningLink.Field("Ambient.PressureKPa"),
+                    WarningLink.Field("Ambient.TemperatureK"),
+                ]));
         }
 
         return warnings;

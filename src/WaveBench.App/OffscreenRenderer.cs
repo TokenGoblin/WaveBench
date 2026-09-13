@@ -69,6 +69,66 @@ public static class OffscreenRenderer
         CaptureResults(outputDirectory);
         CaptureBoost(outputDirectory);
         CaptureOptimise(outputDirectory);
+        CaptureLearn(outputDirectory);
+    }
+
+    /// <summary>
+    /// The Phase 24 learn layer: the why/typical text and its guardrail
+    /// warning, a real "Show me" sweep, a concept explainer and a guided tour.
+    ///
+    /// The sweep is RUN, not mocked. Three of the defects found in Phase 22
+    /// were arithmetically self-consistent and visibly wrong, and the only
+    /// thing that caught them was looking at the screen — so a screenshot of a
+    /// placeholder here would defeat the purpose of taking one.
+    /// </summary>
+    private static void CaptureLearn(string outputDirectory)
+    {
+        var window = new MainWindow
+        {
+            Width = 1360,
+            Height = 980,
+            WindowStartupLocation = WindowStartupLocation.Manual,
+            Left = -10_000,
+            Top = -10_000,
+            ShowInTaskbar = false,
+        };
+
+        window.Show();
+
+        // Advanced(), not ToggleMode(). This window inherits whatever the
+        // previous capture left in the shared preferences, so a bare toggle
+        // lands on Simple and hides most of the fields being demonstrated.
+        Advanced(window);
+        window.GoToDesignTab(DesignTab.Manifold);
+        Settle(window);
+        Capture(window, Path.Combine(outputDirectory, "26-learn-fields.png"));
+
+        // An unusual-but-legal value, to show §8.10 warning rather than
+        // blocking: 18:1 is a diesel's compression ratio on a petrol engine.
+        window.EditField("Engine.CompressionRatio", "18");
+        window.GoToDesignTab(DesignTab.Engine);
+        Settle(window);
+        Capture(window, Path.Combine(outputDirectory, "27-learn-unusual-input.png"));
+
+        window.EditField("Engine.CompressionRatio", "10.5");
+
+        // A real sweep of a real field. Waited for, not polled at a guess.
+        window.GoToDesignTab(DesignTab.Manifold);
+        window.ShowMe("IntakeRunner.LengthMm").GetAwaiter().GetResult();
+        Settle(window);
+        Capture(window, Path.Combine(outputDirectory, "28-learn-show-me.png"));
+
+        window.CloseShowMe();
+        window.OpenConcept("wave-tuning");
+        Settle(window);
+        Capture(window, Path.Combine(outputDirectory, "29-learn-concept.png"));
+
+        window.OpenConcept(null);
+        window.StartTour();
+        Settle(window);
+        Capture(window, Path.Combine(outputDirectory, "30-learn-tour.png"));
+
+        window.Close();
     }
 
     /// <summary>

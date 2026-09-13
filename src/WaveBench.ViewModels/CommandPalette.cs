@@ -6,6 +6,12 @@ public enum CommandKind
     EditField,
     Action,
     Library,
+
+    /// <summary>A Concepts explainer (plan §8.9).</summary>
+    Concept,
+
+    /// <summary>A "Show me" sweep of one field (plan §8.9).</summary>
+    ShowMe,
 }
 
 /// <summary>One command-palette entry (plan §8.11: Ctrl+K reaches every field, workspace, action and library item).</summary>
@@ -37,10 +43,22 @@ public sealed class CommandPalette(ShellViewModel shell)
             }
         }
 
-        // Fields, addressed by the same paths provenance and undo use.
-        foreach (var path in ShellViewModel.SimpleModeFields.Order(StringComparer.Ordinal))
+        // EVERY Design field, addressed by the same paths provenance and undo
+        // use.
+        //
+        // It used to be the Simple-mode subset, which made the palette a
+        // shortcut to the fields that were already on screen and no help at
+        // all for the ones that are not — the opposite of what §8.11 asks
+        // ("reaching every field") and of what a search is for. The path is
+        // carried as an alias so both "bore" and "Engine.BoreMm" find it.
+        foreach (var field in DesignCatalogue.Fields)
         {
-            commands.Add(new PaletteCommand(CommandKind.EditField, path, "Edit field", Path: path));
+            var tab = DesignWorkspace.Tabs.First(t => t.Tab == field.Tab).Title;
+            commands.Add(new PaletteCommand(
+                CommandKind.EditField, field.Label, $"Design → {tab}", Path: field.Path, Target: Workspace.Design)
+            {
+                Aliases = [field.Path],
+            });
         }
 
         // The discovery path for the hidden Boost workspace (plan §8.3). It
@@ -67,6 +85,38 @@ public sealed class CommandPalette(ShellViewModel shell)
                     Aliases = field.Aliases,
                 });
             }
+        }
+
+        // The learn layer joins the search rather than living behind a "?"
+        // nobody presses (plan §8.9, and §8.11's "global search across model,
+        // results and library"). A concept is findable by what it explains as
+        // well as by its name — somebody wondering about their runner length
+        // types "runner", not "Helmholtz".
+        foreach (var concept in ConceptLibrary.All)
+        {
+            commands.Add(new PaletteCommand(
+                CommandKind.Concept, concept.Title, concept.Summary, Path: concept.Id)
+            {
+                Aliases = [.. concept.Fields.Select(f => FieldLocator.Find(f)?.Label ?? f), .. concept.Fields],
+            });
+        }
+
+        // Design fields always; Boost fields only once the model is boosted.
+        // The same rule the field entries above follow, and for the same
+        // reason (§8.3): there is no wastegate to sweep on a naturally
+        // aspirated engine, and offering one is a command that cannot work.
+        IEnumerable<IEditableField> sweepable = shell.HasForcedInduction
+            ? FieldLocator.All
+            : DesignCatalogue.Fields;
+
+        foreach (var field in sweepable.Where(ShowMe.Supports))
+        {
+            commands.Add(new PaletteCommand(
+                CommandKind.ShowMe, $"Show me: {field.Label}",
+                "Sweep this one field and plot what it does", Path: field.Path)
+            {
+                Aliases = ["sweep", "what does", field.Path],
+            });
         }
 
         commands.Add(new PaletteCommand(CommandKind.Action, "Run sweep", "Queue an rpm sweep", Target: Workspace.Run));
@@ -99,21 +149,24 @@ public sealed class CommandPalette(ShellViewModel shell)
 
     private static int Score(PaletteCommand command, string query)
     {
-        var haystacks = new List<string> { command.Title };
-        if (command.Subtitle is not null)
-        {
-            haystacks.Add(command.Subtitle);
-        }
-
+        // Names, and prose, scored differently.
+        //
+        // Subsequence matching is what lets "FI" find "forced induction", and
+        // it is only safe on SHORT strings. Run it over a sentence and almost
+        // any query matches: the letters of "wastegate" appear in order
+        // somewhere in most two-line explanations of anything, so adding the
+        // Concepts summaries to the palette made a turbine explainer a hit for
+        // "wastegate". Prose is searched by substring only.
+        var names = new List<string> { command.Title };
         if (command.Path is not null)
         {
-            haystacks.Add(command.Path);
+            names.Add(command.Path);
         }
 
-        haystacks.AddRange(command.Aliases);
+        names.AddRange(command.Aliases);
 
         var best = 0;
-        foreach (var hay in haystacks)
+        foreach (var hay in names)
         {
             if (hay.Contains(query, StringComparison.OrdinalIgnoreCase))
             {
@@ -123,6 +176,11 @@ public sealed class CommandPalette(ShellViewModel shell)
             {
                 best = Math.Max(best, 30);
             }
+        }
+
+        if (command.Subtitle is { } subtitle && subtitle.Contains(query, StringComparison.OrdinalIgnoreCase))
+        {
+            best = Math.Max(best, 45);
         }
 
         return best;

@@ -15,7 +15,17 @@ public sealed record FieldView(
     IEditableField Field,
     string Display,
     string DisplayUnit,
-    ProvenanceEntry Provenance);
+    ProvenanceEntry Provenance)
+{
+    /// <summary>"Typically 150–600 mm — …", already in the user's units.</summary>
+    public string? Typical { get; init; }
+
+    /// <summary>
+    /// Set when the current value is outside that range — a warning shown
+    /// beside the field, never a refusal (plan §8.10).
+    /// </summary>
+    public string? Unusual { get; init; }
+}
 
 /// <summary>
 /// The outcome of an edit. Rejection carries a reason the UI shows next to

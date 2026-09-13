@@ -151,6 +151,36 @@ public partial class XamlTokenTests(ITestOutputHelper output)
             }
         }
 
+        // View models name colour TOKENS — PlotSeries.ColourToken, marker
+        // colours — and never resolve them, so an invented key reaches the
+        // renderer as a string, silently falls back, and draws every series in
+        // the same grey. That is what happened to "Brush.Series1..6", which
+        // looked exactly like a real token and was never defined anywhere; the
+        // scan above could not see it because it only looked at the app.
+        //
+        // Caught by rendering the screen. Caught here from now on.
+        var viewModels = new DirectoryInfo(Path.Combine(app.Parent!.FullName, "WaveBench.ViewModels"));
+        viewModels.Exists.Should().BeTrue();
+
+        foreach (var file in viewModels.GetFiles("*.cs", SearchOption.AllDirectories))
+        {
+            if (file.FullName.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}")
+                || file.FullName.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}"))
+            {
+                continue;
+            }
+
+            // Comments first. This scan is broad enough to match a token name
+            // quoted in prose — it did, on the very comment explaining the bug
+            // — and a test that fails on documentation is a test people delete.
+            var text = Regex.Replace(File.ReadAllText(file.FullName), @"^\s*//.*$", "", RegexOptions.Multiline);
+
+            foreach (Match match in Regex.Matches(text, @"""(Brush\.[\w.]+)"""))
+            {
+                used.Add((file.Name, match.Groups[1].Value));
+            }
+        }
+
         used.Should().NotBeEmpty("the scan must actually find resource references");
         output.WriteLine($"resolved {used.Count} resource references against {defined.Count} definitions");
 

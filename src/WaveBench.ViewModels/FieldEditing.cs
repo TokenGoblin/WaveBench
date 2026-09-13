@@ -4,6 +4,36 @@ using WaveBench.Model;
 namespace WaveBench.ViewModels;
 
 /// <summary>
+/// What values this field usually takes, and what it means to be outside that
+/// (plan §8.9: <i>"'Why' on every field — one sentence, a typical range, and
+/// the citation where a correlation is involved"</i>).
+///
+/// <b>Not the same as the plausibility bounds.</b> Those are the limits past
+/// which a value is refused: bore accepts 20–200 mm because somebody really
+/// might be modelling a model-aircraft engine or a ship's diesel. The TYPICAL
+/// range is where almost every real answer lies, and its job is to tell a
+/// beginner that 78 mm is ordinary and 140 mm means they have mistyped
+/// something — which the hard bounds cannot, because both are legal.
+/// </summary>
+/// <param name="Minimum">Lower end of the usual range, in model units.</param>
+/// <param name="Maximum">Upper end.</param>
+/// <param name="Note">
+/// What sits at each end, where that is worth saying — "road cars at the
+/// bottom, race engines at the top".
+/// </param>
+public sealed record TypicalRange(double Minimum, double Maximum, string? Note = null)
+{
+    /// <summary><paramref name="value"/> is in MODEL units, as the bounds are.</summary>
+    public bool Contains(double value) => value >= Minimum && value <= Maximum;
+
+    /// <summary>Which end a value falls outside, or null when it is inside.</summary>
+    public double? NearestEnd(double value) =>
+        !double.IsFinite(value) || Contains(value) ? null
+        : value < Minimum ? Minimum
+        : Maximum;
+}
+
+/// <summary>
 /// The description of one editable document field, independent of which
 /// workspace draws it.
 ///
@@ -37,7 +67,17 @@ public interface IEditableField
 
     IReadOnlyList<string>? Choices { get; }
 
+    /// <summary>
+    /// One sentence saying WHY this field exists and what moving it does —
+    /// required on every field by the Phase 24 gate, and enforced by a test.
+    /// </summary>
     string? Help { get; }
+
+    /// <summary>
+    /// Where the answer usually lands, for numeric fields. Null on toggles and
+    /// choices, which have no range to be outside of.
+    /// </summary>
+    TypicalRange? Typical { get; }
 }
 
 /// <summary>
@@ -49,6 +89,16 @@ public interface IFieldEditingSurface
 {
     /// <summary>The most recent rejection per field, for the view to show inline.</summary>
     IReadOnlyDictionary<string, string> Rejections { get; }
+
+    /// <summary>
+    /// The model being edited. On the interface because a field row offers
+    /// "Show me" (plan §8.9), and a sweep of one field needs the document the
+    /// other fields are held at.
+    /// </summary>
+    EngineModelDocument Document { get; }
+
+    /// <summary>Units and mode, for the same reason.</summary>
+    UserPreferences Preferences { get; }
 
     /// <summary>Apply a user edit from text typed into the field, in DISPLAY units.</summary>
     EditOutcome Edit(string path, string text);
@@ -146,12 +196,90 @@ public sealed class FieldEditor(ProjectSession session, UserPreferences preferen
         return text.Length == 0 || text == "-" ? "0" : text;
     }
 
+    /// <summary>
+    /// "Typically 150–600 mm — short race intakes at the bottom", converted to
+    /// whatever units the user is working in.
+    ///
+    /// Built here rather than stored on the field because the range is in
+    /// model units and the sentence is not: a stored sentence would read
+    /// "typically 150–600 mm" to somebody working in inches.
+    /// </summary>
+    public string? DescribeTypical(IEditableField field)
+    {
+        if (field.Typical is not { } typical)
+        {
+            return null;
+        }
+
+        var unit = DisplayUnit(field);
+        var suffix = string.IsNullOrWhiteSpace(unit) ? "" : " " + unit;
+        var text = $"Typically {Format(field, typical.Minimum)}–{Format(field, typical.Maximum)}{suffix}";
+
+        return string.IsNullOrWhiteSpace(typical.Note) ? text + "." : $"{text} — {typical.Note}";
+    }
+
+    /// <summary>
+    /// What to say about a value outside the usual range (plan §8.10:
+    /// <i>"Implausible input detection with a WARNING, never a hard
+    /// block"</i>). Null when the value is ordinary.
+    ///
+    /// This is deliberately separate from the rejection path in
+    /// <see cref="Apply"/>. A rejection refuses the keystroke; this accepts it
+    /// and says the value is unusual — which is the whole distinction the plan
+    /// draws, and the reason the typical range is not just a tighter bound.
+    /// </summary>
+    public string? Unusual(IEditableField field, double modelValue)
+    {
+        ArgumentNullException.ThrowIfNull(field);
+
+        if (field.Typical is not { } typical || typical.NearestEnd(modelValue) is not { } nearest)
+        {
+            return null;
+        }
+
+        var unit = DisplayUnit(field);
+        var suffix = string.IsNullOrWhiteSpace(unit) ? "" : " " + unit;
+        var side = modelValue < typical.Minimum ? "below" : "above";
+
+        // If the value and the bound it is outside print the same, say
+        // nothing. Wall roughness is typical from 0.0015 mm and displays to
+        // two decimals, so a value of 0 produced "0 mm is below the usual
+        // 0–0.3 mm" — arithmetically correct and self-evidently absurd to
+        // read. A warning the user cannot see in the number is not a warning.
+        if (Format(field, modelValue) == Format(field, nearest))
+        {
+            return null;
+        }
+
+        return $"{Format(field, modelValue)}{suffix} is {side} the usual "
+               + $"{Format(field, typical.Minimum)}–{Format(field, typical.Maximum)}{suffix} for "
+               + $"{field.Label.ToLowerInvariant()} (nearest usual value {Format(field, nearest)}{suffix})."
+               + (string.IsNullOrWhiteSpace(typical.Note) ? "" : $" {typical.Note}.");
+    }
+
+    /// <summary>The same check against whatever the document currently holds.</summary>
+    public string? Unusual(IEditableField field)
+    {
+        ArgumentNullException.ThrowIfNull(field);
+
+        if (field.Typical is null || ModelPath.GetOrDefault(session.Document, field.Path) is not { } raw)
+        {
+            return null;
+        }
+
+        return Unusual(field, Convert.ToDouble(raw, CultureInfo.InvariantCulture));
+    }
+
     /// <summary>The value as the UI should show it right now, with its badge.</summary>
     public FieldView View(IEditableField field) => new(
         field,
         Format(field, ModelPath.GetOrDefault(session.Document, field.Path)),
         DisplayUnit(field),
-        session.Provenance[field.Path]);
+        session.Provenance[field.Path])
+    {
+        Typical = DescribeTypical(field),
+        Unusual = Unusual(field),
+    };
 
     /// <summary>
     /// Parse text typed in display units, convert, check, and write through

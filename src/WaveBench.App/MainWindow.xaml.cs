@@ -44,6 +44,10 @@ public partial class MainWindow : Window
         InputBindings.Add(new KeyBinding(
             new RelayCommand(_ => ShowPalette()), Key.K, ModifierKeys.Control));
 
+        // Every design warning ends in a link, and a link that does not move
+        // the user is a sentence (Phase 24 gate, §8.3).
+        WorkspaceContent.Follow = Follow;
+
         ProjectLabel.Text = _session.Document.Name;
         Refresh();
     }
@@ -79,8 +83,168 @@ public partial class MainWindow : Window
                 hidden.Select(h => $"{h.Title}: {h.HiddenReason} Find it via {h.DiscoveryPath}"));
         }
 
+        RefreshCaveats();
+        RefreshTour();
+
         StatusLine.Text = _shell.StatusLine(cells: 2840, timestepSeconds: 9.1e-6);
         WorkspaceContent.Render(WorkspaceHost, _shell, _session);
+    }
+
+    /// <summary>Whether the caveat banner is showing everything or just its headline.</summary>
+    private bool _caveatsExpanded;
+
+    /// <summary>
+    /// The generic-defaults banner (§8.10). Collapsed to one line by default,
+    /// because a permanent wall of caveats is a wall people stop reading —
+    /// and the point is that they read the first line.
+    /// </summary>
+    private void RefreshCaveats()
+    {
+        var guardrails = new Guardrails(_session, _shell.Preferences);
+        var caveats = guardrails.All();
+        var banner = guardrails.Banner();
+
+        CaveatBanner.Visibility = banner is null ? Visibility.Collapsed : Visibility.Visible;
+        if (banner is null)
+        {
+            return;
+        }
+
+        CaveatBannerText.Text = "ⓘ  " + banner
+            + (_caveatsExpanded ? "  (click to collapse)" : "  (click for all of them)");
+
+        CaveatBannerDetail.Visibility = _caveatsExpanded ? Visibility.Visible : Visibility.Collapsed;
+        CaveatBannerDetail.Text = string.Join(
+            Environment.NewLine + Environment.NewLine,
+            caveats.Select(c => $"{c.Title}. {c.Detail}  → {c.Fix}"
+                                + (c.Citation is null ? "" : $"  [{c.Citation}]")));
+    }
+
+    private void CaveatBanner_Click(object sender, MouseButtonEventArgs e)
+    {
+        _caveatsExpanded = !_caveatsExpanded;
+        RefreshCaveats();
+    }
+
+    // ---- Guided tour (§8.9) -----------------------------------------------
+
+    private readonly TourController _tour = new();
+
+    /// <summary>Start the tour of the current workspace — used by the menu and the offscreen renderer.</summary>
+    public void StartTour()
+    {
+        _tour.Start(_shell.Current);
+        NavigateToStep();
+        Refresh();
+    }
+
+    private void RefreshTour()
+    {
+        // A tour belongs to a workspace, so navigating away ends it rather
+        // than narrating one screen over another.
+        if (_tour.IsRunning && _tour.Current!.Workspace != _shell.Current)
+        {
+            _tour.Stop();
+        }
+
+        // Offered only where there is one to take. A button that does nothing
+        // on six of the ten workspaces teaches people not to press it.
+        TourButton.Visibility = TourLibrary.For(_shell.Current) is null || _tour.IsRunning
+            ? Visibility.Collapsed
+            : Visibility.Visible;
+
+        TourStrip.Visibility = _tour.CurrentStep is null ? Visibility.Collapsed : Visibility.Visible;
+        if (_tour.CurrentStep is not { } step)
+        {
+            return;
+        }
+
+        TourTitle.Text = step.Title;
+        TourBody.Text = step.Body;
+        TourPosition.Text = _tour.Position;
+        TourBack.IsEnabled = _tour.Step > 0;
+        TourNext.Content = _tour.AtEnd ? "Done" : "Next";
+    }
+
+    /// <summary>
+    /// Put the screen where the current step is talking about, reusing the
+    /// warning-link navigator rather than owning a second one — so a tour step
+    /// cannot point somewhere a warning could not.
+    ///
+    /// <b>Called from the tour's own buttons, never from <c>RefreshTour</c>.</b>
+    /// Every GoTo here ends in <c>Refresh</c>, and <c>Refresh</c> calls
+    /// <c>RefreshTour</c>: navigating from inside the refresh would recurse
+    /// until the stack ran out.
+    /// </summary>
+    private void NavigateToStep()
+    {
+        // Field targets navigate too. Skipping them left the tour narrating
+        // "start with the cylinder" over whatever tab happened to be open —
+        // the Manifold canvas, in the first capture of it — which is the one
+        // thing a guided tour must not do.
+        if (_tour.CurrentStep?.Target is { } target)
+        {
+            Follow(target);
+        }
+    }
+
+    private void TourNext_Click(object sender, RoutedEventArgs e)
+    {
+        _tour.Next();
+        NavigateToStep();
+        Refresh();
+    }
+
+    private void TourBack_Click(object sender, RoutedEventArgs e)
+    {
+        _tour.Back();
+        NavigateToStep();
+        Refresh();
+    }
+
+    private void TourSkip_Click(object sender, RoutedEventArgs e)
+    {
+        _tour.Stop();
+        Refresh();
+    }
+
+    private void TourButton_Click(object sender, RoutedEventArgs e) => StartTour();
+
+    // ---- Learn layer, without a mouse (offscreen capture and keyboard) ----
+
+    /// <summary>Edit a field through the same path a keystroke takes.</summary>
+    public void EditField(string path, string text)
+    {
+        _session.EditByUser(path, Parse(path, text));
+        Refresh();
+
+        static object Parse(string path, string text) =>
+            FieldLocator.Find(path)?.Kind is FieldKind.Number or FieldKind.Integer
+                ? double.Parse(text, CultureInfo.InvariantCulture)
+                : text;
+    }
+
+    /// <summary>
+    /// Run a "Show me" sweep and return the task, so a caller that needs the
+    /// figures on screen can wait for them rather than sleep and hope.
+    /// </summary>
+    public Task ShowMe(string path)
+    {
+        WorkspaceContent.ShowMePanel.Changed = () => Dispatcher.BeginInvoke(Refresh);
+        return WorkspaceContent.ShowMePanel.StartAsync(_session.Document, _shell.Preferences, path);
+    }
+
+    public void CloseShowMe()
+    {
+        WorkspaceContent.ShowMePanel.Close();
+        Refresh();
+    }
+
+    /// <summary>Open a Concepts explainer, or close it with null.</summary>
+    public void OpenConcept(string? id)
+    {
+        WorkspaceContent.OpenConcept = id;
+        Refresh();
     }
 
     private void BuildRail()
@@ -150,6 +314,72 @@ public partial class MainWindow : Window
         }
 
         Refresh();
+    }
+
+    /// <summary>
+    /// Follow a design warning to whatever causes it (the Phase 24 gate's
+    /// third clause). A field link lands on the tab the field is catalogued
+    /// on, so the answer is on screen rather than one search away.
+    /// </summary>
+    public void Follow(WarningLink link)
+    {
+        switch (link.Kind)
+        {
+            case WarningTarget.Node:
+                GoToDesignTab(DesignTab.Manifold, link.Target);
+                return;
+
+            case WarningTarget.Field:
+                if (FieldLocator.SubTabOf(link.Target) is not { } tab)
+                {
+                    return;
+                }
+
+                if (FieldLocator.WorkspaceOf(link.Target) == Workspace.Boost)
+                {
+                    GoToBoostTab(BoostCatalogue.Tabs.First(t => t.Title == tab).Tab);
+                }
+                else
+                {
+                    GoToDesignTab(DesignWorkspace.Tabs.First(t => t.Title == tab).Tab);
+                }
+
+                return;
+
+            default:
+                GoToSubTab(link.Workspace, link.Target);
+                return;
+        }
+    }
+
+    /// <summary>
+    /// Navigate to a sub-tab named by its title. Named rather than typed
+    /// because a warning link is written where the warning is raised, and a
+    /// workspace does not get to reach into another one's tab enum.
+    /// </summary>
+    private void GoToSubTab(Workspace? workspace, string subTab)
+    {
+        switch (workspace)
+        {
+            case Workspace.Design:
+                GoToDesignTab(DesignWorkspace.Tabs.First(t => t.Title == subTab).Tab);
+                return;
+            case Workspace.Boost:
+                GoToBoostTab(BoostCatalogue.Tabs.First(t => t.Title == subTab).Tab);
+                return;
+            case Workspace.Results:
+                GoToResultsTab(Enum.Parse<ResultsTab>(subTab, ignoreCase: true));
+                return;
+            case Workspace.Sound:
+                GoToSoundTab(Enum.Parse<SoundTab>(subTab, ignoreCase: true));
+                return;
+            case Workspace.Optimise:
+                GoToOptimiseTab(Enum.Parse<OptimiseTab>(subTab, ignoreCase: true));
+                return;
+            case not null:
+                GoTo(workspace.Value);
+                return;
+        }
     }
 
     /// <summary>Navigate to one Results sub-tab without a mouse.</summary>

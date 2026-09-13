@@ -80,6 +80,14 @@
                     Padding="24,14">
                 <DockPanel>
                     <StackPanel Orientation="Horizontal" DockPanel.Dock="Right">
+                        <!-- Guided tour of this workspace (§8.9). Hidden where
+                             there is no tour, rather than shown and inert. -->
+                        <Button x:Name="TourButton" Content="Tour" Click="TourButton_Click"
+                                Padding="14,7" Margin="0,0,8,0" Cursor="Hand" BorderThickness="1"
+                                BorderBrush="{DynamicResource Brush.BorderStrong}"
+                                Background="{DynamicResource Brush.Surface}"
+                                Foreground="{DynamicResource Brush.TextPrimary}"
+                                AutomationProperties.Name="Take a guided tour of this workspace" />
                         <Button x:Name="ModeToggle" Click="ModeToggle_Click" Padding="14,7" Margin="0,0,8,0"
                                 Cursor="Hand" BorderThickness="1"
                                 BorderBrush="{DynamicResource Brush.BorderStrong}"
@@ -119,6 +127,44 @@
                     BorderBrush="{DynamicResource Brush.BorderSubtle}" BorderThickness="0,0,0,1"
                     Padding="24,10">
                 <TextBlock x:Name="AdvancedBannerText" Style="{StaticResource Text.Small}" TextWrapping="Wrap" />
+            </Border>
+
+            <!-- Generic-defaults banner (§8.10): the biggest error source is
+                 usually the data the user did not supply, and they should be
+                 told so before they trust a number. Click to see all of it. -->
+            <Border DockPanel.Dock="Top" x:Name="CaveatBanner" Visibility="Collapsed" Cursor="Hand"
+                    Background="{DynamicResource Brush.SurfaceAlt}"
+                    BorderBrush="{DynamicResource Brush.BorderSubtle}" BorderThickness="0,0,0,1"
+                    Padding="24,8" MouseLeftButtonUp="CaveatBanner_Click">
+                <StackPanel>
+                    <TextBlock x:Name="CaveatBannerText" Style="{StaticResource Text.Small}" TextWrapping="Wrap" />
+                    <TextBlock x:Name="CaveatBannerDetail" Style="{StaticResource Text.Caption}"
+                               TextWrapping="Wrap" Margin="0,4,0,0" Visibility="Collapsed" />
+                </StackPanel>
+            </Border>
+
+            <!-- Guided tour (§8.9): a strip rather than a modal, so the thing
+                 being explained stays visible and usable while it explains it. -->
+            <Border DockPanel.Dock="Top" x:Name="TourStrip" Visibility="Collapsed"
+                    Background="{DynamicResource Brush.AccentSubtle}"
+                    BorderBrush="{DynamicResource Brush.BorderSubtle}" BorderThickness="0,0,0,1"
+                    Padding="24,10">
+                <DockPanel>
+                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                        <TextBlock x:Name="TourPosition" Style="{StaticResource Text.Caption}"
+                                   VerticalAlignment="Center" Margin="12,0,12,0" />
+                        <Button x:Name="TourBack" Content="Back" Click="TourBack_Click" Margin="0,0,6,0"
+                                Padding="10,2" MinWidth="0" MinHeight="0" />
+                        <Button x:Name="TourNext" Content="Next" Click="TourNext_Click" Margin="0,0,6,0"
+                                Padding="10,2" MinWidth="0" MinHeight="0" />
+                        <Button Content="Skip" Click="TourSkip_Click" Padding="10,2" MinWidth="0" MinHeight="0" />
+                    </StackPanel>
+                    <StackPanel>
+                        <TextBlock x:Name="TourTitle" Style="{StaticResource Text.Body}" TextWrapping="Wrap" />
+                        <TextBlock x:Name="TourBody" Style="{StaticResource Text.Small}" TextWrapping="Wrap"
+                                   Margin="0,2,0,0" />
+                    </StackPanel>
+                </DockPanel>
             </Border>
 
             <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="24">

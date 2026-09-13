@@ -96,6 +96,14 @@ public sealed class ProvenanceMap
 
     public void Clear(string path) => _entries.Remove(path);
 
+    /// <summary>
+    /// Every path with a recorded origin. Unrecorded paths are
+    /// <see cref="Provenance.Auto"/> by definition, so this is exactly the set
+    /// of fields somebody or something has CLAIMED.
+    /// </summary>
+    public IReadOnlyList<string> RecordedPaths =>
+        _entries.Keys.Order(StringComparer.Ordinal).ToList();
+
     /// <summary>Paths a wizard or auto-derivation must not touch without opt-in.</summary>
     public IReadOnlyList<string> ProtectedPaths =>
         _entries.Where(e => e.Value.IsProtected).Select(e => e.Key).Order(StringComparer.Ordinal).ToList();

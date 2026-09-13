@@ -52,6 +52,15 @@ public static class BoostContent
 
         host.Children.Add(SubTabs(boost, Refresh));
         host.Children.Add(FieldsCard(boost, Refresh));
+
+        // The learn panels sit with the fields that opened them, above the
+        // figures — a "Show me" study of the boost target belongs next to the
+        // boost target, not underneath eight charts (plan §8.9).
+        foreach (var card in WorkspaceContent.LearnCards(Refresh))
+        {
+            host.Children.Add(card);
+        }
+
         host.Children.Add(ViewControls(boost, RedrawBody));
 
         host.Children.Add(body);
@@ -364,12 +373,9 @@ public static class BoostContent
                 }, "Text.Caption"));
             }
 
-            if (warning.CrossLink is { } link)
+            foreach (var link in warning.Targets)
             {
-                var jump = WorkspaceContent.Styled(new TextBlock { Text = "→ " + link }, "Text.Caption");
-                jump.Foreground = (Brush)Application.Current.Resources["Brush.Accent"];
-                jump.ToolTip = "The field or figure that causes this.";
-                footer.Children.Add(jump);
+                footer.Children.Add(WorkspaceContent.LinkChip(link));
             }
 
             block.Children.Add(footer);

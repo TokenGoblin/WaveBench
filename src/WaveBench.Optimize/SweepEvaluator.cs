@@ -206,15 +206,32 @@ public sealed class SweepEvaluator : IDesignEvaluator
         return results;
     }
 
-    /// <summary>The same model on a coarser mesh and a shorter cycle budget.</summary>
-    private EngineModelDocument Coarsen(EngineModelDocument document) => document with
+    /// <summary>
+    /// The same model on a coarser mesh and a shorter cycle budget.
+    ///
+    /// Public and static because it is the definition of what "surrogate
+    /// fidelity" MEANS in this tool, and more than one caller needs it —
+    /// "Show me" runs the same reduced model, and a second copy of these three
+    /// lines somewhere else is a second definition that can drift from this
+    /// one.
+    /// </summary>
+    public static EngineModelDocument Coarsen(
+        EngineModelDocument document, double cellScale, int maxCycles)
     {
-        Solver = document.Solver with
+        ArgumentNullException.ThrowIfNull(document);
+
+        return document with
         {
-            CellSizeMm = document.Solver.CellSizeMm * SurrogateCellScale,
-            MaxCycles = Math.Min(document.Solver.MaxCycles, SurrogateMaxCycles),
-            MinCycles = Math.Min(document.Solver.MinCycles, Math.Max(2, SurrogateMaxCycles / 2)),
-        },
-    };
+            Solver = document.Solver with
+            {
+                CellSizeMm = document.Solver.CellSizeMm * cellScale,
+                MaxCycles = Math.Min(document.Solver.MaxCycles, maxCycles),
+                MinCycles = Math.Min(document.Solver.MinCycles, Math.Max(2, maxCycles / 2)),
+            },
+        };
+    }
+
+    private EngineModelDocument Coarsen(EngineModelDocument document) =>
+        Coarsen(document, SurrogateCellScale, SurrogateMaxCycles);
 
 }

@@ -8,7 +8,8 @@ hard acceptance gate (Part 12). Never let a session span two phases.
 
 ## START HERE — where the project stands
 
-**24 of 26 phases complete. 988 tests green, none skipped. CI green on main.**
+**25 of 26 phases complete. 1016 tests green (608 unit + 408 verification), none
+skipped. CI green on main.**
 
 | Phase | State | Notes |
 |---|---|---|
@@ -22,11 +23,11 @@ hard acceptance gate (Part 12). Never let a session span two phases.
 | 21 | done | Boost workspace · **v0.9** — docs/physics.md §7 |
 | 22 | done | Optimisation · CMA-ES, NSGA-II, Bayesian, screening, refiners, presets |
 | 23 | done | Simple mode and the wizard |
-| **24** | **NEXT** | Learn layer and guardrails |
-| **25** | to do | Reporting, docs, packaging · **v1.0** |
+| 24 | done | Learn layer and guardrails — "Show me", Concepts, tours, banner |
+| **25** | **NEXT** | Reporting, docs, packaging · **v1.0** |
 
 **PHASE ORDER WAS USER-REORDERED.** See the note further down for why; the
-remaining phases (24, 25) are back in plan order, so nothing is pending on
+remaining phase (25) is back in plan order, so nothing is pending on
 the reordering except Phase 11's psychoacoustic metrics and Phase 15's gate
 clause 1, both listed below.
 
@@ -47,20 +48,21 @@ clause 1, both listed below.
    no-carry-over control) is what CI actually checks in its place. Close this
    only if a suitable licensed dataset turns up — see the standing deferral
    below (validation case 20).
-2. **Phase 24 — Learn layer. PICK UP HERE.** Breadth, not depth: "why" text
-   on every field, "Show me" parametric sweeps, a Concepts panel, "Explain this
-   result", guided tours, implausible-input detection, a generic-defaults
-   banner, global search, and cross-workspace warning links.
+2. **Phase 25 — Reporting, docs, release (v1.0). PICK UP HERE.** PDF/HTML
+   report generator covering performance, acoustics and boost; the complete
+   user guide; `docs/` finalised with the full citation list; a validation
+   gallery in the README; MSIX packaging; a signed release.
 
-   Much of the raw material exists: `DesignCatalogue` and `BoostCatalogue`
-   already carry per-field `Help`, `OptimisationCatalogue` carries a `Why` for
-   every variable, and `DesignWarning` already carries a citation and a
-   cross-link. The gate asks that EVERY user-editable field have why-text and a
-   typical range, that "Show me" work on every numeric parameter in the solve,
-   and that every design warning link to the field or plot causing it — so the
-   work is largely completing coverage and adding the sweep machinery.
-3. **Phase 25 — Reporting, docs, release (v1.0).**
-4. **Phase 11's four psychoacoustic metrics** — ISO 532-3, ECMA-418-2,
+   Raw material that already exists and should be reused rather than rebuilt:
+   `ResultsWorkspace.AllPlots()`, `BoostWorkspace.AllPlots()` and
+   `ShowMeStudy.AllPlots()` are what an export walks; `SvgPlotWriter` renders
+   any `PlotModel` to the same figure the screen shows; `BriefPdfTests` already
+   exercises a PDF path for the wizard's Design Brief; `Guardrails.All()`
+   produces the caveats section, each with a remedy; `ConceptLibrary` is the
+   user guide's conceptual half already written and cited. The gate asks that a
+   generated report be enough to defend a design decision — including a sound,
+   a compliance and a turbo-match decision — without any other document.
+3. **Phase 11's four psychoacoustic metrics** — ISO 532-3, ECMA-418-2,
    fluctuation strength, DIN 45681. Deferred for a REASON, not skipped: each
    needs verification against published reference signals and none are
    redistributable. This is the only backwards gap and it blocks the v0.4 tag
@@ -298,6 +300,29 @@ logic in WaveBench.App beyond view construction.
 literal - three tests enforce it, including one that resolves every
 resource key because XAML lookups fail at runtime, not compile time.
 
+**A colour TOKEN NAME is a string nobody checks.** `PlotSeries.ColourToken`
+names a resource key that the view model never resolves, so an invented key
+reaches the renderer, silently falls back, and draws every series in the same
+grey. `Brush.Series1..6` looked exactly like real tokens and were defined
+nowhere; the figure was arithmetically perfect and monochrome. Caught by
+rendering the screen, because the resource scan only looked at the app.
+`XamlTokenTests` now resolves the `"Brush.*"` literals in WaveBench.ViewModels
+too, with comments stripped first - a scan this broad matches a token quoted in
+prose, and a test that fails on documentation is a test people delete.
+
+**Overlaid curves get unique line styles, and there are only four.** Line,
+Dashed, Dotted, Scatter (plan §8.11: no information by colour alone; the
+convention is enforced per-plot, e.g. `ResultsWorkspaceTests` on the wave
+decomposition). That is why "Show me" sweeps FOUR values and not five: a fifth
+curve has to repeat a style, and two dotted series are separable by colour
+alone - the one thing a chart here may not be.
+
+**Padding an axis by a fraction of the VALUE flattens the figure.** Torque
+running 47-52 N·m padded by ±10% of the value gives an axis of 42-57, so the
+variation the plot exists to show gets a third of the height. Pad by a fraction
+of the SPAN. Give the x axis a margin too, or a marker at either end of the
+range has its label clipped by the frame.
+
 **A workspace renderer must CLEAR its host before adding to it.** Every
 `Render(Panel host, ...)` hands its children a `Refresh` closure that calls
 straight back into itself, so a sub-tab, a slider or a Next button re-enters the
@@ -334,6 +359,18 @@ actual visual/automation tree before theorising about styles or handlers.
 **Never drive synthetic mouse/keyboard input at the desktop to capture the
 app.** Use `WaveBench.App.exe --screenshot <dir>`, which renders the
 visual tree offscreen.
+
+**A capture helper must SET state, never toggle it.** The windows share
+`App.Preferences`, so `ToggleMode()` in a later scene lands on whatever the
+previous scene left - `Advanced(window)` exists for exactly this and half the
+Phase 24 captures came out in Simple mode without it.
+
+**Nothing that blocks the UI thread may wait on work that marshals back to
+it.** The offscreen renderer waits on a "Show me" sweep with
+`GetAwaiter().GetResult()`; the sweep finished on a worker and redrew with
+`Dispatcher.Invoke`, which blocks until the UI thread is free - and it never
+was. Deadlock, no exception, the capture simply stopped at screenshot 27. Post
+background completions with `BeginInvoke`; nothing here needs the return value.
 
 **Never edit files with `Get-Content | ... | Set-Content` in PowerShell 5.1.**
 `Get-Content` reads UTF-8 as the ANSI codepage and `Set-Content -Encoding

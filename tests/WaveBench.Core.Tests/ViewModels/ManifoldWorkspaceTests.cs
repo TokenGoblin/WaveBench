@@ -264,7 +264,8 @@ public class ManifoldWorkspaceTests(ITestOutputHelper output)
         warning.Message.Should().Contain("separation likely");
         warning.Suggestion.Should().Contain("7");
         warning.Citation.Should().Contain("2006-01-3654");
-        warning.CrossLink.Should().NotBeNullOrEmpty("plan §8.3 wants warnings to link to the workspace that shows it");
+        warning.Targets.Should().Contain(t => t.Kind == WarningTarget.Plot,
+            "plan §8.3 wants warnings to link to the workspace that shows the consequence");
     }
 
     [Fact]

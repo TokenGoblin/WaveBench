@@ -22,13 +22,42 @@ public sealed record PaletteItem(string Id, string Label, string Description, Ma
 /// <param name="Message">What is wrong.</param>
 /// <param name="Suggestion">What to do instead.</param>
 /// <param name="Citation">Where the limit comes from.</param>
-/// <param name="CrossLink">Another workspace that shows the consequence (plan §8.3).</param>
+/// <param name="Links">
+/// Where to go to deal with it — the field that causes it, the figure that
+/// shows the consequence, or both (plan §8.3, and the Phase 24 gate).
+/// </param>
 public sealed record DesignWarning(
     string? NodeId,
     string Message,
     string? Suggestion = null,
     string? Citation = null,
-    string? CrossLink = null);
+    IReadOnlyList<WarningLink>? Links = null)
+{
+    /// <summary>
+    /// The links the view offers, with the node the warning is about folded in
+    /// automatically. A canvas warning that names a component already points
+    /// somewhere, and making every call site repeat that would be a rule kept
+    /// by diligence rather than by construction.
+    /// </summary>
+    public IReadOnlyList<WarningLink> Targets
+    {
+        get
+        {
+            var targets = new List<WarningLink>();
+            if (NodeId is { Length: > 0 } node)
+            {
+                targets.Add(WarningLink.Node(node));
+            }
+
+            if (Links is not null)
+            {
+                targets.AddRange(Links);
+            }
+
+            return targets;
+        }
+    }
+}
 
 /// <summary>Live geometry readout for the whole manifold (plan §8.4).</summary>
 public sealed record GeometrySummary(IReadOnlyList<DerivedReadout> Readouts);
@@ -566,7 +595,7 @@ public sealed class ManifoldWorkspace
                         $"Diffuser half-angle {halfAngle:F1}°: separation likely.",
                         "Suggested ≤ 7° — lengthen the cone or reduce the exit diameter.",
                         "Claywell & Horkheimer, SAE 2006-01-3654",
-                        "Results → Waves"));
+                        [WarningLink.Plot(Workspace.Results, "Waves", "separation weakens the reflected wave")]));
                 }
             }
 
@@ -590,7 +619,8 @@ public sealed class ManifoldWorkspace
                 warnings.Add(new(junction.Id,
                     $"Branch angle {junction.BranchAngleDeg:F0}° on a merge: high loss and poor scavenging.",
                     "A merge collector is usually 10–30°. A right angle is a plumbing tee, not a header.",
-                    "Idelchik, Handbook of Hydraulic Resistance — converging wye"));
+                    "Idelchik, Handbook of Hydraulic Resistance — converging wye",
+                    [WarningLink.Plot(Workspace.Results, "Waves", "the loss shows as a weaker reflection")]));
             }
 
             if (legs > 3)
@@ -598,7 +628,8 @@ public sealed class ManifoldWorkspace
                 warnings.Add(new(junction.Id,
                     $"{legs}-leg junction: the branch-angle loss coefficients do not cover it.",
                     "Solved with the constant-pressure model instead. Split into three-leg merges to use the loss model.",
-                    "plan §2.7"));
+                    "plan §2.7",
+                    [WarningLink.Plot(Workspace.Results, "Waves", "constant pressure shows as no reflection at all")]));
             }
 
             // Area ratio through the merge: a collector much smaller than the
@@ -616,7 +647,8 @@ public sealed class ManifoldWorkspace
                     warnings.Add(new(junction.Id,
                         $"Collector is {ratio:F2}× the combined primary area: restrictive.",
                         "Aim for roughly 0.7–1.0× — below that the merge raises pumping loss.",
-                        "Blair, Design and Simulation of Four-Stroke Engines, ch. 6"));
+                        "Blair, Design and Simulation of Four-Stroke Engines, ch. 6",
+                        [WarningLink.Plot(Workspace.Results, "Performance", "it shows up as lost BMEP, not lost VE")]));
                 }
                 else if (ratio > 1.6)
                 {
@@ -624,7 +656,7 @@ public sealed class ManifoldWorkspace
                         $"Collector is {ratio:F2}× the combined primary area: the pulse will dissipate.",
                         "A large step toward constant-pressure operation costs the scavenging the header exists for.",
                         "Watson & Janota, Turbocharging the Internal Combustion Engine",
-                        "Boost → Turbine"));
+                        [WarningLink.Plot(Workspace.Boost, "Turbine", "pulse energy is what spools the turbine")]));
                 }
             }
         }
@@ -632,10 +664,27 @@ public sealed class ManifoldWorkspace
         // Structural problems from the model itself, surfaced on the canvas.
         foreach (var issue in spec.Validate())
         {
+            // A validation path may name a node, a catalogued field, or the
+            // manifold as a whole. Resolve it rather than assuming: an issue
+            // that points nowhere is an issue the user has to hunt for, which
+            // is exactly what the Phase 24 gate exists to stop.
+            var tail = issue.Path.Contains('.') ? issue.Path[(issue.Path.LastIndexOf('.') + 1)..] : null;
+            var node = tail is not null && spec.Node(tail) is not null ? tail : null;
+
+            List<WarningLink>? links = null;
+            if (node is null)
+            {
+                links = FieldLocator.Find(issue.Path) is not null
+                    ? [WarningLink.Field(issue.Path)]
+                    : [WarningLink.Plot(Workspace.Design, "Manifold", "on the canvas")];
+            }
+
             warnings.Add(new(
-                issue.Path.Contains('.') ? issue.Path[(issue.Path.LastIndexOf('.') + 1)..] : null,
+                node,
                 issue.Message,
-                issue.Severity == ModelIssueSeverity.Error ? "The manifold will not solve until this is fixed." : null));
+                issue.Severity == ModelIssueSeverity.Error ? "The manifold will not solve until this is fixed." : null,
+                null,
+                links));
         }
 
         return warnings;

@@ -272,7 +272,7 @@ public class BoostWorkspaceTests(ITestOutputHelper output)
         surgeWarnings.Should().Contain(w => w.Message.Contains("urge", StringComparison.Ordinal),
             "an operating line this close to surge must say so");
         surgeWarnings.Where(w => w.Message.Contains("urge", StringComparison.Ordinal))
-            .Should().OnlyContain(w => w.CrossLink != null,
+            .Should().OnlyContain(w => w.Targets.Count > 0,
                 "plan §8.3: a surge warning links to the field causing it");
 
         // Every warning, in either configuration, carries a source. A limit
@@ -286,7 +286,9 @@ public class BoostWorkspaceTests(ITestOutputHelper output)
             output.WriteLine($"warnings ({which}):");
             foreach (var w in warnings)
             {
-                output.WriteLine($"  ! {w.Message}  → {w.Suggestion}  [{w.Citation}]  {w.CrossLink}");
+                output.WriteLine(
+                    $"  ! {w.Message}  → {w.Suggestion}  [{w.Citation}]  "
+                    + string.Join(" · ", w.Targets.Select(t => t.Describe())));
             }
         }
     }

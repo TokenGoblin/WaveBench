@@ -1615,3 +1615,126 @@ configurations, because one match cannot be in both kinds of trouble at once.
 Every warning on this screen carries a citation, and the surge warnings carry
 a cross-workspace link to the field causing them (plan §8.3). A warning
 without a source is an opinion.
+
+---
+
+## 8. The learn layer's parametric sweep (Phase 24)
+
+Plan §8.9 calls "Show me" *"the single best teaching feature in the
+application, and nearly free once sweep machinery exists"*. This section
+records what it actually computes, what it costs, and the two places where a
+figure of this kind can quietly mislead.
+
+### 8.1 What it solves
+
+A "Show me" study varies ONE model field across a band and holds every other
+field at the document's own value. It is built as a one-variable
+`DesignSpace`, so `DesignPoint.Materialise` performs the write, the discrete
+snapping and the deep copy — the same code the optimiser uses, rather than a
+second implementation that could disagree with it about what a design IS.
+
+The band is the field's `TypicalRange`, clipped to its plausibility bounds and
+widened to include wherever the document currently sits. That last step is not
+cosmetic: a sweep that brackets a design without containing it is a chart of
+somebody else's engine, and the first question a user asks of it is where
+theirs falls.
+
+Fidelity is `EvaluationFidelity.Surrogate` by default — a mesh coarsened 2×
+and a cycle budget of six, which is the setting §9.5's work measured as
+leaving the ranking between designs untouched (Spearman 1.000 against the full
+solve on the FSAE intake case). It is a reduced model, not a different one:
+every point on the chart is a real solve of the real physics.
+`SweepEvaluator.Coarsen` is public so there is one definition of what
+surrogate fidelity means rather than two.
+
+### 8.2 Cost, and why the work is spread across values rather than speeds
+
+The natural way to write this is a loop over values with each value's rpm
+sweep run in parallel. That is also the slow way: `SweepEvaluator`
+parallelises across operating points, so a study of four values at three
+speeds keeps at most three threads busy however many cores the machine has.
+
+Measured on the development machine, the same twelve surrogate solves:
+
+| Arrangement | Wall clock |
+|---|---|
+| Serial over values, parallel over speeds | 17.0 s |
+| Parallel over values, serial over speeds | 12.7 s |
+| **Parallel over the whole (value, speed) grid** | **6.6 s** |
+
+Every figure was identical to the last digit across all three. The pairs are
+mutually independent and each solve is deterministic, so the order they
+complete in cannot reach the answer — which is what makes the flattening free
+rather than a trade. At the shipped default of four values over five speeds,
+a study costs about 11 s.
+
+### 8.3 Why the figure does not plot peak torque alone
+
+A tuning parameter mostly moves torque rather than making it, and a chart of
+peak torque against the parameter invites exactly the wrong reading: that more
+is always better. The response figure therefore plots torque at the bottom of
+the speed range, at the top, and at the peak.
+
+Sweeping intake runner length on a 2-litre four (86 × 86 mm, CR 10.5, 33 mm
+intake valves, IVC 580°) over 3000–9000 rpm, at surrogate fidelity:
+
+| Runner length | Peak N·m | At 3000 rpm | At 9000 rpm | low/top |
+|---|---|---|---|---|
+| 150 mm | 269.1 | 267.8 | 147.9 | 1.81 |
+| 300 mm | 276.8 | 276.4 | 141.3 | 1.96 |
+| 450 mm | 290.5 | 274.5 | 125.2 | 2.19 |
+| 600 mm | 286.3 | 282.4 | 86.3 | 3.27 |
+
+Peak torque moves by 8% and is not even monotone — it turns over at 450 mm.
+The ratio of bottom-end to top-end torque moves by 81% and is monotone
+throughout. The second is the tuned-length trade, and it is what the figure
+exists to show. `LearnGateTests` asserts that ratio increases with runner
+length, because it is the physics claim the feature is making.
+
+### 8.4 Two traps in reading it
+
+**Rpm at peak is quantised to the speeds sampled.** In the table above it is
+4500 rpm for every single row — not because the peak does not move, but
+because five operating points can only report five positions for it. The first
+version of the response figure put it on a second axis, where that flat trace
+read as "this parameter does not move the torque peak" while the low/top ratio
+beside it was moving by 81%. `LowToTopRatio` is reported instead, because both
+of its terms move continuously; rpm-at-peak survives as a coarse indicator
+with the quantisation stated on the property itself.
+
+**A trend read from the two ends is not a trend.** The narration reads across
+every sample: peak torque above is highest at 450 mm and lower at both ends,
+which an endpoint comparison would report as a plain rise. `Flat` is a genuine
+result and is said plainly — a field the steady solve does not read produces a
+flat response, and "this does nothing here" is worth knowing.
+
+### 8.5 What is excluded, and why
+
+Four numeric fields are not sweepable, each listed by name in
+`ShowMe.NotInTheSteadySolve` with its reason, and a test fails if any other
+numeric field is neither sweepable nor listed:
+
+- `Engine.CylinderCount` — changing it changes the manifold topology, so
+  nothing else can be held fixed, which is what a single-parameter sweep
+  means.
+- `PipeThermal.ArealHeatCapacityJPerM2K` — sets how fast the wall reaches its
+  converged temperature, not what that temperature is.
+- `PipeThermal.WallConvergenceK` — a solver tolerance: it decides when to stop
+  iterating the wall, not what the engine does.
+- `ForcedInduction.TransientUncertaintyPercent` — a sensitivity band on the
+  transient; the steady sweep never reads it.
+
+### 8.6 The typical range is not a tighter bound
+
+Every numeric field carries both a plausibility range and a `TypicalRange`,
+and conflating them would make one of the two useless. Bore accepts 20–200 mm
+because somebody really might be modelling a model-aircraft engine or a ship's
+diesel; it is *typically* 65–105 mm. The bounds decide what is legal — a value
+outside them is refused with a reason. The typical range decides what is
+ordinary, and a value outside it is **accepted, written, and annotated**
+(plan §8.10: *"a warning, never a hard block"*). Only the second can tell a
+beginner that 140 mm means they have mistyped something, because the bounds
+cannot: both values are legal.
+
+A test asserts every typical range lies inside its bounds and is strictly
+narrower than them, so neither can decay into the other.

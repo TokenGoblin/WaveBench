@@ -25,6 +25,16 @@ public static class WorkspaceContent
     public static DesignBrief? LatestBrief { get; set; }
 
     /// <summary>
+    /// The "Show me" sweep currently on screen (plan §8.9). Static for the
+    /// same reason <see cref="LatestResults"/> is: a sweep takes seconds and
+    /// every keystroke in the workspace rebuilds the tree under it.
+    /// </summary>
+    public static ShowMeController ShowMePanel { get; } = new();
+
+    /// <summary>The Concepts explainer currently expanded, by id, or null.</summary>
+    public static string? OpenConcept { get; set; }
+
+    /// <summary>
     /// One wizard per session, so answers survive the re-render every control
     /// triggers — and so switching to Advanced and back does not restart it.
     /// </summary>
@@ -294,6 +304,18 @@ public static class WorkspaceContent
             "Every field carries its origin. Hover a badge for the derivation and its citation."));
         host.Children.Add(SubTabs(host, shell, session, workspace));
 
+        // The learn panels go ABOVE the canvas, not under the form.
+        //
+        // Under the form they were correct and invisible: the Manifold tab
+        // canvas card is most of a screen tall, so a "Show me" study opened
+        // from a runner field rendered below the fold and the click looked
+        // like it had done nothing. What the user just asked for belongs where
+        // they are already looking.
+        foreach (var card in LearnCards(() => Render(host, shell, session)))
+        {
+            host.Children.Add(card);
+        }
+
         // The Manifold tab is a canvas first and a form second: the runner
         // fields below it still apply to a model with no collector graph.
         if (tab == DesignTab.Manifold)
@@ -412,7 +434,7 @@ public static class WorkspaceContent
             Text = field.Label,
             VerticalAlignment = VerticalAlignment.Center,
             Margin = new Thickness(0, 5, 8, 5),
-            ToolTip = field.Help,
+            ToolTip = FieldTooltip(view),
         }, "Text.Body");
         Grid.SetRow(label, row);
         Grid.SetColumn(label, 0);
@@ -448,6 +470,17 @@ public static class WorkspaceContent
         Grid.SetColumn(badge, 3);
         grid.Children.Add(badge);
 
+        // Column 4 is the field's "what about this?" column, in priority
+        // order: a rejected keystroke first, because it is the only one that
+        // means the model does not hold what was typed; then the §8.10 note
+        // that a legal value is unusual; then the learn affordances.
+        var trailing = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(12, 2, 0, 2),
+        };
+
         if (surface.Rejections.TryGetValue(field.Path, out var reason))
         {
             var error = Styled(new TextBlock
@@ -455,13 +488,267 @@ public static class WorkspaceContent
                 Text = reason,
                 VerticalAlignment = VerticalAlignment.Center,
                 TextWrapping = TextWrapping.Wrap,
-                Margin = new Thickness(12, 5, 0, 5),
-                Foreground = (Brush)Application.Current.Resources["Brush.Warning"],
+                MaxWidth = 380,
             }, "Text.Small");
-            Grid.SetRow(error, row);
-            Grid.SetColumn(error, 4);
-            grid.Children.Add(error);
+            error.Foreground = (Brush)Application.Current.Resources["Brush.Warning"];
+            trailing.Children.Add(error);
         }
+        else if (view.Unusual is { } unusual)
+        {
+            // A warning, never a block (§8.10) — so it sits beside the value
+            // the user successfully entered, not in place of it.
+            var note = Styled(new TextBlock
+            {
+                Text = "⚠  " + unusual,
+                VerticalAlignment = VerticalAlignment.Center,
+                TextWrapping = TextWrapping.Wrap,
+                MaxWidth = 380,
+                ToolTip = "Unusual, not refused. The value is in the model.",
+            }, "Text.Small");
+            note.Foreground = (Brush)Application.Current.Resources["Brush.Warning"];
+            trailing.Children.Add(note);
+        }
+
+        foreach (var chip in LearnChips(view, surface, refresh))
+        {
+            trailing.Children.Add(chip);
+        }
+
+        if (trailing.Children.Count > 0)
+        {
+            Grid.SetRow(trailing, row);
+            Grid.SetColumn(trailing, 4);
+            grid.Children.Add(trailing);
+        }
+    }
+
+    /// <summary>
+    /// Help, typical range and the concepts behind a field, as one hover.
+    /// Three tooltips on three elements would be three things to find.
+    /// </summary>
+    private static string FieldTooltip(FieldView view)
+    {
+        var lines = new List<string>();
+
+        if (view.Field.Help is { Length: > 0 } help)
+        {
+            lines.Add(help);
+        }
+
+        if (view.Typical is { Length: > 0 } typical)
+        {
+            lines.Add(typical);
+        }
+
+        var concepts = ConceptLibrary.For(view.Field.Path);
+        if (concepts.Count > 0)
+        {
+            lines.Add("See: " + string.Join(", ", concepts.Select(c => c.Title)));
+        }
+
+        return string.Join("\n\n", lines);
+    }
+
+    /// <summary>
+    /// "Show me" and "what is this?" — plan §8.9's two teaching affordances,
+    /// offered on the row of the field they are about rather than in a menu
+    /// somewhere, which is the difference between a feature being used and
+    /// being present.
+    /// </summary>
+    private static IEnumerable<UIElement> LearnChips(
+        FieldView view, IFieldEditingSurface surface, Action refresh)
+    {
+        if (ShowMe.Supports(view.Field))
+        {
+            yield return Chip("Show me", "Sweep this one field and plot what it does.", () =>
+            {
+                // The sweep finishes on a worker thread, so the redraw has to
+                // be marshalled — a WPF tree may only be touched by the thread
+                // that owns it, and a background completion that "just called
+                // refresh" would throw where nobody is catching.
+                //
+                // POSTED, not Invoked. Invoke blocks the worker until the UI
+                // thread runs it, so any caller waiting on the sweep from the
+                // UI thread deadlocks against its own completion — which is
+                // exactly what the offscreen renderer does.
+                ShowMePanel.Changed = () => Application.Current?.Dispatcher.BeginInvoke(refresh);
+                ShowMePanel.StartAsync(surface.Document, surface.Preferences, view.Field.Path);
+            });
+        }
+
+        // ONE concept chip, even where several explain the field. Four
+        // buttons on a row is a row nobody reads, and it pushed the §8.10
+        // "this value is unusual" note off the right edge of the form — a
+        // teaching affordance crowding out a warning. The others are named in
+        // the tooltip and all of them are reachable from the palette.
+        if (ConceptLibrary.For(view.Field.Path).FirstOrDefault() is { } concept)
+        {
+            var id = concept.Id;
+            yield return Chip("Explain", concept.Summary, () =>
+            {
+                OpenConcept = OpenConcept == id ? null : id;
+                refresh();
+            });
+        }
+    }
+
+    /// <summary>
+    /// The learn layer's two panels, drawn under the form on whichever
+    /// workspace opened them: the "Show me" study and the Concepts explainer.
+    /// Shared so Design and Boost show the same thing in the same place.
+    /// </summary>
+    internal static IEnumerable<UIElement> LearnCards(Action refresh)
+    {
+        if (ShowMePanel.Path is not null)
+        {
+            yield return ShowMeCard(refresh);
+        }
+
+        if (OpenConcept is not null && ConceptLibrary.Find(OpenConcept) is { } concept)
+        {
+            yield return ConceptCard(concept, refresh);
+        }
+    }
+
+    private static UIElement ShowMeCard(Action refresh)
+    {
+        var panel = new StackPanel();
+        var field = FieldLocator.Find(ShowMePanel.Path!);
+
+        var header = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 8) };
+        header.Children.Add(Styled(new TextBlock
+        {
+            Text = "Show me: " + (field?.Label ?? ShowMePanel.Path),
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 12, 0),
+        }, "Text.Body", bold: true));
+        header.Children.Add(Chip("Close", "Hide this study.", () =>
+        {
+            ShowMePanel.Close();
+            refresh();
+        }));
+        panel.Children.Add(header);
+
+        if (ShowMePanel.IsRunning)
+        {
+            // Say what it is doing and roughly what it costs. A spinner with
+            // no number is indistinguishable from a hang.
+            panel.Children.Add(Styled(new TextBlock
+            {
+                Text = "Solving this field at five values across its usual range, every other field held fixed. "
+                       + "Ten seconds or so — the rest of the window stays live.",
+                TextWrapping = TextWrapping.Wrap,
+            }, "Text.Caption"));
+        }
+        else if (ShowMePanel.Error is { } error)
+        {
+            var text = Styled(new TextBlock { Text = error, TextWrapping = TextWrapping.Wrap }, "Text.Small");
+            text.Foreground = (Brush)Application.Current.Resources["Brush.Warning"];
+            panel.Children.Add(text);
+        }
+        else if (ShowMePanel.Study is { } study)
+        {
+            foreach (var plot in study.AllPlots())
+            {
+                panel.Children.Add(new PlotView(plot) { Height = 260, Margin = new Thickness(0, 0, 0, 12) });
+            }
+
+            // The narration is the "Explain this result" of §8.9, written from
+            // the sweep that just ran rather than from a template.
+            panel.Children.Add(Styled(new TextBlock
+            {
+                Text = study.Narration,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 4, 0, 0),
+            }, "Text.Secondary"));
+
+            panel.Children.Add(Styled(new TextBlock
+            {
+                Text = $"{study.Samples.Count} values solved in {study.Elapsed.TotalSeconds:F0} s at surrogate "
+                       + "fidelity.",
+                Margin = new Thickness(0, 6, 0, 0),
+            }, "Text.Caption"));
+        }
+
+        return Card(panel);
+    }
+
+    private static UIElement ConceptCard(Concept concept, Action refresh)
+    {
+        var panel = new StackPanel();
+
+        var header = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 8) };
+        header.Children.Add(Styled(new TextBlock
+        {
+            Text = concept.Title,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 12, 0),
+        }, "Text.Body", bold: true));
+        header.Children.Add(Chip("Close", "Hide this explainer.", () =>
+        {
+            OpenConcept = null;
+            refresh();
+        }));
+        panel.Children.Add(header);
+
+        foreach (var paragraph in concept.Body)
+        {
+            panel.Children.Add(Styled(new TextBlock
+            {
+                Text = paragraph,
+                TextWrapping = TextWrapping.Wrap,
+                MaxWidth = 760,
+
+                // Explicit, because a stretched child with a MaxWidth centres
+                // itself in whatever is left over — which set the explainer's
+                // paragraphs a couple of hundred pixels in from its own title.
+                HorizontalAlignment = HorizontalAlignment.Left,
+                Margin = new Thickness(0, 0, 0, 10),
+            }, "Text.Secondary"));
+        }
+
+        var footer = new WrapPanel();
+
+        if (concept.Citation is { } citation)
+        {
+            var source = Styled(new TextBlock
+            {
+                Text = citation,
+                FontStyle = FontStyles.Italic,
+                Margin = new Thickness(0, 0, 14, 0),
+                VerticalAlignment = VerticalAlignment.Center,
+            }, "Text.Caption");
+            footer.Children.Add(source);
+        }
+
+        if (concept.Figure is { } figure)
+        {
+            footer.Children.Add(LinkChip(figure));
+        }
+
+        if (footer.Children.Count > 0)
+        {
+            panel.Children.Add(footer);
+        }
+
+        return Card(panel);
+    }
+
+    /// <summary>A small clickable pill. Keyboard-reachable, like every other action (§8.11).</summary>
+    internal static UIElement Chip(string text, string tip, Action click)
+    {
+        var button = new Button
+        {
+            Content = text,
+            ToolTip = tip,
+            Margin = new Thickness(0, 0, 6, 0),
+            Padding = new Thickness(8, 1, 8, 2),
+            MinWidth = 0,
+            MinHeight = 0,
+        };
+
+        button.Click += (_, _) => click();
+        return button;
     }
 
     private static FrameworkElement Editor(FieldView view, IFieldEditingSurface surface, Action refresh)
@@ -864,6 +1151,44 @@ public static class WorkspaceContent
         return scroller;
     }
 
+    /// <summary>
+    /// Set by the shell so a warning link can navigate. A static hook rather
+    /// than a parameter threaded through every render method, for the same
+    /// reason <see cref="LatestResults"/> is one: these renderers are static
+    /// builders and the alternative is an extra argument on all of them.
+    /// </summary>
+    public static Action<WarningLink>? Follow { get; set; }
+
+    /// <summary>
+    /// One clickable "go and deal with it" link. The text is derived from the
+    /// catalogue rather than written into the warning, so renaming a field or
+    /// moving it to another tab cannot leave a link saying the old thing.
+    /// </summary>
+    internal static UIElement LinkChip(WarningLink link)
+    {
+        var text = Styled(new TextBlock { Text = "→ " + link.Describe() }, "Text.Caption");
+        text.Foreground = (Brush)Application.Current.Resources["Brush.Accent"];
+
+        var chip = new Border
+        {
+            Child = text,
+            Background = (Brush)Application.Current.Resources["Brush.AccentSubtle"],
+            CornerRadius = new CornerRadius(4),
+            Padding = new Thickness(6, 2, 6, 3),
+            Margin = new Thickness(0, 0, 6, 4),
+            Cursor = System.Windows.Input.Cursors.Hand,
+            ToolTip = "Go to what causes this.",
+        };
+
+        chip.MouseLeftButtonUp += (_, e) =>
+        {
+            e.Handled = true;
+            Follow?.Invoke(link);
+        };
+
+        return chip;
+    }
+
     private static UIElement WarningCard(DesignWarning warning, ManifoldWorkspace workspace, Action refresh)
     {
         var panel = new StackPanel();
@@ -899,13 +1224,19 @@ public static class WorkspaceContent
             }, "Text.Caption"));
         }
 
-        if (warning.CrossLink is not null)
+        // Every warning ends in somewhere to go (Phase 24 gate). The node
+        // link is dropped here only because this card is already on the canvas
+        // that would be navigated to, and clicking the card itself selects it.
+        var links = warning.Targets.Where(l => l.Kind != WarningTarget.Node).ToList();
+        if (links.Count > 0)
         {
-            panel.Children.Add(Styled(new TextBlock
+            var row = new WrapPanel { Margin = new Thickness(0, 4, 0, 0) };
+            foreach (var link in links)
             {
-                Text = "See " + warning.CrossLink,
-                Margin = new Thickness(0, 3, 0, 0),
-            }, "Text.Caption"));
+                row.Children.Add(LinkChip(link));
+            }
+
+            panel.Children.Add(row);
         }
 
         var border = new Border
