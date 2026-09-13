@@ -37,6 +37,15 @@ public enum SearchAlgorithm
 
     /// <summary>Multi-objective, returning a front rather than a point.</summary>
     NsgaII,
+
+    /// <summary>
+    /// Nelder–Mead simplex. A polisher, not a search: it finishes what a
+    /// global method started and stalls above about ten variables.
+    /// </summary>
+    NelderMead,
+
+    /// <summary>Powell's conjugate directions. The same job on a smoother objective.</summary>
+    Powell,
 }
 
 /// <summary>
@@ -57,6 +66,8 @@ public static class SearchAlgorithms
         SearchAlgorithm.CmaEs => "CMA-ES",
         SearchAlgorithm.Bayesian => "Bayesian",
         SearchAlgorithm.NsgaII => "NSGA-II",
+        SearchAlgorithm.NelderMead => "Nelder–Mead",
+        SearchAlgorithm.Powell => "Powell",
         _ => algorithm.ToString(),
     };
 }
@@ -302,13 +313,14 @@ public sealed class OptimiseWorkspace
     {
         var runId = $"opt-{DateTime.UtcNow:yyyyMMdd-HHmmss}";
 
-        Archive = new DesignArchive(runId, problem.Space, problem.Objectives);
+        var archive = new DesignArchive(runId, problem.Space, problem.Objectives);
+        Archive = archive;
 
         // Every design the problem scores lands in the archive as it is
         // scored, whatever algorithm is driving. Collecting each search's
         // history at the END instead lost the whole run on cancellation — the
         // evaluations were paid for and the hand-over never happened.
-        problem.Observed = Archive.Add;
+        problem.Observed = archive.Add;
 
         lock (_logGate)
         {
@@ -386,6 +398,25 @@ public sealed class OptimiseWorkspace
                 break;
             }
 
+            case SearchAlgorithm.NelderMead:
+            case SearchAlgorithm.Powell:
+            {
+                // A refiner starts from the best design already found, not from
+                // the document — finishing a search means finishing THAT
+                // search, and starting over from the baseline would throw away
+                // whatever the global pass established.
+                var from = LastResult?.Best.Design
+                           ?? archive.Best(count: 1).FirstOrDefault()?.Point(problem.Space)
+                           ?? problem.Space.From(Document);
+
+                LastResult = Algorithm == SearchAlgorithm.NelderMead
+                    ? LocalSearch.NelderMead(problem, from, Budget, progress: progress, cancellation: cancellation)
+                    : LocalSearch.Powell(problem, from, Budget, progress: progress, cancellation: cancellation);
+
+                Note($"{LastResult.Reason}. Best: {Describe(LastResult.Best, problem.Objectives)}");
+                break;
+            }
+
             case SearchAlgorithm.CmaEs:
             default:
             {
@@ -402,7 +433,7 @@ public sealed class OptimiseWorkspace
             }
         }
 
-        Note(Archive.Summary().ToString());
+        Note(archive.Summary().ToString());
     }
 
     private void Note(string line)

@@ -321,6 +321,10 @@ public static class OptimiseContent
                 SearchAlgorithm.NsgaII =>
                     "Multi-objective. Returns a front rather than a point, because a weighted sum needs the "
                     + "weights chosen before the trade is known — which is backwards.",
+                SearchAlgorithm.NelderMead or SearchAlgorithm.Powell =>
+                    "A polisher, not a search. Starts from the best design already found and bottoms it out — a "
+                    + "global method decides which basin to be in and stops well before there is nothing better "
+                    + "within a millimetre. Run one of these after a global pass, not instead of one.",
                 _ =>
                     "Single-objective global search. Learns the shape of the response, which matters because a "
                     + "manifold's optimum lies along a ridge that follows no single variable.",

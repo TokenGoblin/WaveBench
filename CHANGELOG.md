@@ -9,6 +9,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Phase 22 complete — local refinement and the §9.7 presets.** Every §9.4
+  algorithm and both §9.7 presets are now built.
+  - **Nelder–Mead and Powell**, as polishers rather than searches. A global
+    method decides which basin to be in and stops when its own progress measure
+    collapses, which is not the same as "there is nothing better within a
+    millimetre". Measured on Rosenbrock 3-D with CMA-ES stopped at 60
+    evaluations and 60 more of refinement: both improved **10 of 10** runs,
+    median gain ~9.9. Powell from the classic Rosenbrock start goes 24.20 →
+    0.062 — the direction replacement aligns the search with the valley, which
+    is what plain coordinate descent cannot do. Neither can return a design
+    worse than the one it was handed.
+  - Nelder–Mead builds its initial simplex INWARD where the start sits on a
+    bound. A refiner is most often handed a design against a limit — that is
+    where a constrained optimum lives — and offsetting outward there clamps
+    every vertex back onto the start, leaving a degenerate simplex that cannot
+    move.
+  - **Valve-to-piston clearance, computed over the cycle rather than at TDC.**
+    The piston is highest at TDC, but both valves are near their seats there;
+    the pinch point is 10–20° either side, where the piston has barely dropped
+    and the valve is substantially open. Measured on the test case: 2.64 mm at
+    TDC against a true minimum of 2.39 mm at +6°. A check evaluated at TDC
+    alone reads as a safety limit while permitting exactly the collision it
+    appears to prevent.
+  - The one input the schema does not carry — clearance at TDC with the valve
+    shut — is a stated parameter rather than a derived one, because a clearance
+    constraint computed from an invented pocket depth is worse than no
+    constraint. Everything else is real: piston position from the crank
+    kinematics, valve lift from the cam profile, at every half-degree of the
+    overlap window.
+  - **The cam-timing preset** (§9.7) varies all four valve events with
+    clearance as a hard limit. Tested against an adversarial objective that
+    rewards overlap without bound — the thing the constraint exists to stop:
+    40 of 121 designs were rejected on clearance and the returned design keeps
+    2.76 mm. Without the limit the answer is always "more overlap", right up
+    until the valve meets the piston.
+  - **The cam-timing study** plots optimum lobe separation against engine
+    speed — §9.7's *"result view ... so the user can see whether VVT is worth
+    the complexity"*. The SPREAD is the answer: a flat line means a fixed
+    camshaft gives away nothing and variable timing is mechanism for its own
+    sake; a line that moves means the engine wants two different cams. The
+    figure draws the torque-weighted fixed-cam compromise across it and says
+    which case this engine is in, as a number rather than a preference.
+  - **The boost-trade preset** returns a FRONT rather than a single answer,
+    because response against power has no best — only a choice about what the
+    engine is for.
+  - Applying a preset replaces the previous run definition rather than merging
+    into it. Two presets applied in turn used to leave the first one's
+    variables in the second one's search, which optimises something nobody
+    asked for.
+
 - **Phase 22, continued — a run can now actually be started, and it runs in
   the background.**
   - **The Optimise workspace had no way to start a search.** Variables,

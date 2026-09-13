@@ -8,7 +8,7 @@ hard acceptance gate (Part 12). Never let a session span two phases.
 
 ## START HERE — where the project stands
 
-**23 of 26 phases complete. 909 tests green, none skipped. CI green on main.**
+**24 of 26 phases complete. 988 tests green, none skipped. CI green on main.**
 
 | Phase | State | Notes |
 |---|---|---|
@@ -20,13 +20,13 @@ hard acceptance gate (Part 12). Never let a session span two phases.
 | **15** | **PARTIAL** | transient + FI acoustics · **v0.6** — gate clause 1 open, see below |
 | 16-20 | done | shell, Design, Manifold canvas, Results, Sound |
 | 21 | done | Boost workspace · **v0.9** — docs/physics.md §7 |
-| **22** | **IN PROGRESS** | Optimisation — core done, see below |
+| 22 | done | Optimisation · CMA-ES, NSGA-II, Bayesian, screening, refiners, presets |
 | 23 | done | Simple mode and the wizard |
-| **24** | to do | Learn layer and guardrails |
+| **24** | **NEXT** | Learn layer and guardrails |
 | **25** | to do | Reporting, docs, packaging · **v1.0** |
 
 **PHASE ORDER WAS USER-REORDERED.** See the note further down for why; the
-remaining phases (22, 24, 25) are back in plan order, so nothing is pending on
+remaining phases (24, 25) are back in plan order, so nothing is pending on
 the reordering except Phase 11's psychoacoustic metrics and Phase 15's gate
 clause 1, both listed below.
 
@@ -47,41 +47,20 @@ clause 1, both listed below.
    no-carry-over control) is what CI actually checks in its place. Close this
    only if a suitable licensed dataset turns up — see the standing deferral
    below (validation case 20).
-2. **Phase 22 — Optimisation. PARTIALLY BUILT; pick up here.**
-   `WaveBench.Optimize` was an empty scaffold and now holds the problem
-   definition, three algorithms, the screening layer and the solver-backed
-   evaluator, all tested. **All four gate clauses are met** — clause 1
-   (converges on synthetic problems with known optima), clause 2 (+1.7% area
-   under torque on a real FSAE intake case over a competent hand design, found
-   through the surrogate inner loop), clause 3 (the clearance constraint is
-   never violated in a returned design) and clause 4 (the fronts are
-   explorable: selecting a design yields its geometry in millimetres, the
-   torque curve behind its score, and a level-matched audition).
+2. **Phase 24 — Learn layer. PICK UP HERE.** Breadth, not depth: "why" text
+   on every field, "Show me" parametric sweeps, a Concepts panel, "Explain this
+   result", guided tours, implausible-input detection, a generic-defaults
+   banner, global search, and cross-workspace warning links.
 
-   **The gate is met; the phase is not finished.** What remains are plan §9.4
-   and §9.7 deliverables the gate happens not to test — real capability, not
-   polish.
-
-   *Done:* `DesignSpace`/`DesignPoint` (unit-cube search, discrete snapping,
-   cache key on the snapped design, bound-limited-answer reporting) ·
-   `ObjectiveSet` with the plan's §9.2 objectives · `ConstraintSet` with graded
-   violations and geometry-before-evaluation rejection · `OptimisationProblem`
-   (lexicographic feasibility) · Sobol and Latin-hypercube DOE · CMA-ES ·
-   NSGA-II · Morris screening and Sobol indices · `EvaluationCache` ·
-   `SweepEvaluator` (two fidelities, parallel across operating points) ·
-   `DesignArchive` with checkpoint/resume · Bayesian optimisation with a
-   Gaussian-process surrogate and expected improvement · `OptimiseWorkspace` and
-   `OptimiseContent` (Variables, Objectives, Run, Pareto, Archive; Pareto and
-   parallel-coordinates figures; click-to-inspect and click-to-audition). The Run
-   tab starts a search on a background thread into the job tray, cancellable,
-   and every evaluation lands in the archive as it is scored.
-
-   *Still to build:* Nelder–Mead and Powell local refinement (§9.4) · the
-   cam-timing and NA-vs-boosted presets (§9.7).
-3. **Phase 24 — Learn layer.** Breadth, not depth: "why" text on every field,
-   "Show me" sweeps, Concepts panel, tours, guardrails.
-4. **Phase 25 — Reporting, docs, release (v1.0).**
-5. **Phase 11's four psychoacoustic metrics** — ISO 532-3, ECMA-418-2,
+   Much of the raw material exists: `DesignCatalogue` and `BoostCatalogue`
+   already carry per-field `Help`, `OptimisationCatalogue` carries a `Why` for
+   every variable, and `DesignWarning` already carries a citation and a
+   cross-link. The gate asks that EVERY user-editable field have why-text and a
+   typical range, that "Show me" work on every numeric parameter in the solve,
+   and that every design warning link to the field or plot causing it — so the
+   work is largely completing coverage and adding the sweep machinery.
+3. **Phase 25 — Reporting, docs, release (v1.0).**
+4. **Phase 11's four psychoacoustic metrics** — ISO 532-3, ECMA-418-2,
    fluctuation strength, DIN 45681. Deferred for a REASON, not skipped: each
    needs verification against published reference signals and none are
    redistributable. This is the only backwards gap and it blocks the v0.4 tag
@@ -211,6 +190,19 @@ objective, not a cheaper one") and the implementation then guarded only the
 band's ENDS while thinning its interior. Writing the hazard down is not the
 same as defending against it — the test that measured the correlation is what
 caught it.
+
+**VALVE-TO-PISTON CLEARANCE IS NOT A TDC CHECK.** The piston is highest at
+TDC, but both valves are near their seats there — the pinch point is 10-20
+degrees either side, where the piston has barely dropped and the valve is
+substantially open. Measured on the test engine: 2.64 mm at TDC against a true
+minimum of 2.39 mm at +6 degrees. `ValveClearance.Minimum` sweeps 270-450
+degrees for that reason. A check evaluated at TDC alone reads as a safety
+limit while permitting exactly the collision it appears to prevent.
+
+The clearance available at TDC with the valve shut is a STATED parameter, not
+a derived one: the schema carries no piston dome or valve-pocket geometry.
+Do not invent one — a clearance constraint computed from a guessed pocket
+depth is worse than no constraint.
 
 **NEVER USE `Progress<T>` IN A TEST THAT ASSERTS ON WHAT IT COLLECTED.** It
 posts callbacks to the captured SynchronizationContext, and a test has none —
