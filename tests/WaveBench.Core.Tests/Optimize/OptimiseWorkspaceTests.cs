@@ -448,6 +448,138 @@ public class OptimiseWorkspaceTests(ITestOutputHelper output)
         }
     }
 
+    // ---- Running in the background -----------------------------------------
+
+    [Fact]
+    public async Task A_run_goes_to_a_background_thread_and_can_be_cancelled()
+    {
+        // An evaluation is a converged sweep and a budget of forty is minutes
+        // to hours. Running that on the dispatcher freezes the window, and a
+        // frozen window is indistinguishable from a crash (plan §8.3, §8.12).
+        var session = new ProjectSession(FourCylinder());
+        var workspace = new OptimiseWorkspace(session);
+        workspace.Objectives.Add(new MetricObjective("Peak power", "kW", PowerKey, ObjectiveSense.Maximise));
+        workspace.Budget = 100_000;
+
+        var gate = new SemaphoreSlim(0);
+        var slow = new Blocking(gate);
+
+        workspace.IsRunning.Should().BeFalse();
+
+        var run = workspace.StartAsync(slow);
+
+        // The call returned while the search is still going — which is the
+        // whole point.
+        run.IsCompleted.Should().BeFalse();
+
+        // Let a few evaluations through, then stop it.
+        gate.Release(5);
+        while (slow.Calls < 3)
+        {
+            await Task.Delay(10);
+        }
+
+        workspace.IsRunning.Should().BeTrue();
+        workspace.Cancel();
+        gate.Release(1000);
+
+        await run;
+
+        workspace.IsRunning.Should().BeFalse("the flag must clear however the run ended");
+        workspace.Log.Should().Contain(l => l.Contains("Cancelled"));
+
+        // Cancelling KEEPS the work. This is the assertion that caught the
+        // real defect: each search used to hand its history to the archive
+        // once it finished, so a cancelled run — where the hand-over never
+        // happens — threw away every evaluation the user had paid for. Six
+        // evaluations went in and one came out. The archive now fills as the
+        // problem scores, so the count matches what was actually measured.
+        workspace.Archive!.Count.Should().Be(slow.Calls,
+            "every design that was evaluated must be in the archive, cancelled run or not");
+
+        output.WriteLine(
+            $"cancelled after {slow.Calls} evaluations; {workspace.Archive.Count} designs kept");
+    }
+
+    [Fact]
+    public async Task Two_runs_cannot_overlap()
+    {
+        var session = new ProjectSession(FourCylinder());
+        var workspace = new OptimiseWorkspace(session);
+        workspace.Objectives.Add(new MetricObjective("Peak power", "kW", PowerKey, ObjectiveSense.Maximise));
+        workspace.Budget = 100_000;
+
+        var gate = new SemaphoreSlim(0);
+        var slow = new Blocking(gate);
+
+        var first = workspace.StartAsync(slow);
+
+        // Wait for the run to have got as far as creating its archive. Not
+        // just IsRunning: that is set on the calling thread before the task
+        // body has begun, so an archive captured on the flag alone is the
+        // PREVIOUS run's — which here is null, and the assertion below would
+        // pass for the wrong reason.
+        gate.Release(2);
+        while (workspace.Archive is null)
+        {
+            await Task.Delay(5);
+        }
+
+        // A second start while one is in flight is ignored rather than
+        // corrupting the first run's archive halfway through.
+        var archive = workspace.Archive;
+        await workspace.StartAsync(slow);
+        workspace.Archive.Should().BeSameAs(archive, "the running search keeps its archive");
+
+        workspace.Cancel();
+        gate.Release(10_000);
+        await first;
+    }
+
+    [Fact]
+    public async Task A_run_that_cannot_be_built_throws_where_the_caller_can_see_it()
+    {
+        // No variables: the problem cannot be constructed. That has to surface
+        // on the calling thread, not inside a task whose exception nobody
+        // observes.
+        var session = new ProjectSession(FourCylinder());
+        var workspace = new OptimiseWorkspace(session);
+
+        foreach (var path in workspace.Variables.Select(v => v.Path).ToList())
+        {
+            workspace.Remove(path);
+        }
+
+        var act = async () => await workspace.StartAsync(new PowerAndSound());
+        await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("*at least one variable*");
+
+        workspace.IsRunning.Should().BeFalse();
+    }
+
+    /// <summary>An evaluator that waits for permission, so a run can be held open mid-flight.</summary>
+    private sealed class Blocking(SemaphoreSlim gate) : IDesignEvaluator
+    {
+        private int _calls;
+
+        public int Calls => Volatile.Read(ref _calls);
+
+        public IReadOnlyList<EvaluationFidelity> Fidelities => [EvaluationFidelity.Solved];
+
+        public DesignEvaluation Evaluate(
+            DesignPoint design, EvaluationFidelity fidelity, CancellationToken cancellation = default)
+        {
+            gate.Wait(cancellation);
+            Interlocked.Increment(ref _calls);
+
+            return new DesignEvaluation
+            {
+                Design = design,
+                Fidelity = fidelity,
+                Metrics = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase) { [PowerKey] = 1.0 },
+            };
+        }
+    }
+
     [Fact]
     public void The_bayesian_run_reports_what_its_surrogate_learned()
     {

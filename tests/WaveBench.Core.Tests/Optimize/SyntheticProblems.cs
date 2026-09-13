@@ -101,6 +101,26 @@ internal static class SyntheticProblems
         }
     }
 
+    /// <summary>
+    /// A synchronous <see cref="IProgress{T}"/>.
+    ///
+    /// <b>Not <see cref="Progress{T}"/>, deliberately.</b> That type posts its
+    /// callbacks to the captured synchronization context, and a test has none —
+    /// so they go to the thread pool, arrive out of order, and race on whatever
+    /// they are appended to. Using it made a progress test pass alone and fail
+    /// under the parallelism of the full suite. These tests are about what the
+    /// OPTIMISER reports, not about the delivery semantics of a BCL type, so
+    /// the report is taken on the calling thread where ordering is the
+    /// optimiser's own.
+    ///
+    /// (The application is unaffected: its <c>Progress&lt;T&gt;</c> is created
+    /// on the UI thread, so callbacks are posted in order to the dispatcher.)
+    /// </summary>
+    public sealed class Immediate<T>(Action<T> report) : IProgress<T>
+    {
+        public void Report(T value) => report(value);
+    }
+
     /// <summary>Minimise the synthetic metric.</summary>
     public static ObjectiveSet Minimise { get; } = new(
         [new MetricObjective("Synthetic", "", Analytic.MetricKey, ObjectiveSense.Minimise)]);

@@ -336,7 +336,7 @@ public class BayesianTests(ITestOutputHelper output)
         var count = 0;
         var result = new BayesianOptimiser(problem, seed: 9).Run(
             200,
-            progress: new Progress<OptimiserProgress>(_ =>
+            progress: new SyntheticProblems.Immediate<OptimiserProgress>(_ =>
             {
                 if (++count >= 3)
                 {

@@ -9,6 +9,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Phase 22, continued — a run can now actually be started, and it runs in
+  the background.**
+  - **The Optimise workspace had no way to start a search.** Variables,
+    objectives and a log were all on screen; the Run tab had nothing to press.
+    The offscreen renderer drove `Run()` directly, which is why the screenshots
+    worked and the application did not. The Run tab now carries the algorithm,
+    the evaluation budget and a Run/Cancel button.
+  - **The run goes to a background thread and into the job tray.** An
+    evaluation is a converged sweep and a budget of forty is minutes to hours;
+    running that on the dispatcher freezes the window, and a frozen window is
+    indistinguishable from a crash. The workspace owns the cancellation token
+    rather than the renderer, because plan §8.3 requires that switching
+    workspaces never cancels a job — and a renderer's state does not survive
+    the next click.
+  - **Fixed: cancelling a run threw away every evaluation it had paid for.**
+    Each search handed its history to the archive once it FINISHED, which works
+    until a run is cancelled and the hand-over never happens. Measured on the
+    test that caught it: six evaluations went in, one came out. The archive now
+    fills as `OptimisationProblem.Score` scores — one hook covering every
+    algorithm including any added later — so a cancelled run keeps its work by
+    construction, and the test asserts the archive count equals the number of
+    evaluations actually performed.
+  - The run log is snapshotted under a lock. A background run appends to it
+    while the screen reads it, and enumerating a list another thread is adding
+    to throws — at exactly the moment a user is watching a long run, which is
+    the one moment the screen must not fall over.
+  - Fixed a flaky test of my own making: it collected `IProgress<T>` reports
+    into a list, and `Progress<T>` with no synchronization context posts to the
+    thread pool — the reports arrived out of order and raced on the list. It
+    passed alone and failed under the full suite's parallelism. The tests now
+    report on the calling thread, which is what they were actually asserting
+    about.
+  - Algorithms are named as they are published — DOE, Screening, CMA-ES,
+    Bayesian, NSGA-II — rather than by their C# identifiers. "CmaEs" is not
+    what the method is called, and "NsgaII" in a sans-serif face is very nearly
+    unreadable.
+
 - **Phase 22, continued — Bayesian optimisation with a Gaussian-process
   surrogate.** Plan §9.4 calls it *"the right default when each evaluation
   costs a 20-point rpm sweep"*, and in this project an evaluation is exactly

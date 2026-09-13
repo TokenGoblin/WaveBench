@@ -35,7 +35,7 @@ public static class OptimiseContent
         void RedrawBody()
         {
             body.Children.Clear();
-            FillBody(body, optimise);
+            FillBody(body, optimise, shell, Refresh);
         }
 
         host.Children.Add(WorkspaceContent.Heading(
@@ -55,7 +55,7 @@ public static class OptimiseContent
         RedrawBody();
     }
 
-    private static void FillBody(Panel body, OptimiseWorkspace optimise)
+    private static void FillBody(Panel body, OptimiseWorkspace optimise, ShellViewModel shell, Action refresh)
     {
         switch (optimise.SelectedTab)
         {
@@ -68,8 +68,9 @@ public static class OptimiseContent
                 break;
 
             case OptimiseTab.Run:
-                body.Children.Add(RunCard(optimise));
+                body.Children.Add(RunCard(optimise, shell, refresh));
                 break;
+
 
             case OptimiseTab.Pareto:
                 if (!optimise.HasRun)
@@ -291,11 +292,17 @@ public static class OptimiseContent
         return WorkspaceContent.Card(panel);
     }
 
-    private static UIElement RunCard(OptimiseWorkspace optimise)
+    private static UIElement RunCard(OptimiseWorkspace optimise, ShellViewModel shell, Action refresh)
     {
         var panel = new StackPanel();
+
+        panel.Children.Add(AlgorithmStrip(optimise, refresh));
+        panel.Children.Add(BudgetStrip(optimise, refresh));
+        panel.Children.Add(StartStrip(optimise, shell, refresh));
+
         panel.Children.Add(WorkspaceContent.Styled(
-            new TextBlock { Text = $"{optimise.Algorithm}, budget {optimise.Budget}" }, "Text.Body", bold: true));
+            new TextBlock { Text = $"{optimise.Algorithm.Title()}, budget {optimise.Budget}", Margin = new Thickness(0, 16, 0, 0) },
+            "Text.Body", bold: true));
 
         panel.Children.Add(WorkspaceContent.Styled(new TextBlock
         {
@@ -363,6 +370,182 @@ public static class OptimiseContent
         }
 
         return WorkspaceContent.Card(panel);
+    }
+
+    private static UIElement AlgorithmStrip(OptimiseWorkspace optimise, Action refresh)
+    {
+        var panel = new StackPanel { Margin = new Thickness(0, 0, 0, 10) };
+        panel.Children.Add(WorkspaceContent.Styled(
+            new TextBlock { Text = "Search", Margin = new Thickness(0, 0, 0, 6) }, "Text.Caption"));
+
+        var strip = new WrapPanel();
+
+        foreach (var algorithm in Enum.GetValues<SearchAlgorithm>())
+        {
+            var selected = algorithm == optimise.Algorithm;
+            var button = new Button
+            {
+                Content = algorithm.Title(),
+                Margin = new Thickness(0, 0, 8, 0),
+                Padding = new Thickness(12, 5, 12, 6),
+                Background = (Brush)Application.Current.Resources[selected ? "Brush.Accent" : "Brush.Surface"],
+                Foreground = (Brush)Application.Current.Resources[selected ? "Brush.OnAccent" : "Brush.TextSecondary"],
+                BorderBrush = (Brush)Application.Current.Resources["Brush.BorderSubtle"],
+                BorderThickness = new Thickness(1),
+                Cursor = System.Windows.Input.Cursors.Hand,
+                IsEnabled = !optimise.IsRunning,
+            };
+
+            var target = algorithm;
+            button.Click += (_, _) =>
+            {
+                optimise.Algorithm = target;
+                refresh();
+            };
+            strip.Children.Add(button);
+        }
+
+        panel.Children.Add(strip);
+        return panel;
+    }
+
+    /// <summary>
+    /// The evaluation budget — the single number that decides what a run
+    /// costs, so it is a control rather than a constant.
+    /// </summary>
+    private static UIElement BudgetStrip(OptimiseWorkspace optimise, Action refresh)
+    {
+        var panel = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 12) };
+
+        panel.Children.Add(WorkspaceContent.Styled(new TextBlock
+        {
+            Text = "Budget",
+            Width = 90,
+            VerticalAlignment = VerticalAlignment.Center,
+        }, "Text.Secondary"));
+
+        foreach (var budget in new[] { 20, 40, 80, 160 })
+        {
+            var selected = optimise.Budget == budget;
+            var button = new Button
+            {
+                Content = budget.ToString(),
+                Margin = new Thickness(0, 0, 8, 0),
+                Padding = new Thickness(12, 5, 12, 6),
+                Background = (Brush)Application.Current.Resources[selected ? "Brush.Accent" : "Brush.Surface"],
+                Foreground = (Brush)Application.Current.Resources[selected ? "Brush.OnAccent" : "Brush.TextSecondary"],
+                BorderBrush = (Brush)Application.Current.Resources["Brush.BorderSubtle"],
+                BorderThickness = new Thickness(1),
+                Cursor = System.Windows.Input.Cursors.Hand,
+                IsEnabled = !optimise.IsRunning,
+            };
+
+            var target = budget;
+            button.Click += (_, _) =>
+            {
+                optimise.Budget = target;
+                refresh();
+            };
+            panel.Children.Add(button);
+        }
+
+        panel.Children.Add(WorkspaceContent.Styled(new TextBlock
+        {
+            Text = "evaluations",
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(4, 0, 0, 0),
+        }, "Text.Caption"));
+
+        return panel;
+    }
+
+    /// <summary>
+    /// Start and cancel.
+    ///
+    /// <b>The run goes to a background thread and into the job tray.</b> An
+    /// evaluation is a converged sweep and a budget of forty is minutes to
+    /// hours; running that on the dispatcher would freeze the window, and a
+    /// frozen window is indistinguishable from a crash. Plan §8.3 puts
+    /// background jobs in a tray and requires that switching workspaces never
+    /// cancels one, which is why the workspace owns the token rather than this
+    /// renderer — a renderer's state does not survive the next click.
+    /// </summary>
+    private static UIElement StartStrip(OptimiseWorkspace optimise, ShellViewModel shell, Action refresh)
+    {
+        var panel = new StackPanel { Orientation = Orientation.Horizontal };
+
+        var start = new Button
+        {
+            Content = optimise.IsRunning ? "⨯  Cancel" : "▶  Run search",
+            Padding = new Thickness(16, 7, 16, 8),
+            Background = (Brush)Application.Current.Resources[
+                optimise.IsRunning ? "Brush.Surface" : "Brush.Accent"],
+            Foreground = (Brush)Application.Current.Resources[
+                optimise.IsRunning ? "Brush.TextSecondary" : "Brush.OnAccent"],
+            BorderBrush = (Brush)Application.Current.Resources["Brush.BorderSubtle"],
+            BorderThickness = new Thickness(1),
+            Cursor = System.Windows.Input.Cursors.Hand,
+        };
+
+        start.Click += async (_, _) =>
+        {
+            if (optimise.IsRunning)
+            {
+                optimise.Cancel();
+                return;
+            }
+
+            var job = shell.Jobs.Enqueue(
+                "optimise",
+                $"{optimise.Algorithm.Title()}, {optimise.Variables.Count} variables",
+                optimise.Budget);
+            shell.Jobs.Start(job.Id);
+
+            // Progress<T> marshals back to the thread that created it — the
+            // dispatcher — so the tray and the button update without the
+            // background run touching a UI object.
+            var progress = new Progress<OptimiserProgress>(p =>
+            {
+                shell.Jobs.Checkpoint(job.Id, Math.Min(p.Evaluations, optimise.Budget));
+                start.Content = $"⨯  Cancel  ({p.Evaluations}/{optimise.Budget})";
+            });
+
+            try
+            {
+                await optimise.StartAsync(progress: progress);
+                shell.Jobs.Complete(job.Id);
+            }
+            catch (InvalidOperationException e)
+            {
+                // A problem that cannot be built — no variables, or a path
+                // that does not resolve. Told to the user, not swallowed.
+                shell.Jobs.Fail(job.Id, e.Message);
+                MessageBox.Show(e.Message, "The run could not start", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+            catch (Exception e)
+            {
+                shell.Jobs.Fail(job.Id, e.Message);
+                MessageBox.Show(e.Message, "The run failed", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+            finally
+            {
+                refresh();
+            }
+        };
+
+        panel.Children.Add(start);
+
+        if (optimise.IsRunning)
+        {
+            panel.Children.Add(WorkspaceContent.Styled(new TextBlock
+            {
+                Text = "Running in the background — switching workspaces will not cancel it.",
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(12, 0, 0, 0),
+            }, "Text.Caption"));
+        }
+
+        return panel;
     }
 
     /// <summary>

@@ -144,11 +144,10 @@ public class CmaEsTests(ITestOutputHelper output)
         var seen = new List<OptimiserProgress>();
 
         var result = new CmaEs(problem, problem.Space.Centre(), seed: 11)
-            .Run(600, progress: new Progress<OptimiserProgress>(seen.Add));
+            .Run(600, progress: new SyntheticProblems.Immediate<OptimiserProgress>(seen.Add));
 
-        // Progress<T> posts asynchronously, so allow for the tail not having
-        // arrived; what matters is that what DID arrive is monotone.
         seen.Should().NotBeEmpty();
+        seen.Should().HaveCount(result.Iterations, "one report per generation, no more and no fewer");
         seen.Select(p => p.Best.ScalarScore).Should().BeInDescendingOrder(
             "the running best can only improve");
         seen.Select(p => p.Iteration).Should().BeInAscendingOrder();
@@ -165,13 +164,13 @@ public class CmaEsTests(ITestOutputHelper output)
         using var cancellation = new CancellationTokenSource();
 
         var count = 0;
-        var progress = new Progress<OptimiserProgress>(_ => { });
+        var progress = new SyntheticProblems.Immediate<OptimiserProgress>(_ => { });
         _ = progress;
 
         var search = new CmaEs(problem, problem.Space.Centre(), seed: 3);
         var result = search.Run(
             2000,
-            progress: new Progress<OptimiserProgress>(p =>
+            progress: new SyntheticProblems.Immediate<OptimiserProgress>(p =>
             {
                 if (++count >= 3)
                 {

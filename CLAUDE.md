@@ -72,11 +72,12 @@ clause 1, both listed below.
    `DesignArchive` with checkpoint/resume · Bayesian optimisation with a
    Gaussian-process surrogate and expected improvement · `OptimiseWorkspace` and
    `OptimiseContent` (Variables, Objectives, Run, Pareto, Archive; Pareto and
-   parallel-coordinates figures; click-to-inspect and click-to-audition).
+   parallel-coordinates figures; click-to-inspect and click-to-audition). The Run
+   tab starts a search on a background thread into the job tray, cancellable,
+   and every evaluation lands in the archive as it is scored.
 
-   *Still to build:* Nelder–Mead and Powell local refinement · the cam-timing
-   and NA-vs-boosted presets (§9.7) · wiring a run into the job tray so it
-   goes to a background thread rather than blocking the UI thread.
+   *Still to build:* Nelder–Mead and Powell local refinement (§9.4) · the
+   cam-timing and NA-vs-boosted presets (§9.7).
 3. **Phase 24 — Learn layer.** Breadth, not depth: "why" text on every field,
    "Show me" sweeps, Concepts panel, tours, guardrails.
 4. **Phase 25 — Reporting, docs, release (v1.0).**
@@ -210,6 +211,22 @@ objective, not a cheaper one") and the implementation then guarded only the
 band's ENDS while thinning its interior. Writing the hazard down is not the
 same as defending against it — the test that measured the correlation is what
 caught it.
+
+**NEVER USE `Progress<T>` IN A TEST THAT ASSERTS ON WHAT IT COLLECTED.** It
+posts callbacks to the captured SynchronizationContext, and a test has none —
+so they go to the thread pool, arrive OUT OF ORDER, and race on whatever they
+are appended to. A progress test written that way passed alone and failed only
+under the full suite's parallelism. `SyntheticProblems.Immediate<T>` reports on
+the calling thread; use it. (The app is unaffected: its `Progress<T>` is
+created on the UI thread, so callbacks are posted in order to the dispatcher.)
+
+**AN ARCHIVE MUST FILL AS IT GOES, NOT IN BULK AT THE END.** Every search
+used to hand its history to `DesignArchive` once it finished, which works
+until a run is CANCELLED and the hand-over never happens — six evaluations in,
+one out. The hook is now `OptimisationProblem.Observed`, called for every
+design the problem scores, so one mechanism covers all five algorithms and any
+added later, and a cancelled run keeps its work by construction. The same
+argument applies to anything else accumulated during a long run.
 
 **BAYESIAN OPTIMISATION LOSES ON HUGE DYNAMIC RANGE, AND THAT IS MEASURED.**
 It beats CMA-ES at 40 evaluations on sphere 3-D (12/12 seeds), sphere 6-D

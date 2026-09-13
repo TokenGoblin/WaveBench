@@ -40,6 +40,28 @@ public enum SearchAlgorithm
 }
 
 /// <summary>
+/// How each search is named on screen.
+///
+/// The enum members are C# identifiers and read as such — "CmaEs" and
+/// "NsgaII" are not what these methods are called, and "NsgaII" in a
+/// sans-serif face is very nearly unreadable. These are published algorithms
+/// with published names, and a user searching for one should find the same
+/// spelling here as in the paper.
+/// </summary>
+public static class SearchAlgorithms
+{
+    public static string Title(this SearchAlgorithm algorithm) => algorithm switch
+    {
+        SearchAlgorithm.Doe => "DOE",
+        SearchAlgorithm.Screening => "Screening",
+        SearchAlgorithm.CmaEs => "CMA-ES",
+        SearchAlgorithm.Bayesian => "Bayesian",
+        SearchAlgorithm.NsgaII => "NSGA-II",
+        _ => algorithm.ToString(),
+    };
+}
+
+/// <summary>
 /// The Optimise workspace (plan Phase 22, §8.4): variables, objectives and
 /// constraints; the run; the Pareto explorer; the archive.
 ///
@@ -159,9 +181,86 @@ public sealed class OptimiseWorkspace
 
     public IReadOnlyList<MorrisEffect> LastScreening { get; private set; } = [];
 
-    public IReadOnlyList<string> Log => _log;
+    /// <summary>
+    /// What the run has said so far.
+    ///
+    /// Snapshotted under a lock because a run appends to it from a background
+    /// thread while the screen reads it: enumerating a <c>List</c> another
+    /// thread is adding to throws, and it would throw exactly when the user is
+    /// watching a long run — the one moment the screen must not fall over.
+    /// </summary>
+    public IReadOnlyList<string> Log
+    {
+        get
+        {
+            lock (_logGate)
+            {
+                return _log.ToList();
+            }
+        }
+    }
+
+    private readonly Lock _logGate = new();
 
     public bool HasRun => Archive is { Count: > 0 };
+
+    /// <summary>True while a search is in flight.</summary>
+    public bool IsRunning { get; private set; }
+
+    private CancellationTokenSource? _cancellation;
+
+    /// <summary>
+    /// Start a search on a background thread.
+    ///
+    /// <b>The workspace owns the run, not the view.</b> Plan §8.3 requires
+    /// that switching workspaces never cancels a job, so the thing that
+    /// survives navigation has to hold it — and the workspace is what lives
+    /// for the session while the view is rebuilt on every click. A token
+    /// source held in a renderer would be collected the first time the user
+    /// looked at another tab.
+    /// </summary>
+    public async Task StartAsync(
+        IDesignEvaluator? evaluator = null, IProgress<OptimiserProgress>? progress = null)
+    {
+        if (IsRunning)
+        {
+            return;
+        }
+
+        // Built on the CALLING thread, so a bad variable set or an unwritable
+        // path throws where the user can see it rather than inside a task
+        // whose exception nobody observes.
+        var problem = Problem(evaluator);
+
+        _cancellation = new CancellationTokenSource();
+        var token = _cancellation.Token;
+        IsRunning = true;
+
+        try
+        {
+            await Task.Run(() => Run(problem, progress, token), token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            Note("Cancelled. Everything measured so far is kept — the archive and the cache both survive.");
+        }
+        finally
+        {
+            IsRunning = false;
+            _cancellation.Dispose();
+            _cancellation = null;
+        }
+    }
+
+    /// <summary>
+    /// Ask the running search to stop.
+    ///
+    /// Every algorithm here returns the work it has already done rather than
+    /// discarding it, so a cancelled run still leaves a usable archive — an
+    /// optimisation that threw away an hour of evaluations on cancel would be
+    /// unusable.
+    /// </summary>
+    public void Cancel() => _cancellation?.Cancel();
 
     /// <summary>
     /// Build the problem this run describes. Exposed so a caller can score a
@@ -193,13 +292,29 @@ public sealed class OptimiseWorkspace
     public void Run(
         IDesignEvaluator? evaluator = null,
         IProgress<OptimiserProgress>? progress = null,
-        CancellationToken cancellation = default)
+        CancellationToken cancellation = default) =>
+        Run(Problem(evaluator), progress, cancellation);
+
+    private void Run(
+        OptimisationProblem problem,
+        IProgress<OptimiserProgress>? progress,
+        CancellationToken cancellation)
     {
-        var problem = Problem(evaluator);
         var runId = $"opt-{DateTime.UtcNow:yyyyMMdd-HHmmss}";
 
         Archive = new DesignArchive(runId, problem.Space, problem.Objectives);
-        _log.Clear();
+
+        // Every design the problem scores lands in the archive as it is
+        // scored, whatever algorithm is driving. Collecting each search's
+        // history at the END instead lost the whole run on cancellation — the
+        // evaluations were paid for and the hand-over never happened.
+        problem.Observed = Archive.Add;
+
+        lock (_logGate)
+        {
+            _log.Clear();
+        }
+
         LastResult = null;
         LastFront = null;
         LastScreening = [];
@@ -210,7 +325,6 @@ public sealed class OptimiseWorkspace
         // comparison against the design the user already had, and a run that
         // cannot say what it improved on has not answered the question.
         Baseline = problem.Score(problem.Space.From(Document), cancellation: cancellation);
-        Archive.Add(Baseline);
         Note($"baseline scored: {Describe(Baseline, problem.Objectives)}");
 
         switch (Algorithm)
@@ -231,13 +345,8 @@ public sealed class OptimiseWorkspace
             {
                 var trajectories = Math.Max(4, Budget / (_variables.Count + 1));
 
-                // Every design the screening scores goes into the archive. An
-                // evaluation that was paid for and not recorded is one the
-                // archive cannot re-explore and the cache cannot reuse — and a
-                // screening pass spends dozens of them.
                 LastScreening = Screening.Morris(
-                    problem, trajectories, fidelity: EvaluationFidelity.Surrogate,
-                    cancellation: cancellation, observed: Archive.Add);
+                    problem, trajectories, fidelity: EvaluationFidelity.Surrogate, cancellation: cancellation);
 
                 Note(Screening.Explain(LastScreening));
                 break;
@@ -247,7 +356,6 @@ public sealed class OptimiseWorkspace
             {
                 var search = new NsgaII(problem, populationSize: Math.Max(8, Math.Min(40, Budget / 4)));
                 LastFront = search.Run(Budget, progress: progress, cancellation: cancellation);
-                Archive.AddRange(LastFront.History);
                 Note($"{LastFront.Front.Count} designs on the front after {LastFront.Evaluations} evaluations.");
                 break;
             }
@@ -261,7 +369,6 @@ public sealed class OptimiseWorkspace
                     cancellation: cancellation,
                     seedDesigns: [problem.Space.From(Document)]);
 
-                Archive.AddRange(LastResult.History);
                 Note($"{LastResult.Reason}. Best: {Describe(LastResult.Best, problem.Objectives)}");
 
                 if (search.Surrogate is { } surrogate)
@@ -284,7 +391,6 @@ public sealed class OptimiseWorkspace
             {
                 var search = new CmaEs(problem, problem.Space.From(Document));
                 LastResult = search.Run(Budget, progress: progress, cancellation: cancellation);
-                Archive.AddRange(LastResult.History);
                 Note($"{LastResult.Reason}. Best: {Describe(LastResult.Best, problem.Objectives)}");
 
                 if (LastResult.Best.Design.BoundWarning() is { } warning)
@@ -299,7 +405,13 @@ public sealed class OptimiseWorkspace
         Note(Archive.Summary().ToString());
     }
 
-    private void Note(string line) => _log.Add(line);
+    private void Note(string line)
+    {
+        lock (_logGate)
+        {
+            _log.Add(line);
+        }
+    }
 
     private static string Describe(ScoredDesign design, ObjectiveSet objectives)
     {

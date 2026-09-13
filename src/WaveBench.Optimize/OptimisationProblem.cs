@@ -89,6 +89,19 @@ public sealed class OptimisationProblem
     /// <summary>The document every candidate is a modification of.</summary>
     public EngineModelDocument Baseline => _baseline;
 
+    /// <summary>
+    /// Called with every design this problem scores, as it is scored.
+    ///
+    /// <b>The archive has to fill incrementally, not in bulk at the end.</b>
+    /// Every search here used to hand its history over once it finished, which
+    /// works right up until a run is cancelled — and then the evaluations the
+    /// user already paid for are lost, because the hand-over never happened.
+    /// Hooking it HERE rather than in each algorithm means one mechanism
+    /// covers all of them, including any added later, and a cancelled run
+    /// keeps its work by construction.
+    /// </summary>
+    public Action<ScoredDesign>? Observed { get; set; }
+
     /// <summary>How many designs have actually been measured.</summary>
     public int Evaluations { get; private set; }
 
@@ -123,11 +136,14 @@ public sealed class OptimisationProblem
             var checks = Constraints.CheckAll(document, null);
             var unknown = Objectives.Objectives.Select(_ => double.NaN).ToList();
 
-            return new ScoredDesign(design, null, unknown, checks)
+            var rejected = new ScoredDesign(design, null, unknown, checks)
             {
                 Costs = unknown,
                 ScalarScore = Penalise(ConstraintSet.TotalViolation(checks)),
             };
+
+            Observed?.Invoke(rejected);
+            return rejected;
         }
 
         var evaluation = Evaluator.Evaluate(design, fidelity, cancellation);
@@ -137,11 +153,14 @@ public sealed class OptimisationProblem
         var values = Objectives.Values(evaluation);
         var costs = Objectives.Costs(evaluation);
 
-        return new ScoredDesign(design, evaluation, values, all)
+        var scored = new ScoredDesign(design, evaluation, values, all)
         {
             Costs = costs,
             ScalarScore = Scalarise(costs, all, evaluation),
         };
+
+        Observed?.Invoke(scored);
+        return scored;
     }
 
     /// <summary>

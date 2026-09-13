@@ -119,6 +119,10 @@ public static class OffscreenRenderer
         Settle(window);
         Capture(window, Path.Combine(outputDirectory, "23-optimise-variables.png"));
 
+        window.GoToOptimiseTab(OptimiseTab.Run);
+        Settle(window);
+        Capture(window, Path.Combine(outputDirectory, "23b-optimise-run.png"));
+
         Console.WriteLine("running a short optimisation for the screenshots...");
 
         window.GoToOptimiseTab(OptimiseTab.Pareto, optimise =>
