@@ -6,6 +6,18 @@ on:
   pull_request:
 
 jobs:
+  # This repository is public, and a commit that leaks the owner's machine or
+  # identity cannot be taken back: a force-push removes it from the branch, not
+  # from anybody's clone, fork or the network's caches. So the check runs
+  # FIRST, on every push and every pull request, and it is cheap enough to.
+  sanitisation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: No local paths, machine names or credentials in tracked files
+        run: python tools/check-sanitisation.py
+
   build-and-test:
     runs-on: windows-latest
     steps:

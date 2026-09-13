@@ -49,6 +49,13 @@ render-*/
 # User audio reference files must never be committed (see plan §3.7 Reference Match)
 validation/reference-audio/
 
+# Python bytecode. A .pyc records the ABSOLUTE path of its source in
+# co_filename, so one of these in a public repository publishes the committer's
+# profile path and username.
+__pycache__/
+*.pyc
+*.pyo
+
 # OS
 Thumbs.db
 .DS_Store

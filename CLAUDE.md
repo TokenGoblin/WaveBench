@@ -491,9 +491,27 @@ owner's identity, machine and network must never appear in it:
 - Machine-generated files that may embed local paths (test logs, `.user` files,
   crash dumps, BenchmarkDotNet artifacts) stay untracked — extend `.gitignore`
   rather than committing them.
-- Before committing: scan the staged diff for the above. Before pushing:
-  `git log --format='%an <%ae>' origin/main..` must show only the TokenGoblin
-  identity.
+- Before committing: run `python tools/check-sanitisation.py`. It scans every
+  tracked file for absolute paths, home directories, UNC shares, LAN addresses,
+  localhost endpoints, profile variables, non-noreply email addresses and
+  credential-shaped strings, and exits 1 on any finding. CI runs it first on
+  every push and pull request, so it is structural rather than remembered.
+  `--history` additionally searches every blob in every commit, which is the
+  only check that covers a file committed and later deleted.
+- Its allow-list is BY SPAN, not by text: a pattern matches the shortest thing
+  it recognises, so the rule quoted further up this file surfaces as a bare
+  drive-letter fragment out of a line whose permitted form is the longer one
+  ending in an ellipsis. Comparing those two as strings never matches;
+  containment is the question actually being asked. (Writing the bare fragment
+  into this bullet to illustrate it is itself a finding — the checker caught
+  that while this paragraph was being written.)
+- Before pushing: `git log --format='%an <%ae>' origin/main..` must show only
+  the TokenGoblin identity.
+- Audited at Phase 25 across all 71 commits: identity clean in every commit,
+  no risky file type ever tracked, all 7 tracked PNGs free of tEXt/iTXt/eXIf
+  metadata, remote URL carries no token. The one residual signal is the
+  `-0600` timezone offset on every commit, left deliberately: normalising it
+  rewrites every SHA and needs a force-push to a public repo.
 - User-supplied audio recordings and personal measurement data are never
   committed (see plan §3.7; already gitignored).
 
