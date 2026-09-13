@@ -8,6 +8,7 @@
     <ProjectReference Include="..\..\src\WaveBench.Model\WaveBench.Model.csproj" />
     <ProjectReference Include="..\..\src\WaveBench.Analysis\WaveBench.Analysis.csproj" />
     <ProjectReference Include="..\..\src\WaveBench.ViewModels\WaveBench.ViewModels.csproj" />
+    <ProjectReference Include="..\..\src\WaveBench.Optimize\WaveBench.Optimize.csproj" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="FluentAssertions" Version="7.*" />

@@ -20,7 +20,7 @@ hard acceptance gate (Part 12). Never let a session span two phases.
 | **15** | **PARTIAL** | transient + FI acoustics · **v0.6** — gate clause 1 open, see below |
 | 16-20 | done | shell, Design, Manifold canvas, Results, Sound |
 | 21 | done | Boost workspace · **v0.9** — docs/physics.md §7 |
-| **22** | **NEXT** | Optimisation (largest remaining phase) |
+| **22** | **IN PROGRESS** | Optimisation — core done, see below |
 | 23 | done | Simple mode and the wizard |
 | **24** | to do | Learn layer and guardrails |
 | **25** | to do | Reporting, docs, packaging · **v1.0** |
@@ -47,8 +47,29 @@ clause 1, both listed below.
    no-carry-over control) is what CI actually checks in its place. Close this
    only if a suitable licensed dataset turns up — see the standing deferral
    below (validation case 20).
-2. **Phase 22 — Optimisation.** DOE, CMA-ES, NSGA-II, Bayesian, surrogate inner
-   loop, Pareto explorer. The biggest single phase remaining.
+2. **Phase 22 — Optimisation. PARTIALLY BUILT; pick up here.**
+   `WaveBench.Optimize` was an empty scaffold and now holds the problem
+   definition and two search algorithms, all tested. **Two of the four gate
+   clauses are already met** — clause 1 (converges on synthetic problems with
+   known optima) and clause 3 (the clearance constraint is never violated in a
+   returned design).
+
+   *Done:* `DesignSpace`/`DesignPoint` (unit-cube search, discrete snapping,
+   cache key on the snapped design) · `ObjectiveSet` with the plan's §9.2
+   objectives · `ConstraintSet` with graded violations and
+   geometry-before-evaluation rejection · `OptimisationProblem` (lexicographic
+   feasibility) · Sobol and Latin-hypercube DOE · CMA-ES · NSGA-II ·
+   `EvaluationCache`.
+
+   *Still to build:* Morris screening and Sobol indices ("which three
+   variables actually matter") · Nelder–Mead and Powell local refinement ·
+   Bayesian optimisation with a GP surrogate and expected improvement ·
+   parallel evaluation · the design archive with checkpoint/resume · the
+   cam-timing and NA-vs-boosted presets (§9.7) · **the real solver-backed
+   evaluator**, which gate clause 2 needs (improve area-under-torque on an
+   FSAE case against the hand-designed baseline) · the Optimise workspace and
+   its Pareto/parallel-coordinates explorer, which gate clause 4 needs
+   (click-to-audition, click-to-inspect).
 3. **Phase 24 — Learn layer.** Breadth, not depth: "why" text on every field,
    "Show me" sweeps, Concepts panel, tours, guardrails.
 4. **Phase 25 — Reporting, docs, release (v1.0).**
@@ -155,6 +176,22 @@ screenshot showed was a 2-litre running 60 kPa over its own target with the
 shaft past its rated speed — obviously wrong to anyone who has matched a turbo,
 and invisible to an assertion that only asks whether the arithmetic closed.
 Render the screen before declaring a UI phase done.
+
+**A CONSTRAINT IS NOT AN OBJECTIVE WITH A BIG WEIGHT.** Phase 22's gate says
+the clearance constraint is *never* violated in a returned design — never, not
+rarely. So `ScoredDesign.ScalarScore` orders lexicographically: every
+infeasible design sits above every feasible one, ordered among themselves by
+how badly they break. A penalty large enough to dominate also flattens the
+objective landscape inside the feasible region; one small enough not to is one
+the optimiser will happily pay. Both failures are avoided by not using a
+penalty at all. Measured: 30 runs against a constraint placed through the
+unconstrained optimum, 0 violations, 30 landing on the bound.
+
+**CMA-ES is rank-based, and that is load-bearing here.** It uses only the
+ORDER of the candidates, never the objective values, which is what makes the
+enormous numeric gap between the feasible and infeasible score bands harmless.
+Do not "simplify" the score into something continuous to help a future
+optimiser — check that optimiser is rank-based first.
 
 **Surge on a steady wide-open line needs BOTH halves of the mistake.** An
 oversized compressor alone never surges here, because the steady shaft balance

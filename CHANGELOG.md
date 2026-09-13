@@ -9,6 +9,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Phase 22, in progress — the optimisation core.** `WaveBench.Optimize` was
+  an empty scaffold; it now holds the problem definition and the first two
+  search algorithms, with the synthetic half of the phase gate demonstrated.
+  Still to come: Morris/Sobol screening, Nelder–Mead and Powell refinement,
+  Bayesian optimisation with a GP surrogate, parallel evaluation, the archive
+  with checkpoint/resume, the cam-timing and NA-vs-boosted presets, the real
+  solver-backed evaluator, and the Optimise workspace itself.
+  - **The problem definition.** `DesignSpace` holds the variables a run may
+    change — a model path, bounds, and where the world only sells certain
+    sizes, the discrete set it may take. Every optimiser works in the unit
+    cube, so one step size means the same thing across a 200 mm length and a
+    0.4 pressure ratio; `DesignPoint` converts at the boundary and is keyed on
+    the SNAPPED values, which is what makes a discrete space cheap to cache.
+    `ObjectiveSet` states each objective's sense once so a sign error cannot
+    reach four separate searches; `ConstraintSet` grades violations rather than
+    answering yes/no, so a search that starts infeasible has a gradient back.
+  - **Feasibility is lexicographic, not a penalty weight.** An infeasible
+    design ranks below every feasible one by construction. A penalty big
+    enough to dominate also flattens the objective landscape inside the
+    feasible region; one small enough not to is one the optimiser will happily
+    pay. **Gate clause 3 met:** over 30 independent runs against a constraint
+    placed straight through the unconstrained optimum, 0 violations were
+    returned and all 30 landed on the bound — the constrained optimum really
+    is the bound, so a search that never reaches it is being scared off rather
+    than optimising.
+  - **Geometric constraints are checked before an evaluation is spent.** A
+    design outside its packaging box does not need a converged solve to be
+    rejected, and on a tight space most of what a search proposes is exactly
+    that. Measured: 300 designs scored, 0 evaluated, 300 rejected on geometry.
+  - **CMA-ES** (Hansen & Ostermeier 2001; defaults from Hansen 2016), with
+    rank-one plus rank-μ covariance update, cumulative step-size adaptation
+    and a Jacobi eigensolver. **Gate clause 1 met**, over 20 independent seeds
+    each: sphere 4-D 20/20 within 1e-8; Rosenbrock 4-D 19/20 within 1e-6
+    (median 4.8e-11) — the curved valley lies along no axis, which is the
+    whole reason the covariance adaptation is here; Rastrigin 2-D 15/20 to the
+    global optimum against roughly a hundred local minima. Being rank-based,
+    it never touches the objective values themselves, which is what makes the
+    enormous feasible/infeasible numeric gap harmless.
+  - **NSGA-II** (Deb et al. 2002) with fast non-dominated sorting, crowding
+    distance, SBX and polynomial mutation, (μ+λ) elitism and Deb's constrained
+    domination. Verified against ZDT1 and ZDT2, whose fronts are known in
+    closed form: median distance from the true front 0 to machine precision on
+    both, spanning the full range of the first objective. ZDT2 is the concave
+    case, and the middle third of its front — 2121 designs — is exactly what a
+    weighted sum cannot return at any weighting, which is the concrete reason
+    plan §9.6 asks for fronts rather than weights.
+  - **Sobol and Latin-hypercube DOE**, both deterministic, because a
+    DOE seeded from the clock makes every optimisation unreproducible and an
+    unreproducible optimisation cannot be defended in a report.
+  - A content-addressed evaluation cache keyed on the snapped design: 20
+    lookups over 3 distinct designs cost 3 solves and 17 hits.
+
 - **Phase 21 — Boost workspace (v0.9).** The forced-induction screens: the
   compressor map with the engine's operating line, its surge and choke
   margins, the restrictor's choke ceiling and an altitude/hot-day toggle; the
