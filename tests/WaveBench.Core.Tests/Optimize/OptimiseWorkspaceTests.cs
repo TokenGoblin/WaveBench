@@ -405,6 +405,75 @@ public class OptimiseWorkspaceTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public void Every_algorithm_the_workspace_offers_actually_runs()
+    {
+        // A selectable algorithm that throws when selected is worse than one
+        // that is not offered.
+        foreach (var algorithm in Enum.GetValues<SearchAlgorithm>())
+        {
+            var session = new ProjectSession(FourCylinder());
+            var workspace = new OptimiseWorkspace(session);
+
+            foreach (var path in workspace.Variables.Select(v => v.Path).ToList())
+            {
+                workspace.Remove(path);
+            }
+
+            workspace.Add("ExhaustRunner.LengthMm");
+            workspace.Add("ExhaustRunner.DiameterMm");
+            workspace.Objectives.Add(new MetricObjective("Peak power", "kW", PowerKey, ObjectiveSense.Maximise));
+
+            workspace.Algorithm = algorithm;
+            workspace.Budget = 40;
+            workspace.Run(new PowerAndSound());
+
+            workspace.Archive.Should().NotBeNull($"{algorithm} must produce an archive");
+            workspace.Log.Should().NotBeEmpty($"{algorithm} must say what it did");
+
+            output.WriteLine($"{algorithm,-10} {workspace.Archive!.Count,4} designs · {workspace.Log[^1]}");
+
+            // Every algorithm's evaluations land in the archive, screening
+            // included. An evaluation that was paid for and not recorded is
+            // one the archive cannot re-explore and the cache cannot reuse —
+            // and screening was silently dropping every one of its dozens.
+            workspace.Archive.Count.Should().BeGreaterThan(5,
+                $"{algorithm} spent a budget of {workspace.Budget}; the archive must show it");
+
+            // Screening measures sensitivity rather than searching, so it is
+            // the one algorithm that legitimately produces no ranked best.
+            if (algorithm != SearchAlgorithm.Screening)
+            {
+                workspace.Archive.Best(count: 1).Should().NotBeEmpty($"{algorithm} must find something");
+            }
+        }
+    }
+
+    [Fact]
+    public void The_bayesian_run_reports_what_its_surrogate_learned()
+    {
+        // The fitted correlation distance is the one number that says whether
+        // the response actually varies across these variables — and a user
+        // staring at a flat result deserves to be told the model found nothing
+        // to model.
+        var session = new ProjectSession(FourCylinder());
+        var workspace = new OptimiseWorkspace(session);
+
+        foreach (var path in workspace.Variables.Select(v => v.Path).ToList())
+        {
+            workspace.Remove(path);
+        }
+
+        workspace.Add("ExhaustRunner.LengthMm");
+        workspace.Objectives.Add(new MetricObjective("Peak power", "kW", PowerKey, ObjectiveSense.Maximise));
+        workspace.Algorithm = SearchAlgorithm.Bayesian;
+        workspace.Budget = 30;
+        workspace.Run(new PowerAndSound());
+
+        workspace.Log.Should().Contain(l => l.Contains("correlation distance"));
+        output.WriteLine(workspace.Log.Single(l => l.Contains("correlation distance")));
+    }
+
+    [Fact]
     public void The_archive_survives_a_checkpoint_and_comes_back_the_same()
     {
         // Plan §9.5: checkpoint/resume. A killed process must come back with

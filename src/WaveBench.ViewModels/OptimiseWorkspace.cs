@@ -29,6 +29,12 @@ public enum SearchAlgorithm
     /// <summary>Single-objective global search.</summary>
     CmaEs,
 
+    /// <summary>
+    /// Model-based single-objective search. The right default when each
+    /// evaluation is a converged sweep, which here it is.
+    /// </summary>
+    Bayesian,
+
     /// <summary>Multi-objective, returning a front rather than a point.</summary>
     NsgaII,
 }
@@ -224,8 +230,15 @@ public sealed class OptimiseWorkspace
             case SearchAlgorithm.Screening:
             {
                 var trajectories = Math.Max(4, Budget / (_variables.Count + 1));
+
+                // Every design the screening scores goes into the archive. An
+                // evaluation that was paid for and not recorded is one the
+                // archive cannot re-explore and the cache cannot reuse — and a
+                // screening pass spends dozens of them.
                 LastScreening = Screening.Morris(
-                    problem, trajectories, fidelity: EvaluationFidelity.Surrogate, cancellation: cancellation);
+                    problem, trajectories, fidelity: EvaluationFidelity.Surrogate,
+                    cancellation: cancellation, observed: Archive.Add);
+
                 Note(Screening.Explain(LastScreening));
                 break;
             }
@@ -236,6 +249,33 @@ public sealed class OptimiseWorkspace
                 LastFront = search.Run(Budget, progress: progress, cancellation: cancellation);
                 Archive.AddRange(LastFront.History);
                 Note($"{LastFront.Front.Count} designs on the front after {LastFront.Evaluations} evaluations.");
+                break;
+            }
+
+            case SearchAlgorithm.Bayesian:
+            {
+                var search = new BayesianOptimiser(problem);
+                LastResult = search.Run(
+                    Budget,
+                    progress: progress,
+                    cancellation: cancellation,
+                    seedDesigns: [problem.Space.From(Document)]);
+
+                Archive.AddRange(LastResult.History);
+                Note($"{LastResult.Reason}. Best: {Describe(LastResult.Best, problem.Objectives)}");
+
+                if (search.Surrogate is { } surrogate)
+                {
+                    Note($"The surrogate fitted a correlation distance of {surrogate.LengthScale:F2} of the "
+                         + $"design space over {surrogate.Observations} feasible observations — short means the "
+                         + "response changes quickly across these variables, long means it barely changes at all.");
+                }
+
+                if (LastResult.Best.Design.BoundWarning() is { } bound)
+                {
+                    Note(bound);
+                }
+
                 break;
             }
 

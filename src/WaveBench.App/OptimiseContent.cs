@@ -307,6 +307,10 @@ public static class OptimiseContent
                 SearchAlgorithm.Screening =>
                     "Morris elementary effects: which variables actually move the answer, for about a fiftieth of "
                     + "the price of a full study. Run this before spending a long search on twelve variables.",
+                SearchAlgorithm.Bayesian =>
+                    "Fits a model of everything measured so far and spends each new evaluation where that model "
+                    + "says the most is to be learned. The right default when one evaluation is a converged "
+                    + "sweep — which here it is.",
                 SearchAlgorithm.NsgaII =>
                     "Multi-objective. Returns a front rather than a point, because a weighted sum needs the "
                     + "weights chosen before the trade is known — which is backwards.",

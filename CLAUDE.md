@@ -69,16 +69,14 @@ clause 1, both listed below.
    (lexicographic feasibility) · Sobol and Latin-hypercube DOE · CMA-ES ·
    NSGA-II · Morris screening and Sobol indices · `EvaluationCache` ·
    `SweepEvaluator` (two fidelities, parallel across operating points) ·
-   `DesignArchive` with checkpoint/resume · `OptimiseWorkspace` and
+   `DesignArchive` with checkpoint/resume · Bayesian optimisation with a
+   Gaussian-process surrogate and expected improvement · `OptimiseWorkspace` and
    `OptimiseContent` (Variables, Objectives, Run, Pareto, Archive; Pareto and
    parallel-coordinates figures; click-to-inspect and click-to-audition).
 
-   *Still to build:* Nelder–Mead and Powell local refinement · Bayesian
-   optimisation with a GP surrogate and expected improvement (§9.4 calls it
-   "the right default when each evaluation costs a 20-point rpm sweep", and
-   this project's evaluations do) · the cam-timing and NA-vs-boosted presets
-   (§9.7) · wiring a run into the job tray so it goes to a background thread
-   rather than blocking the UI thread.
+   *Still to build:* Nelder–Mead and Powell local refinement · the cam-timing
+   and NA-vs-boosted presets (§9.7) · wiring a run into the job tray so it
+   goes to a background thread rather than blocking the UI thread.
 3. **Phase 24 — Learn layer.** Breadth, not depth: "why" text on every field,
    "Show me" sweeps, Concepts panel, tours, guardrails.
 4. **Phase 25 — Reporting, docs, release (v1.0).**
@@ -212,6 +210,24 @@ objective, not a cheaper one") and the implementation then guarded only the
 band's ENDS while thinning its interior. Writing the hazard down is not the
 same as defending against it — the test that measured the correlation is what
 caught it.
+
+**BAYESIAN OPTIMISATION LOSES ON HUGE DYNAMIC RANGE, AND THAT IS MEASURED.**
+It beats CMA-ES at 40 evaluations on sphere 3-D (12/12 seeds), sphere 6-D
+(12/12), Rastrigin 3-D (10/12) and Rosenbrock on a tight box (10/12). On
+Rosenbrock over [-5,5]^3 — five orders of magnitude of range — it wins only
+5/12 and CMA-ES's median is better. Cause: one shared length scale with
+standardised outputs, where the standardisation is dominated by the extremes
+and the near-optimal region compresses into numerical noise. Narrowing the box
+to a range of ~3600 restores 10/12, which is what IDENTIFIES the cause rather
+than guessing it. Real objectives here are the narrow case (area under torque
+varies a few percent), but if a future objective has enormous range, reach for
+CMA-ES or fix the surrogate. `BayesianTests` keeps both measurements.
+
+LESSON: my first version of that test asserted "BO wins >= 8 of 12" on the
+wide box because that is what I expected. It won 6. The fix was to MEASURE
+across six problems and three budgets, then write the assertion to match
+reality and keep the losing case as its own test. Do not tune a threshold
+until a test passes; find out what is true and assert that.
 
 **CMA-ES is rank-based, and that is load-bearing here.** It uses only the
 ORDER of the candidates, never the objective values, which is what makes the

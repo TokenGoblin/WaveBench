@@ -9,6 +9,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Phase 22, continued — Bayesian optimisation with a Gaussian-process
+  surrogate.** Plan §9.4 calls it *"the right default when each evaluation
+  costs a 20-point rpm sweep"*, and in this project an evaluation is exactly
+  that.
+  - **A Gaussian process, not a fitted response surface**, because the whole
+    mechanism depends on the surrogate reporting its own UNCERTAINTY: the
+    search has to tell "I predict this is poor" from "I have no idea what this
+    is", and spend an expensive evaluation on the second rather than the first.
+    Matérn 5/2 kernel (Rasmussen & Williams 2006, §4.2) rather than
+    squared-exponential, whose infinite-differentiability assumption produces
+    over-confident extrapolation exactly where a torque curve's resonance
+    structure lives. Expected improvement from Jones, Schonlau & Welch 1998.
+  - **One shared length scale, fitted by marginal likelihood — not ARD.**
+    Automatic relevance determination adds a hyperparameter per variable, and
+    Bayesian optimisation is used precisely when there are only a few dozen
+    observations to fit them from; fitting six extra parameters to forty points
+    overfits more often than it helps, and the failure mode is a surrogate
+    confidently certain about a region it has never sampled. Screening is the
+    cheaper and more honest way to find out which variables matter.
+  - **Measured against CMA-ES at the budget it exists for** — 40 evaluations,
+    12 seeds each: sphere 3-D 12/12, sphere 6-D 12/12, Rosenbrock 3-D on a
+    tight box 10/12, Rastrigin 3-D 10/12, with a better median in every case.
+  - **And the case where it loses is measured and kept as a test.** On
+    Rosenbrock over the wide box — five orders of magnitude of dynamic range —
+    it wins only 5 of 12 at 70 evaluations, and CMA-ES's median is better. The
+    cause is the shared length scale with standardised outputs: the
+    standardisation is dominated by the extremes, so the near-optimal region is
+    compressed into numerical noise. Narrowing the box to a range of ~3600
+    restores 10/12, which is what identifies the cause rather than guessing it.
+    Real engineering objectives are the narrow case — area under a torque curve
+    varies by a few percent across a plausible design space, not by 1e5 — but
+    the limit is where a user should reach for CMA-ES instead, and a limit
+    nobody measured is a limit nobody can rely on.
+  - The surrogate is fitted to FEASIBLE observations only. Fitting it to the
+    scalar score would have it model the lexicographic feasibility band — a
+    step of order 1e308 — and a Gaussian process asked to interpolate that
+    produces nonsense everywhere, not only at the boundary.
+  - Fixed: a screening run scored dozens of designs and archived none of them,
+    so the archive under-reported what a run had cost and the cache could not
+    reuse any of it. Every algorithm's evaluations now land in the archive, and
+    a test asserts it for each of the five.
+
 - **Phase 22, continued — the archive, the Optimise workspace, and gate
   clause 4.** All four Phase 22 gate clauses are now met.
   - **`DesignArchive`** keeps every design a run measured, with checkpoint and

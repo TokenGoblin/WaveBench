@@ -121,6 +121,7 @@ public static class Screening
     /// <param name="objective">Which objective to screen; the first by default.</param>
     /// <param name="seed">Fixed, so a screening reproduces (plan Part 0).</param>
     /// <param name="cancellation">Checked between trajectories.</param>
+    /// <param name="observed">Called with every design scored, so a screening pass lands in the archive.</param>
     public static IReadOnlyList<MorrisEffect> Morris(
         OptimisationProblem problem,
         int trajectories = 10,
@@ -128,7 +129,8 @@ public static class Screening
         EvaluationFidelity fidelity = EvaluationFidelity.Solved,
         int objective = 0,
         int seed = 20260913,
-        CancellationToken cancellation = default)
+        CancellationToken cancellation = default,
+        Action<ScoredDesign>? observed = null)
     {
         ArgumentNullException.ThrowIfNull(problem);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(trajectories);
@@ -162,14 +164,14 @@ public static class Screening
             // A random order, so the trajectories are not all the same walk.
             var order = Enumerable.Range(0, k).OrderBy(_ => random.Next()).ToArray();
 
-            var previous = Measure(problem, current, fidelity, objective, cancellation);
+            var previous = Measure(problem, current, fidelity, objective, cancellation, observed);
 
             foreach (var variable in order)
             {
                 var next = current.ToArray();
                 next[variable] = Math.Clamp(next[variable] + delta, 0.0, 1.0);
 
-                var value = Measure(problem, next, fidelity, objective, cancellation);
+                var value = Measure(problem, next, fidelity, objective, cancellation, observed);
                 var step = next[variable] - current[variable];
 
                 if (step > 1e-12 && double.IsFinite(value) && double.IsFinite(previous))
@@ -215,13 +217,15 @@ public static class Screening
     /// <param name="objective">Which objective to decompose.</param>
     /// <param name="seed">Fixed, so a decomposition reproduces.</param>
     /// <param name="cancellation">Checked between samples.</param>
+    /// <param name="observed">Called with every design scored, so the pass lands in the archive.</param>
     public static IReadOnlyList<SobolIndex> SobolIndices(
         OptimisationProblem problem,
         int samples = 256,
         EvaluationFidelity fidelity = EvaluationFidelity.Solved,
         int objective = 0,
         int seed = 20260913,
-        CancellationToken cancellation = default)
+        CancellationToken cancellation = default,
+        Action<ScoredDesign>? observed = null)
     {
         ArgumentNullException.ThrowIfNull(problem);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(samples);
@@ -241,8 +245,8 @@ public static class Screening
         for (var j = 0; j < samples; j++)
         {
             cancellation.ThrowIfCancellationRequested();
-            fa[j] = Measure(problem, a[j], fidelity, objective, cancellation);
-            fb[j] = Measure(problem, b[j], fidelity, objective, cancellation);
+            fa[j] = Measure(problem, a[j], fidelity, objective, cancellation, observed);
+            fb[j] = Measure(problem, b[j], fidelity, objective, cancellation, observed);
         }
 
         var finite = fa.Concat(fb).Where(double.IsFinite).ToList();
@@ -277,7 +281,7 @@ public static class Screening
                 // AB_i: row from A with column i taken from B.
                 var row = a[j].ToArray();
                 row[i] = b[j][i];
-                var fab = Measure(problem, row, fidelity, objective, cancellation);
+                var fab = Measure(problem, row, fidelity, objective, cancellation, observed);
 
                 if (!double.IsFinite(fab) || !double.IsFinite(fa[j]) || !double.IsFinite(fb[j]))
                 {
@@ -374,15 +378,22 @@ public static class Screening
     /// the lexicographic feasibility band, and an elementary effect computed
     /// across that band would be an enormous number describing a constraint
     /// boundary rather than a sensitivity.
+    ///
+    /// Every design scored is handed to <paramref name="observed"/>. An
+    /// evaluation that was paid for and not recorded is an evaluation the
+    /// archive cannot re-explore and the cache cannot reuse — and a screening
+    /// pass spends dozens of them.
     /// </summary>
     private static double Measure(
         OptimisationProblem problem,
         IReadOnlyList<double> coordinates,
         EvaluationFidelity fidelity,
         int objective,
-        CancellationToken cancellation)
+        CancellationToken cancellation,
+        Action<ScoredDesign>? observed = null)
     {
         var scored = problem.Score(new DesignPoint(problem.Space, coordinates), fidelity, cancellation);
+        observed?.Invoke(scored);
         return objective < scored.Objectives.Count ? scored.Objectives[objective] : double.NaN;
     }
 
