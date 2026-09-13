@@ -9,6 +9,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Phase 22, continued — the archive, the Optimise workspace, and gate
+  clause 4.** All four Phase 22 gate clauses are now met.
+  - **`DesignArchive`** keeps every design a run measured, with checkpoint and
+    resume. Deliberately compact: a converged sweep carries per-cylinder arrays
+    and captured fields at every operating point, and storing those for a
+    thousand candidates produces a file nobody saves. What is kept is what a
+    user explores a run by — the design, what it scored, whether it was legal —
+    and the full evaluation stays in the session's cache. A checkpoint from a
+    different problem is refused rather than silently mixed in.
+  - **Resume is honest about what it does not restore.** CMA-ES carries a
+    covariance matrix and a step size that a checkpoint of designs alone does
+    not preserve, so a resumed run restarts the adaptation from its seeds
+    rather than picking up mid-stride; the result after a resume is not
+    bit-identical to an uninterrupted run of the same length, and the doc
+    comment says so. What resume does guarantee is that no evaluation is
+    repeated — the cache is keyed on the snapped design.
+  - **The Optimise workspace** (plan §8.3's Variables · Objectives · Run ·
+    Pareto · Archive), with the Pareto and parallel-coordinates figures of
+    §9.6. **Gate clause 4 met:** selecting a design on the front yields its
+    geometry in millimetres against the baseline, the torque curve behind its
+    score, and a level-matched A/B audition.
+  - **The torque curve is what makes a front point trustworthy.** An area under
+    a curve is one number, and a design that won it by spiking at one speed
+    while collapsing either side is not the design anyone wanted. Click-to-
+    inspect solves the selected design at full fidelity on demand — nearly free
+    when the cache already holds it — and draws it against the baseline.
+  - **An audition that would be two identical clips says so instead.** Where a
+    run never varied the exhaust geometry, both stems are the same collector;
+    playing two identical clips and inviting someone to hear a difference is
+    worse than offering nothing, so `AuditionIsMeaningful` reports it and the
+    UI explains what to add.
+  - **Variables ship with bounds a builder would recognise**
+    (`OptimisationCatalogue`), because a user asked to invent a range for
+    "intake runner length" will guess, and plan §9.7 is explicit that a
+    careless guess is how a search returns a 3 m runner. A new run suggests the
+    two or three fields that dominate rather than everything available: a
+    twelve-variable search costs roughly the square of a three-variable one,
+    and the screening pass exists to say which of the rest are worth adding.
+  - Parallel coordinates normalise every axis so that **up is better**,
+    whatever that objective's own sense — a plot where some axes mean "more"
+    and others "less" is one every reader misreads at least once.
+  - Fixed: the Pareto chart ranged its axes over the front alone, which put the
+    baseline off the bottom of the plot while the note underneath quoted its
+    coordinates. Found by rendering the screen. Comparing against the baseline
+    is the only question a user has on that figure, so the axes now cover
+    everything drawn, and a test asserts every plotted point falls inside them.
+
 - **Phase 22, continued — screening, the solver-backed evaluator, and gate
   clause 2.** Three of the four gate clauses are now met.
   - **Morris screening and Sobol sensitivity indices** (§9.4: *"tell the user

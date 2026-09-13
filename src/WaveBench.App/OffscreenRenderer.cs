@@ -68,6 +68,81 @@ public static class OffscreenRenderer
         CaptureManifold(outputDirectory);
         CaptureResults(outputDirectory);
         CaptureBoost(outputDirectory);
+        CaptureOptimise(outputDirectory);
+    }
+
+    /// <summary>
+    /// The Phase 22 Optimise screens.
+    ///
+    /// Runs a REAL search first — a short one on a coarse mesh — because a
+    /// screenshot of an empty Pareto tab shows nothing about the thing the
+    /// phase is for, and a fabricated front would be a picture of a claim
+    /// rather than of a result.
+    /// </summary>
+    private static void CaptureOptimise(string outputDirectory)
+    {
+        var document = new WaveBench.Model.EngineModelDocument
+        {
+            Name = "Four-cylinder, intake optimisation",
+            Engine = new WaveBench.Model.EngineSpec
+            {
+                BoreMm = 86, StrokeMm = 86, RodLengthMm = 145, CompressionRatio = 10.5, CylinderCount = 4,
+            },
+            IntakeValves = new WaveBench.Model.ValveTrainSpec
+            {
+                HeadDiameterMm = 33, Count = 2, MaxLiftMm = 10, OpenDeg = 350, CloseDeg = 580,
+            },
+            ExhaustValves = new WaveBench.Model.ValveTrainSpec
+            {
+                HeadDiameterMm = 28, Count = 2, MaxLiftMm = 10, OpenDeg = 140, CloseDeg = 370,
+            },
+            IntakeRunner = new WaveBench.Model.DuctSpec { LengthMm = 300, DiameterMm = 40 },
+            ExhaustRunner = new WaveBench.Model.DuctSpec { LengthMm = 450, DiameterMm = 38 },
+            Combustion = new WaveBench.Model.CombustionSpec { Fuel = "RON95" },
+            Solver = new WaveBench.Model.SolverSpec { CellSizeMm = 16.0, MinCycles = 2, MaxCycles = 4 },
+        };
+
+        var window = new MainWindow(document, seed: false)
+        {
+            Width = 1360,
+            Height = 1180,
+            WindowStartupLocation = WindowStartupLocation.Manual,
+            Left = -10_000,
+            Top = -10_000,
+            ShowInTaskbar = false,
+        };
+
+        window.Show();
+        Advanced(window);
+
+        window.GoToOptimiseTab(OptimiseTab.Variables);
+        Settle(window);
+        Capture(window, Path.Combine(outputDirectory, "23-optimise-variables.png"));
+
+        Console.WriteLine("running a short optimisation for the screenshots...");
+
+        window.GoToOptimiseTab(OptimiseTab.Pareto, optimise =>
+        {
+            // Two objectives so there is a front to explore: area under the
+            // torque curve against peak torque. They genuinely trade — a broad
+            // curve and a tall one are different intakes.
+            optimise.Objectives.Add(new WaveBench.Optimize.AreaUnderTorque(3500, 7500));
+            optimise.Objectives.Add(WaveBench.Optimize.PeakOf.Torque);
+            optimise.Speeds = [3500, 4500, 5500, 6500, 7500];
+            optimise.Algorithm = SearchAlgorithm.NsgaII;
+            optimise.Budget = 24;
+            optimise.Run();
+            optimise.SelectedIndex = optimise.FrontDesigns.Count / 2;
+        });
+
+        Settle(window);
+        Capture(window, Path.Combine(outputDirectory, "24-optimise-pareto.png"));
+
+        window.GoToOptimiseTab(OptimiseTab.Archive);
+        Settle(window);
+        Capture(window, Path.Combine(outputDirectory, "25-optimise-archive.png"));
+
+        window.Close();
     }
 
     /// <summary>

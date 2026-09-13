@@ -50,12 +50,17 @@ clause 1, both listed below.
 2. **Phase 22 — Optimisation. PARTIALLY BUILT; pick up here.**
    `WaveBench.Optimize` was an empty scaffold and now holds the problem
    definition, three algorithms, the screening layer and the solver-backed
-   evaluator, all tested. **Three of the four gate clauses are met** — clause 1
+   evaluator, all tested. **All four gate clauses are met** — clause 1
    (converges on synthetic problems with known optima), clause 2 (+1.7% area
    under torque on a real FSAE intake case over a competent hand design, found
-   through the surrogate inner loop) and clause 3 (the clearance constraint is
-   never violated in a returned design). **Clause 4 is what remains**, and it
-   needs the Optimise workspace.
+   through the surrogate inner loop), clause 3 (the clearance constraint is
+   never violated in a returned design) and clause 4 (the fronts are
+   explorable: selecting a design yields its geometry in millimetres, the
+   torque curve behind its score, and a level-matched audition).
+
+   **The gate is met; the phase is not finished.** What remains are plan §9.4
+   and §9.7 deliverables the gate happens not to test — real capability, not
+   polish.
 
    *Done:* `DesignSpace`/`DesignPoint` (unit-cube search, discrete snapping,
    cache key on the snapped design, bound-limited-answer reporting) ·
@@ -63,13 +68,17 @@ clause 1, both listed below.
    violations and geometry-before-evaluation rejection · `OptimisationProblem`
    (lexicographic feasibility) · Sobol and Latin-hypercube DOE · CMA-ES ·
    NSGA-II · Morris screening and Sobol indices · `EvaluationCache` ·
-   `SweepEvaluator` (two fidelities, parallel across operating points).
+   `SweepEvaluator` (two fidelities, parallel across operating points) ·
+   `DesignArchive` with checkpoint/resume · `OptimiseWorkspace` and
+   `OptimiseContent` (Variables, Objectives, Run, Pareto, Archive; Pareto and
+   parallel-coordinates figures; click-to-inspect and click-to-audition).
 
    *Still to build:* Nelder–Mead and Powell local refinement · Bayesian
-   optimisation with a GP surrogate and expected improvement · the design
-   archive with checkpoint/resume · the cam-timing and NA-vs-boosted presets
-   (§9.7) · **the Optimise workspace** and its Pareto / parallel-coordinates
-   explorer, which gate clause 4 needs (click-to-audition, click-to-inspect).
+   optimisation with a GP surrogate and expected improvement (§9.4 calls it
+   "the right default when each evaluation costs a 20-point rpm sweep", and
+   this project's evaluations do) · the cam-timing and NA-vs-boosted presets
+   (§9.7) · wiring a run into the job tray so it goes to a background thread
+   rather than blocking the UI thread.
 3. **Phase 24 — Learn layer.** Breadth, not depth: "why" text on every field,
    "Show me" sweeps, Concepts panel, tours, guardrails.
 4. **Phase 25 — Reporting, docs, release (v1.0).**

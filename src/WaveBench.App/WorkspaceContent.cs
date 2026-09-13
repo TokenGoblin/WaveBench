@@ -86,6 +86,22 @@ public static class WorkspaceContent
     public static void SelectBoostTab(ShellViewModel shell, ProjectSession session, BoostTab tab) =>
         BoostFor(shell, session).SelectedTab = tab;
 
+    /// <summary>
+    /// One Optimise workspace per session, so a run's archive, its front and
+    /// the design the user has selected survive the re-render every control
+    /// triggers — and so switching workspaces never loses a search, which
+    /// plan §8.3 requires.
+    /// </summary>
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ProjectSession, OptimiseWorkspace>
+        OptimiseWorkspaces = [];
+
+    public static OptimiseWorkspace OptimiseFor(ShellViewModel shell, ProjectSession session) =>
+        OptimiseWorkspaces.GetValue(session, s => new OptimiseWorkspace(s, shell.Preferences));
+
+    /// <summary>Drive the Optimise sub-tab without a mouse — used by the offscreen renderer.</summary>
+    public static void SelectOptimiseTab(ShellViewModel shell, ProjectSession session, OptimiseTab tab) =>
+        OptimiseFor(shell, session).SelectedTab = tab;
+
     public static void Render(Panel host, ShellViewModel shell, ProjectSession session)
     {
         host.Children.Clear();
@@ -116,6 +132,9 @@ public static class WorkspaceContent
                 break;
             case Workspace.Boost:
                 BoostContent.Render(host, shell, session, BoostFor(shell, session));
+                break;
+            case Workspace.Optimise:
+                OptimiseContent.Render(host, shell, session, OptimiseFor(shell, session));
                 break;
             default:
                 RenderPlaceholder(host, shell);

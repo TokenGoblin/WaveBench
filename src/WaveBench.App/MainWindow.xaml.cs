@@ -196,6 +196,20 @@ public partial class MainWindow : Window
         Refresh();
     }
 
+    /// <summary>
+    /// Navigate to one Optimise sub-tab without a mouse, optionally running a
+    /// search first so the Pareto and Archive tabs have something real on them.
+    /// </summary>
+    public void GoToOptimiseTab(OptimiseTab tab, Action<OptimiseWorkspace>? configure = null)
+    {
+        var optimise = WorkspaceContent.OptimiseFor(_shell, _session);
+        configure?.Invoke(optimise);
+
+        _shell.Navigate(Workspace.Optimise);
+        WorkspaceContent.SelectOptimiseTab(_shell, _session, tab);
+        Refresh();
+    }
+
     /// <summary>Navigate to one Sound sub-tab without a mouse.</summary>
     public void GoToSoundTab(SoundTab tab)
     {
