@@ -196,6 +196,82 @@ public sealed class DesignPoint
         return string.Join("|", parts);
     }
 
+    /// <summary>
+    /// Variables sitting on one of their own bounds.
+    ///
+    /// <b>A bound-limited optimum is a different claim from an interior
+    /// one.</b> When the search parks a variable against its limit, the answer
+    /// is "as far as you let me", not "here is the best value" — the real
+    /// optimum is somewhere outside the box, and the user needs to decide
+    /// whether the bound is a genuine constraint (the longest runner that
+    /// fits) or one they picked carelessly. Reporting the number alone hides
+    /// exactly that distinction, which is why plan §9.7 insists on showing the
+    /// geometry rather than the score.
+    /// </summary>
+    /// <param name="tolerance">
+    /// How close to a bound counts as on it, as a fraction of the range.
+    /// Discrete variables are judged on landing at the first or last choice
+    /// rather than on distance, since the grid decides how close they can get.
+    /// </param>
+    public IReadOnlyList<(OptimisationVariable Variable, bool AtMaximum)> AtBounds(double tolerance = 0.001)
+    {
+        var pinned = new List<(OptimisationVariable, bool)>();
+
+        for (var i = 0; i < _coordinates.Length; i++)
+        {
+            var variable = Space.Variables[i];
+            var value = variable.Denormalise(_coordinates[i]);
+
+            if (variable.Choices is { Count: > 1 } choices)
+            {
+                if (Math.Abs(value - choices[0]) < 1e-12)
+                {
+                    pinned.Add((variable, false));
+                }
+                else if (Math.Abs(value - choices[^1]) < 1e-12)
+                {
+                    pinned.Add((variable, true));
+                }
+
+                continue;
+            }
+
+            // Measured against the SNAPPED value, because a stepped variable
+            // cannot reach its bound exactly unless the step divides the range
+            // — and reporting "not quite at the bound" for a design the grid
+            // could not move any further would be pedantry rather than
+            // information.
+            var reach = Math.Max(variable.Step ?? 0.0, tolerance * variable.Span);
+            if (value - variable.Minimum <= reach)
+            {
+                pinned.Add((variable, false));
+            }
+            else if (variable.Maximum - value <= reach)
+            {
+                pinned.Add((variable, true));
+            }
+        }
+
+        return pinned;
+    }
+
+    /// <summary>The sentence a user needs when an answer leans on its bounds.</summary>
+    public string? BoundWarning()
+    {
+        var pinned = AtBounds();
+        if (pinned.Count == 0)
+        {
+            return null;
+        }
+
+        var parts = pinned.Select(p =>
+            $"{p.Variable.Name} at its {(p.AtMaximum ? "upper" : "lower")} bound of "
+            + $"{(p.AtMaximum ? p.Variable.Maximum : p.Variable.Minimum):G6}");
+
+        return $"This answer is bound-limited: {string.Join(", ", parts)}. The optimum is as far as the bounds "
+               + "allowed, not an interior best — widen them if they were a guess, or keep them if they are real.";
+    }
+
     /// <summary>Write this design into a document, in place.</summary>
     public void ApplyTo(EngineModelDocument document)
     {

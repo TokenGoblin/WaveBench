@@ -49,27 +49,27 @@ clause 1, both listed below.
    below (validation case 20).
 2. **Phase 22 — Optimisation. PARTIALLY BUILT; pick up here.**
    `WaveBench.Optimize` was an empty scaffold and now holds the problem
-   definition and two search algorithms, all tested. **Two of the four gate
-   clauses are already met** — clause 1 (converges on synthetic problems with
-   known optima) and clause 3 (the clearance constraint is never violated in a
-   returned design).
+   definition, three algorithms, the screening layer and the solver-backed
+   evaluator, all tested. **Three of the four gate clauses are met** — clause 1
+   (converges on synthetic problems with known optima), clause 2 (+1.7% area
+   under torque on a real FSAE intake case over a competent hand design, found
+   through the surrogate inner loop) and clause 3 (the clearance constraint is
+   never violated in a returned design). **Clause 4 is what remains**, and it
+   needs the Optimise workspace.
 
    *Done:* `DesignSpace`/`DesignPoint` (unit-cube search, discrete snapping,
-   cache key on the snapped design) · `ObjectiveSet` with the plan's §9.2
-   objectives · `ConstraintSet` with graded violations and
-   geometry-before-evaluation rejection · `OptimisationProblem` (lexicographic
-   feasibility) · Sobol and Latin-hypercube DOE · CMA-ES · NSGA-II ·
-   `EvaluationCache`.
+   cache key on the snapped design, bound-limited-answer reporting) ·
+   `ObjectiveSet` with the plan's §9.2 objectives · `ConstraintSet` with graded
+   violations and geometry-before-evaluation rejection · `OptimisationProblem`
+   (lexicographic feasibility) · Sobol and Latin-hypercube DOE · CMA-ES ·
+   NSGA-II · Morris screening and Sobol indices · `EvaluationCache` ·
+   `SweepEvaluator` (two fidelities, parallel across operating points).
 
-   *Still to build:* Morris screening and Sobol indices ("which three
-   variables actually matter") · Nelder–Mead and Powell local refinement ·
-   Bayesian optimisation with a GP surrogate and expected improvement ·
-   parallel evaluation · the design archive with checkpoint/resume · the
-   cam-timing and NA-vs-boosted presets (§9.7) · **the real solver-backed
-   evaluator**, which gate clause 2 needs (improve area-under-torque on an
-   FSAE case against the hand-designed baseline) · the Optimise workspace and
-   its Pareto/parallel-coordinates explorer, which gate clause 4 needs
-   (click-to-audition, click-to-inspect).
+   *Still to build:* Nelder–Mead and Powell local refinement · Bayesian
+   optimisation with a GP surrogate and expected improvement · the design
+   archive with checkpoint/resume · the cam-timing and NA-vs-boosted presets
+   (§9.7) · **the Optimise workspace** and its Pareto / parallel-coordinates
+   explorer, which gate clause 4 needs (click-to-audition, click-to-inspect).
 3. **Phase 24 — Learn layer.** Breadth, not depth: "why" text on every field,
    "Show me" sweeps, Concepts panel, tours, guardrails.
 4. **Phase 25 — Reporting, docs, release (v1.0).**
@@ -186,6 +186,23 @@ objective landscape inside the feasible region; one small enough not to is one
 the optimiser will happily pay. Both failures are avoided by not using a
 penalty at all. Measured: 30 runs against a constraint placed through the
 unconstrained optimum, 0 violations, 30 landing on the bound.
+
+**A SURROGATE MAY COARSEN THE MESH. IT MAY NOT DROP OPERATING POINTS.**
+Area-under-torque integrated over every second rpm is not a cheaper version of
+the objective — it is a DIFFERENT objective, so the surrogate optimises
+something the solve is not measuring. Measured on the FSAE intake case:
+halving the points dropped the surrogate's Spearman rank correlation against
+the solve to 0.68 and swapped two of seven designs, while coarsening the mesh
+from 1x to 2x moved the correlation by nothing at all. With the points held
+fixed, 2x coarsening ranks designs IDENTICALLY (Spearman 1.000) and is still
+3.3x faster. Cheapness belongs in how well each point is resolved, never in
+which points exist.
+
+LESSON: my own doc comment named this risk ("a narrower band is a different
+objective, not a cheaper one") and the implementation then guarded only the
+band's ENDS while thinning its interior. Writing the hazard down is not the
+same as defending against it — the test that measured the correlation is what
+caught it.
 
 **CMA-ES is rank-based, and that is load-bearing here.** It uses only the
 ORDER of the candidates, never the objective values, which is what makes the

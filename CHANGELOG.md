@@ -9,6 +9,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Phase 22, continued — screening, the solver-backed evaluator, and gate
+  clause 2.** Three of the four gate clauses are now met.
+  - **Morris screening and Sobol sensitivity indices** (§9.4: *"tell the user
+    which three variables actually matter before spending compute"*). Morris
+    ranks for about a fiftieth of the price; Sobol quantifies. Verified against
+    the Ishigami function, whose decomposition is exact: measured
+    S = 0.304 / 0.435 / 0.000 against 0.314 / 0.442 / 0.000, and
+    S_T = 0.545 / 0.442 / 0.242 against 0.558 / 0.442 / 0.244. Its third
+    variable is the trap the total index exists for — a first-order index of
+    exactly zero and a total of a quarter, because it matters only through its
+    interaction with the first. A screening on first-order effects alone would
+    have told a user to drop it.
+  - **Morris σ is named for what it measures, not for a cause it cannot
+    identify.** A large σ means the effect is not constant across the space,
+    which happens for interaction AND for plain nonlinearity — a parabola in
+    one variable produces a large σ with no interaction whatever. The flag is
+    `EffectVaries`, the explanation says Morris cannot tell the two apart, and
+    the variance decomposition is what settles it: measured interaction share
+    1.00 for a product term against 0.00 for a quadratic bowl, both of which
+    look identical to Morris.
+  - **`SweepEvaluator`** runs the real nonlinear solve at two fidelities,
+    parallel across operating points, reporting a failed solve as data rather
+    than throwing — a region the model cannot describe is something the search
+    needs told, and an exception would abort an overnight run over one bad
+    candidate.
+  - **A surrogate may coarsen the mesh; it may not drop operating points.**
+    The surrogate originally also halved the rpm points, which is not a cheaper
+    objective but a *different* one — the trapezium integral over every second
+    point is a different function of the design. Measured: that dropped the
+    surrogate's Spearman rank correlation against the solve to 0.68 and swapped
+    two of seven designs, while mesh coarsening from 1× to 2× moved the
+    correlation by nothing at all. With the points held fixed, 2× coarsening
+    ranks designs identically (Spearman 1.000) and is still 3.3× faster —
+    916 ms against 3601 ms per evaluation on the FSAE case.
+  - **Gate clause 2 met.** On a 600 cc four with a hand-designed 250 × 34 mm
+    intake, the optimiser returns 255 × 28 mm for **+1.72% area under torque**
+    over 6000–11 000 rpm — found in 40 surrogate evaluations (30 s) with the
+    verdict taken at full fidelity on the two designs that matter. The torque
+    curve shows the real trade rather than a scalar: +4.2 N·m at 6000 and
+    +5.7 at 7000, against −1.5 at 10 000 and −2.0 at 11 000.
+  - **A bound-limited answer says so.** `DesignPoint.BoundWarning()` reports
+    when the search parked a variable against its own limit — "as far as you
+    let me" is a different claim from "here is the best value", and the FSAE
+    result is exactly that case: the runner diameter sits on its lower bound.
+    Plan §9.7 asks for the geometry rather than the score, and this is the part
+    of the geometry a number hides.
+
 - **Phase 22, in progress — the optimisation core.** `WaveBench.Optimize` was
   an empty scaffold; it now holds the problem definition and the first two
   search algorithms, with the synthetic half of the phase gate demonstrated.

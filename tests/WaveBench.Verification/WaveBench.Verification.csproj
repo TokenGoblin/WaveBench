@@ -9,6 +9,7 @@
     <ProjectReference Include="..\..\src\WaveBench.Boost\WaveBench.Boost.csproj" />
     <ProjectReference Include="..\..\src\WaveBench.Model\WaveBench.Model.csproj" />
     <ProjectReference Include="..\..\src\WaveBench.Analysis\WaveBench.Analysis.csproj" />
+    <ProjectReference Include="..\..\src\WaveBench.Optimize\WaveBench.Optimize.csproj" />
     <!--
       For PngWriter only: the map-digitiser gate needs a synthetic map IMAGE, and
       writing a second PNG encoder here just to make one would leave two codecs to
