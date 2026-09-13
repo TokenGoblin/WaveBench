@@ -89,6 +89,73 @@ public static class Program
             return sensitivity.Warning ? 2 : 0;
         });
 
+        // ---- report (plan Phase 25, §8.4) --------------------------------
+        var reportOutOption = new Option<DirectoryInfo>("--out")
+        {
+            Description = "Directory to write report.html and report.pdf into",
+        };
+        reportOutOption.DefaultValueFactory = _ => new DirectoryInfo(".");
+
+        var skipMeshOption = new Option<bool>("--no-mesh")
+        {
+            Description = "Skip the mesh-sensitivity study (it costs three extra solves)",
+        };
+
+        var reportCommand = new Command(
+            "report",
+            "Generate the PDF/HTML design report (plan §8.4)")
+        {
+            modelArg, fromOption, toOption, stepOption, reportOutOption, skipMeshOption, parallelOption,
+        };
+
+        reportCommand.SetAction(parse =>
+        {
+            var document = LoadModel(parse.GetValue(modelArg)!);
+            var directory = parse.GetValue(reportOutOption)!;
+            directory.Create();
+
+            var rpms = new List<double>();
+            for (var rpm = parse.GetValue(fromOption); rpm <= parse.GetValue(toOption) + 1e-9;
+                 rpm += parse.GetValue(stepOption))
+            {
+                rpms.Add(rpm);
+            }
+
+            Console.WriteLine($"solving {rpms.Count} operating points...");
+            var points = OperatingPointRunner.Sweep(document, rpms, parse.GetValue(parallelOption));
+
+            var session = new WaveBench.Model.ProjectSession(document);
+            var builder = new WaveBench.ViewModels.Reporting.ReportBuilder(session)
+            {
+                Run = new WaveBench.ViewModels.RunResult { ModelName = document.Name, Points = points },
+            };
+
+            if (!parse.GetValue(skipMeshOption))
+            {
+                // Published by default rather than on request: plan §5.3 makes
+                // this the line between lab-grade and hobby-grade.
+                var at = rpms[rpms.Count / 2];
+                Console.WriteLine($"mesh-sensitivity study at {at:N0} rpm...");
+                builder.MeshStudy = OperatingPointRunner.MeshSensitivity(document, at);
+            }
+
+            var report = builder.Build();
+            var html = Path.Combine(directory.FullName, "report.html");
+            var pdf = Path.Combine(directory.FullName, "report.pdf");
+
+            File.WriteAllText(html, WaveBench.ViewModels.Reporting.HtmlReportWriter.Write(report));
+            File.WriteAllBytes(pdf, WaveBench.ViewModels.Reporting.PdfReportWriter.Write(report));
+
+            Console.WriteLine($"{report.Sections.Count} sections, {report.Figures.Count} figures, "
+                              + $"{report.Caveats.Count} caveats, {report.Claims.Count} sourced claims");
+            Console.WriteLine($"written: {html}");
+            Console.WriteLine($"written: {pdf}");
+
+            // A dominant caveat is not a failure, but it is worth an exit code
+            // a script can branch on before mailing the thing to a judge.
+            return report.Caveats.Any(c => c.Dominant) ? 3 : 0;
+        });
+
         var outOption = new Option<DirectoryInfo>("--out") { Description = "Directory for plots and the summary" };
         outOption.DefaultValueFactory = _ => new DirectoryInfo("validation");
         var validateCommand = new Command("validate", "Run the validation cases and write report artefacts")
@@ -403,7 +470,7 @@ public static class Program
 
         var root = new RootCommand("WaveBench headless engine gas-dynamics runner")
         {
-            runCommand, sweepCommand, meshCommand, validateCommand, infoCommand, renderCommand,
+            runCommand, sweepCommand, meshCommand, reportCommand, validateCommand, infoCommand, renderCommand,
         };
         return root.Parse(args).Invoke();
     }

@@ -70,6 +70,7 @@ public static class OffscreenRenderer
         CaptureBoost(outputDirectory);
         CaptureOptimise(outputDirectory);
         CaptureLearn(outputDirectory);
+        CaptureReport(outputDirectory);
     }
 
     /// <summary>
@@ -127,6 +128,31 @@ public static class OffscreenRenderer
         window.StartTour();
         Settle(window);
         Capture(window, Path.Combine(outputDirectory, "30-learn-tour.png"));
+
+        window.Close();
+    }
+
+    /// <summary>
+    /// The Phase 25 Report workspace: what the one click will produce, before
+    /// it is spent, and the contents of what it produced.
+    /// </summary>
+    private static void CaptureReport(string outputDirectory)
+    {
+        var window = new MainWindow
+        {
+            Width = 1360,
+            Height = 980,
+            WindowStartupLocation = WindowStartupLocation.Manual,
+            Left = -10_000,
+            Top = -10_000,
+            ShowInTaskbar = false,
+        };
+
+        window.Show();
+        Advanced(window);
+        window.GoTo(Workspace.Report);
+        Settle(window);
+        Capture(window, Path.Combine(outputDirectory, "31-report-preview.png"));
 
         window.Close();
     }

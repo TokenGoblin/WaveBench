@@ -4,6 +4,7 @@ using System.Windows.Controls;
 using System.Windows.Media;
 using WaveBench.Model;
 using WaveBench.ViewModels;
+using WaveBench.ViewModels.Reporting;
 
 namespace WaveBench.App;
 
@@ -112,6 +113,24 @@ public static class WorkspaceContent
     public static void SelectOptimiseTab(ShellViewModel shell, ProjectSession session, OptimiseTab tab) =>
         OptimiseFor(shell, session).SelectedTab = tab;
 
+    /// <summary>
+    /// One Report workspace per session, so a generation in progress and the
+    /// files it wrote survive the re-render every control triggers.
+    /// </summary>
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ProjectSession, ReportWorkspace>
+        ReportWorkspaces = [];
+
+    public static ReportWorkspace ReportFor(ShellViewModel shell, ProjectSession session)
+    {
+        var workspace = ReportWorkspaces.GetValue(session, s => new ReportWorkspace(s, shell.Preferences));
+
+        // A run completed since the last visit must reach the report, or it
+        // would describe the model and none of its results.
+        workspace.Run = LatestResults?.Run;
+        workspace.Sound = SoundFor(session);
+        return workspace;
+    }
+
     public static void Render(Panel host, ShellViewModel shell, ProjectSession session)
     {
         host.Children.Clear();
@@ -145,6 +164,9 @@ public static class WorkspaceContent
                 break;
             case Workspace.Optimise:
                 OptimiseContent.Render(host, shell, session, OptimiseFor(shell, session));
+                break;
+            case Workspace.Report:
+                ReportContent.Render(host, shell, session, ReportFor(shell, session));
                 break;
             default:
                 RenderPlaceholder(host, shell);

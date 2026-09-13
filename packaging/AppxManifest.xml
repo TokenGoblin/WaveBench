@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="utf-8"?>
+
+<!--
+  MSIX manifest for the WaveBench desktop app.
+
+  Publisher must match the subject of the certificate the package is signed
+  with, exactly, or Windows refuses to install it. The placeholder below is the
+  project's own publishing identity; Package.ps1 rewrites it from the
+  certificate when one is supplied, so the two cannot drift apart by hand.
+
+  No capabilities beyond runFullTrust are declared, and that is the point:
+  WaveBench makes no network calls at runtime, so it asks for no network
+  capability. A packaged application that declares internetClient "just in
+  case" has given away the one claim on the front of the README.
+-->
+<Package
+  xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+  xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+  IgnorableNamespaces="uap rescap">
+
+  <Identity
+    Name="TokenGoblin.WaveBench"
+    Publisher="CN=TokenGoblin"
+    Version="1.0.0.0"
+    ProcessorArchitecture="x64" />
+
+  <Properties>
+    <DisplayName>WaveBench</DisplayName>
+    <PublisherDisplayName>TokenGoblin</PublisherDisplayName>
+    <Description>1D engine gas-dynamics, acoustics and forced-induction design suite.</Description>
+    <Logo>assets\StoreLogo.png</Logo>
+  </Properties>
+
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.19041.0" MaxVersionTested="10.0.26100.0" />
+  </Dependencies>
+
+  <Resources>
+    <Resource Language="en-GB" />
+  </Resources>
+
+  <Applications>
+    <Application Id="WaveBench" Executable="WaveBench.App.exe" EntryPoint="Windows.FullTrustApplication">
+      <uap:VisualElements
+        DisplayName="WaveBench"
+        Description="1D engine gas-dynamics, acoustics and forced-induction design suite."
+        BackgroundColor="#101B2A"
+        Square150x150Logo="assets\Square150x150Logo.png"
+        Square44x44Logo="assets\Square44x44Logo.png">
+        <uap:DefaultTile
+          Wide310x150Logo="assets\Wide310x150Logo.png"
+          Square310x310Logo="assets\Square310x310Logo.png" />
+        <uap:SplashScreen Image="assets\SplashScreen.png" BackgroundColor="#101B2A" />
+      </uap:VisualElements>
+
+      <Extensions>
+        <!--
+          Model files open in WaveBench. The association is declared rather
+          than claimed at runtime, so uninstalling removes it cleanly.
+        -->
+        <uap:Extension Category="windows.fileTypeAssociation">
+          <uap:FileTypeAssociation Name="wavebenchmodel">
+            <uap:SupportedFileTypes>
+              <uap:FileType>.wavebench</uap:FileType>
+            </uap:SupportedFileTypes>
+            <uap:DisplayName>WaveBench engine model</uap:DisplayName>
+            <uap:Logo>assets\StoreLogo.png</uap:Logo>
+          </uap:FileTypeAssociation>
+        </uap:Extension>
+      </Extensions>
+    </Application>
+  </Applications>
+
+  <Capabilities>
+    <rescap:Capability Name="runFullTrust" />
+  </Capabilities>
+</Package>

@@ -8,8 +8,14 @@ hard acceptance gate (Part 12). Never let a session span two phases.
 
 ## START HERE — where the project stands
 
-**25 of 26 phases complete. 1016 tests green (608 unit + 408 verification), none
+**ALL 26 PHASES BUILT. 1035 tests green (627 unit + 408 verification), none
 skipped. CI green on main.**
+
+Two gate clauses remain open, both for stated reasons rather than oversight —
+Phase 11's psychoacoustic metrics and Phase 15's transient-spool validation.
+Both need reference data that cannot be redistributed, both are listed on the
+front page of the README, and both are restated in every generated report.
+**They are what stands between "built" and the v1.0 tag.**
 
 | Phase | State | Notes |
 |---|---|---|
@@ -24,12 +30,11 @@ skipped. CI green on main.**
 | 22 | done | Optimisation · CMA-ES, NSGA-II, Bayesian, screening, refiners, presets |
 | 23 | done | Simple mode and the wizard |
 | 24 | done | Learn layer and guardrails — "Show me", Concepts, tours, banner |
-| **25** | **NEXT** | Reporting, docs, packaging · **v1.0** |
+| 25 | done | Reporting, docs, MSIX packaging — docs/user-guide.md, docs/citations.md |
 
-**PHASE ORDER WAS USER-REORDERED.** See the note further down for why; the
-remaining phase (25) is back in plan order, so nothing is pending on
-the reordering except Phase 11's psychoacoustic metrics and Phase 15's gate
-clause 1, both listed below.
+**PHASE ORDER WAS USER-REORDERED.** See the note further down for why. Every
+phase is now built, so nothing is pending on the reordering except Phase 11's
+psychoacoustic metrics and Phase 15's gate clause 1, both listed below.
 
 ### What is left, in the order the user chose
 
@@ -48,20 +53,15 @@ clause 1, both listed below.
    no-carry-over control) is what CI actually checks in its place. Close this
    only if a suitable licensed dataset turns up — see the standing deferral
    below (validation case 20).
-2. **Phase 25 — Reporting, docs, release (v1.0). PICK UP HERE.** PDF/HTML
-   report generator covering performance, acoustics and boost; the complete
-   user guide; `docs/` finalised with the full citation list; a validation
-   gallery in the README; MSIX packaging; a signed release.
+2. **The v1.0 release itself. PICK UP HERE, and it needs the USER.** The
+   package builds (`pwsh packaging/Package.ps1 -Version 1.0.0.0`) but ships
+   UNSIGNED: signing needs a code-signing certificate and its private key,
+   which do not belong in a public repository. That is the owner's step, on a
+   machine that holds the certificate. Everything up to it is done and tested.
 
-   Raw material that already exists and should be reused rather than rebuilt:
-   `ResultsWorkspace.AllPlots()`, `BoostWorkspace.AllPlots()` and
-   `ShowMeStudy.AllPlots()` are what an export walks; `SvgPlotWriter` renders
-   any `PlotModel` to the same figure the screen shows; `BriefPdfTests` already
-   exercises a PDF path for the wizard's Design Brief; `Guardrails.All()`
-   produces the caveats section, each with a remedy; `ConceptLibrary` is the
-   user guide's conceptual half already written and cited. The gate asks that a
-   generated report be enough to defend a design decision — including a sound,
-   a compliance and a turbo-match decision — without any other document.
+   Decide with the user whether v1.0 tags with the two open gate clauses
+   documented (they are stated on the README's front page and in every report)
+   or waits on them.
 3. **Phase 11's four psychoacoustic metrics** — ISO 532-3, ECMA-418-2,
    fluctuation strength, DIN 45681. Deferred for a REASON, not skipped: each
    needs verification against published reference signals and none are
@@ -267,6 +267,40 @@ design exists to prevent. Series name COLOUR TOKENS, never colours.
 `ResultsWorkspace.AllPlots()` is what export-all and the report generator walk,
 so a new figure must be added there too.
 
+**A REPORT IS DATA TOO.** `ReportDocument` in WaveBench.ViewModels.Reporting
+describes the document; `HtmlReportWriter` and `PdfReportWriter` both render
+it. Same argument as `PlotModel` one level up: two renderers of a long document
+stay in agreement only if neither of them is the author. Add a section to
+`ReportBuilder`, never to a writer.
+
+A section with nothing behind it SAYS SO. A reader cannot tell "no acoustic
+problem" from "nobody ran the acoustics" unless the report tells them which,
+and this report exists to be handed to somebody who will not ask.
+
+**The PDF writer has no dependency and must keep it that way.** `PdfWriter` is
+base-14 fonts, a content stream and a cross-reference table; `PdfCanvas` adds
+paths, dashes and rotated text; `PdfPlotWriter` draws any `PlotModel` into it
+as real vector geometry. That is what lets the headless CLI produce the same
+document the app does — a report generator needing a desktop stack is one
+nobody runs from a build script the night before a submission. Heat maps are
+the one exclusion: half a million rectangles will not open, so they are listed
+with a note pointing at the SVG export.
+
+**`PdfWriter.Transliterate` is the document's TEXT CONTRACT.** WinAnsi cannot
+carry Ø, — or ⚠, so they are transliterated ("Ø" becomes "dia ", one character
+becoming four). Anything that MEASURES text for the PDF must transliterate
+first: the table columns were measured on the original strings and every row
+naming a diameter came out three characters wide, some wrapping out of being a
+table at all. Anything that READS a produced PDF has to apply the same mapping
+to what it is looking for.
+
+LESSON: there is no PDF rasteriser on this machine, so the report cannot be
+looked at as an image. Extracting the text back out of the generated PDF —
+`(text) Tj` with its placement matrix — and reading it in order is the
+substitute, and it is what found the table bug. Geometry can be checked
+numerically instead: every path point and text placement inside the MediaBox,
+and balanced q/Q per page.
+
 **Manifold canvas:** all behaviour is in `ManifoldWorkspace` (zero UI types);
 `ManifoldCanvas.cs` in the app only draws and forwards gestures. The canvas
 edits the graph as a VALUE - Draft() deep-copies, Commit() writes back through
@@ -379,6 +413,18 @@ file silently becomes `Â§ Ã— â†' â€"`. The source is full of them (pl
 references, units). Use the Edit tool, or `[IO.File]::ReadAllText/WriteAllText`
 with `New-Object Text.UTF8Encoding $false`. Same reason commit messages go
 via `git commit -F` with a UTF-8-no-BOM file.
+
+**Shipped PowerShell scripts must be ASCII.** Windows PowerShell 5.1 reads a
+UTF-8 file without a BOM as ANSI, so one em dash in a COMMENT is enough to make
+the whole script a parser error. A BOM would also work; ASCII is better,
+because a build script has no need for typography and a BOM is a surprise in a
+public repo.
+
+**A PowerShell pipeline that yields one item yields a SCALAR.** `$x = Get-...
+| Where-Object {...}` then `$x[0]` on a single string gives its first
+CHARACTER — which is how `Find-SdkTool` came to return "C" and fail with "the
+term 'C' is not recognized". Wrap the pipeline in `@()`. Found by running the
+script, not by reading it.
 
 **And do not diagnose mojibake from PowerShell's own output.** The console
 prints UTF-8 files through the ANSI codepage, so a perfectly good `§` shows

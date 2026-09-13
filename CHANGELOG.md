@@ -9,6 +9,84 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Phase 25 complete — reporting, documentation and packaging. v1.0.**
+  - **The report generator.** One document, two formats, and neither renderer
+    decides what it says: `ReportDocument` is data, and `HtmlReportWriter` and
+    `PdfReportWriter` both render it. The same argument `PlotModel` makes one
+    level down — two renderers of a long document stay in agreement only if
+    neither of them is the author.
+  - Contents are plan §8.4's own list: model dump with the ORIGIN of every
+    value, geometry, every figure, convergence and mesh-sensitivity evidence,
+    acoustics, boost matching, assumptions with citations, a validation
+    statement, and audio links. A section with nothing behind it says so — a
+    judge cannot tell "no acoustic problem" from "nobody ran the acoustics"
+    unless the report tells them which.
+  - **The PDF draws real vector figures.** `PdfWriter` was text-only; it now
+    has a `PdfCanvas` of paths, dashes, colours and rotated text, and
+    `PdfPlotWriter` renders any `PlotModel` into it. No dependency was added:
+    the writer is still base-14 fonts and a cross-reference table, which is
+    what lets the headless CLI produce the same document the app does.
+    Embedded bitmaps would print at screen resolution and could not be
+    searched or measured.
+  - Every series keeps its line style in the PDF, because a design-event
+    submission is usually read printed.
+  - **`wavebench report`** solves the sweep, runs the mesh study and writes
+    both files. It exits 3 when the model carries a dominant caveat, so a
+    build script can refuse to mail a report nobody has looked at.
+  - **The Report workspace** shows what the report will be able to say BEFORE
+    the button is pressed. A generation costs three extra solves, and
+    discovering afterwards that the acoustics section was going to be one
+    apologetic sentence is a minute wasted by a screen that failed to say so.
+  - **`docs/user-guide.md`** — the complete guide, opening with fifteen
+    minutes to a torque curve and a section on what the numbers are worth.
+    Measured: the documented quick start reaches a converged torque curve in
+    13 seconds of compute (5 s sweep, 8 s mesh study), against a fifteen-minute
+    gate.
+  - **`docs/citations.md`** — every correlation the code actually computes
+    with, its source and its validity range, gathered from the XML doc
+    comments that carry them.
+  - **README rewritten** with a validation gallery that states what is NOT
+    validated. A gallery of only the successes is advertising.
+  - **MSIX packaging** — `packaging/` carries the manifest, a build script and
+    a generated logo set. The mark is a damped pressure wave down a duct,
+    produced by a script so a new tile size is a dictionary entry rather than
+    an image somebody traces. The manifest declares `runFullTrust` and nothing
+    else: WaveBench makes no network calls at runtime, and a package that asks
+    for `internetClient` "just in case" has given away the first claim on the
+    front of the README.
+  - **Signing is the maintainer's step, not the repository's.** The script
+    signs when given a certificate and reads the publisher subject from it, so
+    the manifest and the certificate cannot disagree — the failure Windows
+    reports without saying which of the two is wrong. A code-signing key does
+    not belong in a public repository, so v1.0 ships here unsigned and is
+    signed at release.
+
+### Fixed
+
+- **The PDF's tables did not line up.** WinAnsi cannot carry Ø, so the writer
+  transliterates it to "dia " — one character becoming four — and the columns
+  were measured on the ORIGINAL text. Every row naming a diameter pushed its
+  later columns three characters right, and some grew long enough to wrap out
+  of being a table at all. Found by extracting the text back out of a generated
+  PDF and reading it, which is the closest thing to looking at it available
+  without a rasteriser.
+- `PdfWriter.Transliterate` is public now, because it is the document's text
+  contract: anything reading a produced PDF has to apply the same mapping to
+  what it is looking for, and two copies of that list would be two contracts.
+- **The packaging script found "C" instead of makeappx.** A PowerShell pipeline
+  yielding one item yields a scalar, and indexing `[0]` into a bare string
+  gives its first character. Caught by running the script rather than reading
+  it.
+- The packaging script parsed as broken PowerShell on Windows PowerShell 5.1,
+  which reads a UTF-8 file as ANSI: one em dash in a comment was enough. Build
+  scripts are ASCII-only now.
+- The Report workspace showed "Caveats: 5" beside a preview reading "10
+  caveats" — two true numbers that look like a contradiction. The first counts
+  what is wrong with the model, the second adds the tool's own standing limits,
+  and the labels now say which is which.
+
+### Added
+
 - **Phase 24 complete — the learn layer and the guardrails (§8.9, §8.10).**
   - **Why-text and a typical range on every editable field.** All 69 fields
     across the Design and Boost catalogues now carry a sentence saying what

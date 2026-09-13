@@ -52,3 +52,7 @@ validation/reference-audio/
 # OS
 Thumbs.db
 .DS_Store
+
+# MSIX packaging output (contains a published build; regenerate with packaging/Package.ps1)
+packaging/staging/
+packaging/out/

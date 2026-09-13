@@ -111,6 +111,38 @@ public sealed class PdfWriter
             $"BT /{Resource(rightFont)} {F(size)} Tf 1 0 0 1 {F(Margin + rightColumn)} {F(_y)} Tm ({Escape(right)}) Tj ET\n");
     }
 
+    /// <summary>
+    /// Reserve a box the width of the text column and draw vector graphics
+    /// into it. The canvas has its ORIGIN AT ITS BOTTOM-LEFT with y running
+    /// up, which is PDF's own convention — the text cursor runs the other way
+    /// because a document is read downwards, and converting once here is
+    /// better than every caller remembering which way it is.
+    /// </summary>
+    /// <param name="height">Height of the box in points.</param>
+    /// <param name="draw">Draws into the reserved box.</param>
+    public void Draw(double height, Action<PdfCanvas> draw)
+    {
+        ArgumentNullException.ThrowIfNull(draw);
+
+        // A figure is never split across a page break: half a chart is worse
+        // than a chart on the next page.
+        if (_y - height - Margin < 0 && height + Margin < PageHeight - Margin)
+        {
+            NewPage();
+        }
+
+        _y -= height;
+
+        // q/Q brackets the graphics state, so line width, dash and colour set
+        // by a figure cannot leak into the text that follows it.
+        _content.Append("q\n");
+        draw(new PdfCanvas(_content, Margin, _y, PageWidth - (2 * Margin), height));
+        _content.Append("Q\n");
+
+        _y -= 8;
+        BreakIfNeeded(0);
+    }
+
     /// <summary>Serialise the document.</summary>
     public byte[] Build()
     {
@@ -264,9 +296,21 @@ public sealed class PdfWriter
     /// and dashes, and every one of those is transliterated to ASCII below
     /// before it can matter.
     /// </summary>
-    private static byte[] Latin1(string text)
+    private static byte[] Latin1(string text) => Encoding.Latin1.GetBytes(Transliterate(text));
+
+    /// <summary>
+    /// The transliteration <see cref="Latin1"/> applies, on its own.
+    ///
+    /// Public because it is the document's TEXT CONTRACT, and anything that
+    /// reads a produced PDF — a test asserting a heading is present, a search
+    /// over the bytes — has to apply the same mapping to what it is looking
+    /// for. Two copies of this list would be two contracts.
+    /// </summary>
+    public static string Transliterate(string text)
     {
-        var mapped = text
+        ArgumentNullException.ThrowIfNull(text);
+
+        return text
             .Replace("●", "*", StringComparison.Ordinal)
             .Replace("○", ".", StringComparison.Ordinal)
             .Replace("↳", "->", StringComparison.Ordinal)
@@ -278,8 +322,6 @@ public sealed class PdfWriter
             .Replace("’", "'", StringComparison.Ordinal)
             .Replace("“", "\"", StringComparison.Ordinal)
             .Replace("”", "\"", StringComparison.Ordinal);
-
-        return Encoding.Latin1.GetBytes(mapped);
     }
 
     private static string F(double v) => v.ToString("0.##", CultureInfo.InvariantCulture);
